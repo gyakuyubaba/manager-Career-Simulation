@@ -6,7 +6,8 @@ import {
   Player, 
   TeamTactics, 
   NewsItem, 
-  YouthProspect 
+  YouthProspect,
+  Club
 } from './types/game';
 import { 
   createNewGameWorld, 
@@ -19,6 +20,7 @@ import {
 } from './engine/gameState';
 import { advanceOneDay, fastForwardUntil, applyMatchResultToWorld, simulatePendingAIFixturesForDate } from './engine/dateEngine';
 import { exerciseLoanBuyOption } from './engine/transferEngine';
+import { generatePreSeasonTourOptions, generatePreSeasonFixtures, createPreSeasonScheduleNews } from './engine/preSeasonEngine';
 import { HeaderNav } from './components/HeaderNav';
 import { BottomTabBar, MainTab } from './components/BottomTabBar';
 import { ManagerCreationModal } from './components/ManagerCreationModal';
@@ -120,25 +122,63 @@ export default function App() {
   const handleSelectPreSeason = (tournamentId: string) => {
     if (!gameState || !gameState.userClubId) return;
     const userClub = gameState.clubs[gameState.userClubId];
-    userClub.transferBudget += 2000000; // Registration prep bonus
+    if (!userClub) return;
+
+    const tourOptions = generatePreSeasonTourOptions(userClub, gameState.manager);
+    const chosenTour = tourOptions.find(t => t.id === tournamentId) || tourOptions[0];
+    const prizeBonus = chosenTour?.prizeMoney || 1500000;
+
+    // Generate fresh randomized opponents matching this selected tournament
+    const newPsFixtures = generatePreSeasonFixtures(
+      gameState.clubs,
+      userClub.id,
+      parseInt(gameState.season.split('/')[0], 10) || 2026,
+      gameState.manager,
+      tournamentId
+    );
+
+    // Replace upcoming pre-season fixtures in fixtures array with the new tournament fixtures
+    const otherFixtures = gameState.fixtures.filter(f => f.competition !== 'pre-season' || f.status === 'finished');
+    const updatedFixtures = [...newPsFixtures, ...otherFixtures].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Grant tournament preparation prize money bonus
+    const updatedClub: Club = {
+      ...userClub,
+      transferBudget: userClub.transferBudget + prizeBonus
+    };
+
+    const scheduleNews = createPreSeasonScheduleNews(
+      updatedClub,
+      newPsFixtures,
+      gameState.clubs,
+      gameState.currentDate
+    );
 
     const regNews: NewsItem = {
       id: `news_ps_reg_${Date.now()}`,
       date: gameState.currentDate,
-      headline: `【プレシーズン参加決定】${userClub.name}、国際サマーツアーへの参戦を正式発表！`,
-      body: `新シーズンへの調整と世界的なクラブブランド拡大を目指し、${userClub.name}がサマーツアーへの参加登録を完了しました。主力選手の連携向上とともに、新加入選手の適応に期待が集まります。`,
+      headline: `【サマーツアー参加決定】${userClub.name}、「${chosenTour?.name}」への参戦を正式発表！`,
+      body: `新シーズンへの調整と戦力強化を目指し、${userClub.name}が「${chosenTour?.name}」（賞金総額€${(prizeBonus / 1000000).toFixed(1)}M）への参加登録を完了しました。新戦力の試運転とチーム連携の深化に期待が集まります。`,
       category: 'tournament',
       relatedClubId: userClub.id,
       importance: 'high'
     };
 
-    setGameState({
+    const nextState: GameWorldState = {
       ...gameState,
+      clubs: {
+        ...gameState.clubs,
+        [userClub.id]: updatedClub
+      },
       selectedPreSeason: tournamentId,
-      news: [regNews, ...gameState.news]
-    });
+      fixtures: updatedFixtures,
+      news: [regNews, scheduleNews, ...gameState.news]
+    };
 
-    setDayAlertMessage('プレシーズン大会への参加登録が完了しました！賞金および調整試合が追加されます。');
+    saveGameState(nextState);
+    setGameState(nextState);
+
+    setDayAlertMessage(`「${chosenTour?.name}」への参加登録が完了しました！準備金€${(prizeBonus / 1000000).toFixed(1)}Mがクラブ予算に加算されました。`);
   };
 
   // Post match completion

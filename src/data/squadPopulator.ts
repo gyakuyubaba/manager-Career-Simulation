@@ -1,4 +1,4 @@
-import { Player, Position, Club, TeamTactics } from '../types/game';
+import { Player, Position, Club, TeamTactics, PlayStyle } from '../types/game';
 import { ALL_CLUBS, ALL_116_CLUBS, ENABLE_J_LEAGUE } from './clubsData';
 import { CURATED_REAL_SQUADS } from './squadsCatalog';
 import { ADDITIONAL_CLUB_SEEDS } from './allClubsSquads';
@@ -288,6 +288,113 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     });
   });
 
+  // 2c. Register authentic European backup goalkeepers to ensure top European clubs have at least 2-3 real GKs
+  const REAL_EUROPEAN_BACKUP_GKS: {
+    clubId: string;
+    name: string;
+    age: number;
+    nationality: string;
+    ovr: number;
+    playstyle: PlayStyle;
+  }[] = [
+    // Premier League
+    { clubId: 'arsenal', name: 'Neto', age: 35, nationality: 'ブラジル', ovr: 78, playstyle: 'ショットストッパー' },
+    { clubId: 'arsenal', name: 'Tommy Setford', age: 18, nationality: 'イングランド', ovr: 66, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'man_city', name: 'Stefan Ortega', age: 31, nationality: 'ドイツ', ovr: 79, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'man_city', name: 'Scott Carson', age: 38, nationality: 'イングランド', ovr: 65, playstyle: 'ショットストッパー' },
+    { clubId: 'liverpool', name: 'Caoimhín Kelleher', age: 25, nationality: 'アイルランド', ovr: 79, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'liverpool', name: 'Vítězslav Jaroš', age: 23, nationality: 'チェコ', ovr: 70, playstyle: 'ショットストッパー' },
+    { clubId: 'aston_villa', name: 'Robin Olsen', age: 34, nationality: 'スウェーデン', ovr: 74, playstyle: 'ショットストッパー' },
+    { clubId: 'aston_villa', name: 'Joe Gauci', age: 24, nationality: 'オーストラリア', ovr: 69, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'tottenham', name: 'Fraser Forster', age: 36, nationality: 'イングランド', ovr: 74, playstyle: 'ショットストッパー' },
+    { clubId: 'tottenham', name: 'Brandon Austin', age: 25, nationality: 'イングランド', ovr: 66, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'chelsea', name: 'Filip Jørgensen', age: 22, nationality: 'デンマーク', ovr: 75, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'chelsea', name: 'Marcus Bettinelli', age: 32, nationality: 'イングランド', ovr: 69, playstyle: 'ショットストッパー' },
+    { clubId: 'newcastle', name: 'Martin Dúbravka', age: 35, nationality: 'スロバキア', ovr: 78, playstyle: 'ショットストッパー' },
+    { clubId: 'newcastle', name: 'Odysseas Vlachodimos', age: 30, nationality: 'ギリシャ', ovr: 76, playstyle: 'ショットストッパー' },
+    { clubId: 'man_united', name: 'Altay Bayındır', age: 26, nationality: 'トルコ', ovr: 76, playstyle: 'ショットストッパー' },
+    { clubId: 'man_united', name: 'Tom Heaton', age: 38, nationality: 'イングランド', ovr: 70, playstyle: 'ショットストッパー' },
+    { clubId: 'west_ham', name: 'Łukasz Fabiański', age: 39, nationality: 'ポーランド', ovr: 76, playstyle: 'ショットストッパー' },
+    { clubId: 'west_ham', name: 'Wes Foderingham', age: 33, nationality: 'イングランド', ovr: 71, playstyle: 'ショットストッパー' },
+    { clubId: 'brighton', name: 'Jason Steele', age: 33, nationality: 'イングランド', ovr: 74, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'brighton', name: 'Carl Rushworth', age: 23, nationality: 'イングランド', ovr: 70, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'bournemouth', name: 'Mark Travers', age: 25, nationality: 'アイルランド', ovr: 73, playstyle: 'ショットストッパー' },
+    { clubId: 'everton', name: 'João Virgínia', age: 24, nationality: 'ポルトガル', ovr: 72, playstyle: 'ショットストッパー' },
+    { clubId: 'fulham', name: 'Steven Benda', age: 25, nationality: 'ドイツ', ovr: 71, playstyle: 'ショットストッパー' },
+    { clubId: 'brentford', name: 'Hákon Valdimarsson', age: 22, nationality: 'アイスランド', ovr: 72, playstyle: 'ショットストッパー' },
+    { clubId: 'crystal_palace', name: 'Matt Turner', age: 30, nationality: 'アメリカ', ovr: 74, playstyle: 'ショットストッパー' },
+    { clubId: 'wolves', name: 'Dan Bentley', age: 31, nationality: 'イングランド', ovr: 73, playstyle: 'ショットストッパー' },
+    { clubId: 'leicester', name: 'Danny Ward', age: 31, nationality: 'ウェールズ', ovr: 73, playstyle: 'ショットストッパー' },
+    { clubId: 'nottingham_forest', name: 'Carlos Miguel', age: 25, nationality: 'ブラジル', ovr: 74, playstyle: 'ショットストッパー' },
+    { clubId: 'southampton', name: 'Alex McCarthy', age: 34, nationality: 'イングランド', ovr: 72, playstyle: 'ショットストッパー' },
+    { clubId: 'ipswich', name: 'Christian Walton', age: 28, nationality: 'イングランド', ovr: 71, playstyle: 'ショットストッパー' },
+    // La Liga
+    { clubId: 'real_madrid', name: 'Andriy Lunin', age: 25, nationality: 'ウクライナ', ovr: 82, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'real_madrid', name: 'Fran González', age: 19, nationality: 'スペイン', ovr: 67, playstyle: 'ショットストッパー' },
+    { clubId: 'barcelona', name: 'Wojciech Szczęsny', age: 34, nationality: 'ポーランド', ovr: 80, playstyle: 'ショットストッパー' },
+    { clubId: 'barcelona', name: 'Iñaki Peña', age: 25, nationality: 'スペイン', ovr: 76, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'atletico_madrid', name: 'Juan Musso', age: 30, nationality: 'アルゼンチン', ovr: 79, playstyle: 'ショットストッパー' },
+    { clubId: 'athletic_club', name: 'Julen Agirrezabala', age: 23, nationality: 'スペイン', ovr: 77, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'real_sociedad', name: 'Unai Marrero', age: 22, nationality: 'スペイン', ovr: 72, playstyle: 'ショットストッパー' },
+    { clubId: 'betis', name: 'Adrián', age: 37, nationality: 'スペイン', ovr: 72, playstyle: 'ショットストッパー' },
+    { clubId: 'villarreal', name: 'Luiz Júnior', age: 23, nationality: 'ブラジル', ovr: 76, playstyle: 'ショットストッパー' },
+    { clubId: 'valencia', name: 'Giorgi Mamardashvili', age: 24, nationality: 'ジョージア', ovr: 84, playstyle: 'ショットストッパー' },
+    { clubId: 'valencia', name: 'Stole Dimitrievski', age: 30, nationality: '北マケドニア', ovr: 78, playstyle: 'ショットストッパー' },
+    { clubId: 'sevilla', name: 'Álvaro Fernández', age: 26, nationality: 'スペイン', ovr: 74, playstyle: 'ショットストッパー' },
+    { clubId: 'girona', name: 'Pau López', age: 29, nationality: 'スペイン', ovr: 77, playstyle: 'ショットストッパー' },
+    // Bundesliga
+    { clubId: 'bayern', name: 'Sven Ulreich', age: 35, nationality: 'ドイツ', ovr: 74, playstyle: 'ショットストッパー' },
+    { clubId: 'bayern', name: 'Daniel Peretz', age: 24, nationality: 'イスラエル', ovr: 71, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'leverkusen', name: 'Matěj Kovář', age: 24, nationality: 'チェコ', ovr: 76, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'leverkusen', name: 'Niklas Lomb', age: 30, nationality: 'ドイツ', ovr: 68, playstyle: 'ショットストッパー' },
+    { clubId: 'dortmund', name: 'Alexander Meyer', age: 33, nationality: 'ドイツ', ovr: 75, playstyle: 'ショットストッパー' },
+    { clubId: 'dortmund', name: 'Marcel Lotka', age: 23, nationality: 'ポーランド', ovr: 68, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'rb_leipzig', name: 'Maarten Vandevoordt', age: 22, nationality: 'ベルギー', ovr: 76, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'frankfurt', name: 'Kaua Santos', age: 21, nationality: 'ブラジル', ovr: 73, playstyle: 'ショットストッパー' },
+    { clubId: 'stuttgart', name: 'Fabian Bredlow', age: 29, nationality: 'ドイツ', ovr: 72, playstyle: 'ショットストッパー' },
+    // Serie A
+    { clubId: 'inter', name: 'Josep Martínez', age: 26, nationality: 'スペイン', ovr: 78, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'inter', name: 'Raffaele Di Gennaro', age: 30, nationality: 'イタリア', ovr: 68, playstyle: 'ショットストッパー' },
+    { clubId: 'milan', name: 'Marco Sportiello', age: 32, nationality: 'イタリア', ovr: 75, playstyle: 'ショットストッパー' },
+    { clubId: 'milan', name: 'Lorenzo Torriani', age: 19, nationality: 'イタリア', ovr: 67, playstyle: 'ショットストッパー' },
+    { clubId: 'juventus', name: 'Mattia Perin', age: 31, nationality: 'イタリア', ovr: 79, playstyle: 'ショットストッパー' },
+    { clubId: 'juventus', name: 'Carlo Pinsoglio', age: 34, nationality: 'イタリア', ovr: 71, playstyle: 'ショットストッパー' },
+    { clubId: 'napoli', name: 'Elia Caprile', age: 23, nationality: 'イタリア', ovr: 75, playstyle: 'ショットストッパー' },
+    { clubId: 'napoli', name: 'Nikita Contini', age: 28, nationality: 'イタリア', ovr: 68, playstyle: 'ショットストッパー' },
+    { clubId: 'atalanta', name: 'Rui Patrício', age: 36, nationality: 'ポルトガル', ovr: 76, playstyle: 'ショットストッパー' },
+    { clubId: 'roma', name: 'Mathew Ryan', age: 32, nationality: 'オーストラリア', ovr: 75, playstyle: 'ショットストッパー' },
+    { clubId: 'lazio', name: 'Christos Mandas', age: 22, nationality: 'ギリシャ', ovr: 75, playstyle: 'ショットストッパー' },
+    // Ligue 1
+    { clubId: 'psg', name: 'Matvey Safonov', age: 25, nationality: 'ロシア', ovr: 79, playstyle: 'ショットストッパー' },
+    { clubId: 'psg', name: 'Arnau Tenas', age: 23, nationality: 'スペイン', ovr: 74, playstyle: 'ビルドアップ型GK' },
+    { clubId: 'monaco', name: 'Philipp Köhn', age: 26, nationality: 'スイス', ovr: 75, playstyle: 'ショットストッパー' },
+    { clubId: 'marseille', name: 'Jeffrey de Lange', age: 26, nationality: 'オランダ', ovr: 73, playstyle: 'ショットストッパー' },
+    { clubId: 'lyon', name: 'Rémy Descamps', age: 28, nationality: 'フランス', ovr: 72, playstyle: 'ショットストッパー' },
+    { clubId: 'lille', name: 'Vito Mannone', age: 36, nationality: 'イタリア', ovr: 71, playstyle: 'ショットストッパー' }
+  ];
+
+  REAL_EUROPEAN_BACKUP_GKS.forEach((g, idx) => {
+    const pId = `${g.clubId}_gk_backup_${idx + 1}_${g.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)}`;
+    const tierMultiplier = g.ovr >= 80 ? 25000000 : g.ovr >= 75 ? 10000000 : 3500000;
+    const wageMultiplier = g.ovr >= 80 ? 90000 : g.ovr >= 75 ? 35000 : 15000;
+    const player = makeRealPlayer(
+      pId,
+      g.name,
+      g.clubId,
+      'GK',
+      g.age,
+      g.nationality,
+      g.ovr,
+      Math.max(g.ovr, g.age <= 22 ? g.ovr + 5 : g.ovr + 1),
+      tierMultiplier,
+      wageMultiplier,
+      idx % 2 === 0 ? 12 : 13,
+      '右',
+      g.playstyle
+    );
+    addPlayerIfUnique(player);
+  });
+
   // 3. First load all authentic J-League players (J1 and J2 authentic rosters)
   let baseRegistry = registry;
   if (ENABLE_J_LEAGUE) {
@@ -295,6 +402,7 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   }
 
   // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs) have at least 25 players across positions
+  // AND CRITICAL REQUIREMENT: 全チーム最低2人以上（スタメン・ベンチ・ベンチ外用の3人体制推奨）のGKを必ず確保
   const allClubsToEnsure: Club[] = [
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
@@ -306,69 +414,175 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   allClubsToEnsure.forEach(c => uniqueClubsMap.set(c.id, c));
   const uniqueClubs = Array.from(uniqueClubsMap.values());
 
+  // Track globally used player names to guarantee 100% collision-free uniqueness
+  const usedGlobalNames = new Set<string>();
+  Object.values(baseRegistry).forEach(p => {
+    const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') || p.name.trim().toLowerCase();
+    if (norm) usedGlobalNames.add(norm);
+  });
+
+  const MIDDLE_INITIALS = ['A.', 'B.', 'C.', 'D.', 'E.', 'F.', 'G.', 'H.', 'J.', 'K.', 'L.', 'M.', 'N.', 'P.', 'R.', 'S.', 'T.', 'V.', 'W.'];
+
   uniqueClubs.forEach((club, clubIdx) => {
-    const existing = Object.values(baseRegistry).filter(p => p.clubId === club.id);
-    const needed = Math.max(0, 25 - existing.length);
+    let existing = Object.values(baseRegistry).filter(p => p.clubId === club.id);
+    const isJapan = club.country === '日本';
+    const depthData = DEPTH_NAMES_BY_COUNTRY[club.country] || DEPTH_NAMES_BY_COUNTRY['イングランド'];
+    const tierBaseOvr = isJapan
+      ? (club.league === 'j1-league' ? 73 : 69)
+      : (club.tier === 'Elite' ? 80 : club.tier === 'Upper' ? 76 : club.tier === 'Mid' ? 72 : 68);
 
-    if (needed > 0) {
-      const isJapan = club.country === '日本';
-      const depthData = DEPTH_NAMES_BY_COUNTRY[club.country] || DEPTH_NAMES_BY_COUNTRY['イングランド'];
-      const tierBaseOvr = isJapan
-        ? (club.league === 'j1-league' ? 73 : 69)
-        : (club.tier === 'Elite' ? 80 : club.tier === 'Upper' ? 76 : club.tier === 'Mid' ? 72 : 68);
+    // =========================================================================
+    // STEP A: Ensure every club has AT LEAST 2 to 3 GKs (スタメン・ベンチ・ベンチ外)
+    // =========================================================================
+    const existingGks = existing.filter(p => p.position === 'GK');
+    const neededGks = Math.max(0, 3 - existingGks.length); // Strict minimum 3 GKs for Starter, Bench, Reserve
 
-      for (let i = 0; i < needed; i++) {
-        const pos = SQUAD_POSITIONS_TEMPLATE[(existing.length + i) % SQUAD_POSITIONS_TEMPLATE.length];
-        
-        // Generate authentic full name (Surname First for Japanese players)
-        const fName = depthData.firstNames[(clubIdx * 5 + i * 2) % depthData.firstNames.length];
-        const lName = depthData.lastNames[(clubIdx * 7 + i * 3) % depthData.lastNames.length];
-        const uniqueFullName = isJapan ? `${lName} ${fName}` : `${fName} ${lName}`;
-        const pId = `p_${club.id}_depth_${existing.length + i + 1}`;
+    for (let gIdx = 0; gIdx < neededGks; gIdx++) {
+      const gkOrder = existingGks.length + gIdx + 1; // 1st, 2nd, or 3rd GK
+      const pId = `p_${club.id}_gk_${gkOrder}_${Date.now()}_${gIdx}`;
+      
+      // Determine realistic age and OVR for backup/reserve GK
+      let age = gkOrder === 2 ? (23 + ((clubIdx + gIdx) % 8)) : (19 + ((clubIdx + gIdx) % 4));
+      let ovr = gkOrder === 1
+        ? Math.max(68, tierBaseOvr)
+        : gkOrder === 2
+          ? Math.max(65, tierBaseOvr - 3 - (gIdx % 2)) // Bench GK: good backup
+          : Math.max(60, tierBaseOvr - 8 - (gIdx % 3)); // 3rd GK: young prospect or veteran
+      
+      const potential = age <= 22 ? Math.min(90, ovr + 7) : ovr;
 
-        // Distribute age across the 6 specified brackets (16-19, 20-23, 24-28, 29-32, 33-36, 37+)
-        const age = SPEC_AGE_DISTRIBUTION[(clubIdx * 4 + i) % SPEC_AGE_DISTRIBUTION.length];
-        
-        // Realistic OVR based on age and club tier
-        let ovrModifier = (i % 3) - 1;
-        if (age <= 19) ovrModifier -= 4; // Young prospects have raw OVR but high potential
-        else if (age <= 22) ovrModifier -= 1;
-        else if (age >= 34) ovrModifier -= 1;
-
-        const ovr = Math.max(62, Math.min(84, tierBaseOvr + ovrModifier));
-        
-        // Potential calculation based on age
-        const potential = age <= 19 
-          ? Math.min(94, ovr + 8 + (i % 6))
-          : age <= 23 
-            ? Math.min(91, ovr + 4 + (i % 4))
-            : age <= 28 
-              ? Math.max(ovr, ovr + (i % 2))
-              : ovr;
-
-        const player = makeRealPlayer(
-          pId,
-          uniqueFullName,
-          club.id,
-          pos,
-          age,
-          club.country,
-          ovr,
-          potential,
-          isJapan
-            ? (club.league === 'j1-league' ? 800000 : 450000)
-            : (club.tier === 'Elite' ? 16000000 : club.tier === 'Upper' ? 8000000 : 2500000),
-          isJapan
-            ? (club.league === 'j1-league' ? 14000 : 9000)
-            : (club.tier === 'Elite' ? 55000 : club.tier === 'Upper' ? 30000 : 12000),
-          26 + ((i * 3) % 65),
-          i % 3 === 0 ? '左' : '右',
-          pos === 'GK' ? 'ショットストッパー' : pos === 'CB' ? 'ボール運べるCB' : 'チャンスメイカー'
-        );
-
-        if (!baseRegistry[player.id]) {
-          baseRegistry[player.id] = player;
+      // Unique name generation
+      let uniqueFullName = '';
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const fIdx = (clubIdx * 7 + gIdx * 11 + attempt * 3) % depthData.firstNames.length;
+        const lIdx = (clubIdx * 13 + gIdx * 17 + attempt * 5) % depthData.lastNames.length;
+        const fName = depthData.firstNames[fIdx];
+        const lName = depthData.lastNames[lIdx];
+        const mid = MIDDLE_INITIALS[(clubIdx + gIdx + attempt) % MIDDLE_INITIALS.length];
+        const candidate = isJapan 
+          ? (attempt === 0 ? `${lName} ${fName}` : `${lName} ${fName}${attempt > 1 ? attempt : ''}`)
+          : (attempt === 0 ? `${fName} ${lName}` : `${fName} ${mid} ${lName}`);
+        const norm = candidate.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+        if (!usedGlobalNames.has(norm)) {
+          uniqueFullName = candidate;
+          usedGlobalNames.add(norm);
+          break;
         }
+      }
+      if (!uniqueFullName) {
+        uniqueFullName = isJapan ? `GK 守備${club.shortName || clubIdx}${gkOrder}` : `${club.shortName || 'Club'} Keeper ${gkOrder}`;
+      }
+
+      const gkPlayer = makeRealPlayer(
+        pId,
+        uniqueFullName,
+        club.id,
+        'GK',
+        age,
+        club.country,
+        ovr,
+        potential,
+        isJapan
+          ? (club.league === 'j1-league' ? 700000 : 400000)
+          : (club.tier === 'Elite' ? 12000000 : club.tier === 'Upper' ? 6000000 : 2000000),
+        isJapan
+          ? (club.league === 'j1-league' ? 12000 : 8000)
+          : (club.tier === 'Elite' ? 45000 : club.tier === 'Upper' ? 24000 : 10000),
+        gkOrder === 1 ? 1 : gkOrder === 2 ? 12 : 23,
+        '右',
+        gkOrder === 2 ? 'ショットストッパー' : '守備的GK'
+      );
+
+      // Fine-tune GK stats
+      gkPlayer.gk = ovr;
+      gkPlayer.defending = Math.max(30, Math.floor(ovr * 0.45));
+      gkPlayer.physical = Math.max(50, ovr - 6);
+      gkPlayer.passing = Math.max(50, ovr - 10);
+      gkPlayer.pace = Math.max(45, ovr - 15);
+
+      baseRegistry[gkPlayer.id] = gkPlayer;
+    }
+
+    // Refresh existing players list for this club after adding GKs
+    existing = Object.values(baseRegistry).filter(p => p.clubId === club.id);
+    const neededOutfield = Math.max(0, 25 - existing.length);
+
+    // =========================================================================
+    // STEP B: Ensure outfield depth so total squad size is at least 25
+    // =========================================================================
+    const OUTFIELD_TEMPLATE: Position[] = [
+      'CB', 'CB', 'CB', 'CB',
+      'LB', 'LB', 'RB', 'RB',
+      'CDM', 'CDM', 'CM', 'CM', 'CAM',
+      'LM', 'RM', 'LW', 'RW',
+      'ST', 'ST', 'CF', 'ST', 'CAM'
+    ];
+
+    for (let i = 0; i < neededOutfield; i++) {
+      const pos = OUTFIELD_TEMPLATE[i % OUTFIELD_TEMPLATE.length];
+      const pId = `p_${club.id}_depth_${existing.length + i + 1}`;
+
+      // Distribute age across the 6 specified brackets
+      const age = SPEC_AGE_DISTRIBUTION[(clubIdx * 4 + i) % SPEC_AGE_DISTRIBUTION.length];
+      
+      let ovrModifier = (i % 3) - 1;
+      if (age <= 19) ovrModifier -= 4;
+      else if (age <= 22) ovrModifier -= 1;
+      else if (age >= 34) ovrModifier -= 1;
+
+      const ovr = Math.max(62, Math.min(84, tierBaseOvr + ovrModifier));
+      const potential = age <= 19 
+        ? Math.min(94, ovr + 8 + (i % 6))
+        : age <= 23 
+          ? Math.min(91, ovr + 4 + (i % 4))
+          : age <= 28 
+            ? Math.max(ovr, ovr + (i % 2))
+            : ovr;
+
+      // Unique name generation
+      let uniqueFullName = '';
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const fIdx = (clubIdx * 5 + i * 2 + attempt * 3) % depthData.firstNames.length;
+        const lIdx = (clubIdx * 7 + i * 3 + attempt * 5) % depthData.lastNames.length;
+        const fName = depthData.firstNames[fIdx];
+        const lName = depthData.lastNames[lIdx];
+        const mid = MIDDLE_INITIALS[(clubIdx * 2 + i + attempt) % MIDDLE_INITIALS.length];
+        const candidate = isJapan 
+          ? (attempt === 0 ? `${lName} ${fName}` : `${lName} ${fName}${attempt > 1 ? attempt : ''}`)
+          : (attempt === 0 ? `${fName} ${lName}` : `${fName} ${mid} ${lName}`);
+        const norm = candidate.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+        if (!usedGlobalNames.has(norm)) {
+          uniqueFullName = candidate;
+          usedGlobalNames.add(norm);
+          break;
+        }
+      }
+      if (!uniqueFullName) {
+        uniqueFullName = isJapan ? `${club.shortName || '選手'}${i + 1}` : `${club.shortName || 'Player'} ${i + 1}`;
+      }
+
+      const player = makeRealPlayer(
+        pId,
+        uniqueFullName,
+        club.id,
+        pos,
+        age,
+        club.country,
+        ovr,
+        potential,
+        isJapan
+          ? (club.league === 'j1-league' ? 800000 : 450000)
+          : (club.tier === 'Elite' ? 16000000 : club.tier === 'Upper' ? 8000000 : 2500000),
+        isJapan
+          ? (club.league === 'j1-league' ? 14000 : 9000)
+          : (club.tier === 'Elite' ? 55000 : club.tier === 'Upper' ? 30000 : 12000),
+        26 + ((i * 3) % 65),
+        i % 3 === 0 ? '左' : '右',
+        pos === 'CB' ? 'ボール運べるCB' : 'チャンスメイカー'
+      );
+
+      if (!baseRegistry[player.id]) {
+        baseRegistry[player.id] = player;
       }
     }
   });
@@ -397,20 +611,35 @@ export function populateClubsWithDefaultSquads(
   });
 
   // Update squad status defaults for each club
+  // CRITICAL: Ensure 1 GK in STARTING, 1 GK on BENCH, and reserve GKs in OUT_OF_SQUAD (スタメン・ベンチ・ベンチ外)
   Object.values(cleanClubs).forEach(club => {
     const clubPlayers = club.playerIds.map(id => cleanPlayers[id]).filter(Boolean);
-    clubPlayers.sort((a, b) => b.ovr - a.ovr);
+    const clubGks = clubPlayers.filter(p => p.position === 'GK').sort((a, b) => b.ovr - a.ovr);
+    const clubOutfield = clubPlayers.filter(p => p.position !== 'GK').sort((a, b) => b.ovr - a.ovr);
 
-    clubPlayers.forEach((p, idx) => {
-      if (idx < 11) {
+    // 1st GK is STARTING (スタメン)
+    if (clubGks[0]) clubGks[0].squadStatus = 'STARTING';
+    // 2nd GK is BENCH (ベンチ)
+    if (clubGks[1]) clubGks[1].squadStatus = 'BENCH';
+    // 3rd+ GKs are OUT_OF_SQUAD (ベンチ外・リザーブ)
+    for (let i = 2; i < clubGks.length; i++) {
+      clubGks[i].squadStatus = 'OUT_OF_SQUAD';
+    }
+
+    // Top 10 outfield are STARTING
+    clubOutfield.forEach((p, idx) => {
+      if (idx < 10) {
         p.squadStatus = 'STARTING';
-      } else if (idx < 20) {
-        // Up to 9 bench players
+      } else if (idx < 18) {
+        // Up to 8 outfield players on bench (giving 1 GK + 8 outfield = 9 bench players)
         p.squadStatus = 'BENCH';
       } else {
         p.squadStatus = 'OUT_OF_SQUAD';
       }
     });
+
+    // Populate full default tactics with strict GK in slot 0, bench GK, and reserves
+    club.tactics = getDefaultTacticsForClub(club, cleanPlayers);
   });
 
   return { clubs: cleanClubs, players: cleanPlayers };
@@ -422,31 +651,39 @@ export function getDefaultTacticsForClub(club: Club, players: Record<string, Pla
   // Sort players by OVR descending
   const sorted = [...clubPlayers].sort((a, b) => b.ovr - a.ovr);
   
-  // Pick GK
-  const gk = sorted.find(p => p.position === 'GK') || sorted[0];
-  const outfield = sorted.filter(p => p.id !== gk?.id);
+  // CRITICAL REQUIREMENT: Complete separation of GK and Outfield players
+  // GKs must NEVER be assigned to outfield positions (CB, LB, RB, etc.)
+  const gks = sorted.filter(p => p.position === 'GK');
+  const outfield = sorted.filter(p => p.position !== 'GK');
 
-  // Position slots
+  // Starter GK: highest OVR GK
+  const starterGk = gks[0] || sorted[0];
+  // Bench GK: 2nd highest OVR GK (guaranteed backup GK on bench)
+  const benchGk = gks.find(p => p.id !== starterGk?.id);
+  // Reserve GKs: 3rd+ GK (reserves / out of squad)
+  const reserveGks = gks.filter(p => p.id !== starterGk?.id && p.id !== benchGk?.id);
+
+  // Position slots for outfield ONLY
   const defs = outfield.filter(p => ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position));
   const mids = outfield.filter(p => ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(p.position));
   const fwds = outfield.filter(p => ['ST', 'CF', 'LW', 'RW'].includes(p.position));
 
-  // Pick starters with preferred positions
+  // Pick starters with preferred positions (STRICTLY FROM OUTFIELD!)
   const rb = defs.find(p => p.position === 'RB' || p.position === 'RWB') || defs[0] || outfield[0];
-  const cb1 = defs.find(p => p.position === 'CB' && p.id !== rb?.id) || defs[1] || outfield[1];
-  const cb2 = defs.find(p => p.position === 'CB' && p.id !== rb?.id && p.id !== cb1?.id) || defs[2] || outfield[2];
-  const lb = defs.find(p => (p.position === 'LB' || p.position === 'LWB') && p.id !== rb?.id && p.id !== cb1?.id && p.id !== cb2?.id) || defs[3] || outfield[3];
+  const cb1 = defs.find(p => p.position === 'CB' && p.id !== rb?.id) || defs.find(p => p.id !== rb?.id) || outfield.find(p => p.id !== rb?.id);
+  const cb2 = defs.find(p => p.position === 'CB' && p.id !== rb?.id && p.id !== cb1?.id) || defs.find(p => p.id !== rb?.id && p.id !== cb1?.id) || outfield.find(p => p.id !== rb?.id && p.id !== cb1?.id);
+  const lb = defs.find(p => (p.position === 'LB' || p.position === 'LWB') && p.id !== rb?.id && p.id !== cb1?.id && p.id !== cb2?.id) || defs.find(p => p.id !== rb?.id && p.id !== cb1?.id && p.id !== cb2?.id) || outfield.find(p => p.id !== rb?.id && p.id !== cb1?.id && p.id !== cb2?.id);
 
   const cdm = mids.find(p => p.position === 'CDM') || mids[0] || outfield[4];
-  const cm1 = mids.find(p => (p.position === 'CM' || p.position === 'CAM') && p.id !== cdm?.id) || mids[1] || outfield[5];
-  const cm2 = mids.find(p => p.id !== cdm?.id && p.id !== cm1?.id) || mids[2] || outfield[6];
+  const cm1 = mids.find(p => (p.position === 'CM' || p.position === 'CAM') && p.id !== cdm?.id) || mids.find(p => p.id !== cdm?.id) || outfield[5];
+  const cm2 = mids.find(p => p.id !== cdm?.id && p.id !== cm1?.id) || mids.find(p => p.id !== cdm?.id && p.id !== cm1?.id) || outfield[6];
 
   const rw = fwds.find(p => p.position === 'RW' || p.position === 'RM') || fwds[0] || outfield[7];
-  const st = fwds.find(p => (p.position === 'ST' || p.position === 'CF') && p.id !== rw?.id) || fwds[1] || outfield[8];
-  const lw = fwds.find(p => (p.position === 'LW' || p.position === 'LM') && p.id !== rw?.id && p.id !== st?.id) || fwds[2] || outfield[9];
+  const st = fwds.find(p => (p.position === 'ST' || p.position === 'CF') && p.id !== rw?.id) || fwds.find(p => p.id !== rw?.id) || outfield[8];
+  const lw = fwds.find(p => (p.position === 'LW' || p.position === 'LM') && p.id !== rw?.id && p.id !== st?.id) || fwds.find(p => p.id !== rw?.id && p.id !== st?.id) || outfield[9];
 
   const starterCandidates = [
-    { p: gk, pos: 'GK' as Position, x: 50, y: 90 },
+    { p: starterGk, pos: 'GK' as Position, x: 50, y: 92 },
     { p: rb, pos: 'RB' as Position, x: 85, y: 72 },
     { p: cb1, pos: 'CB' as Position, x: 63, y: 75 },
     { p: cb2, pos: 'CB' as Position, x: 37, y: 75 },
@@ -462,8 +699,14 @@ export function getDefaultTacticsForClub(club: Club, players: Record<string, Pla
   const pickedIds = new Set<string>();
   const starters = starterCandidates.map((slot, idx) => {
     let chosen = slot.p;
-    if (!chosen || pickedIds.has(chosen.id)) {
-      chosen = outfield.find(p => !pickedIds.has(p.id)) || sorted[idx % sorted.length];
+    if (idx === 0) {
+      // Slot 0 is strictly GK
+      chosen = starterGk || gks[0];
+    } else {
+      // Outfield slots (1..10) MUST NEVER BE GK
+      if (!chosen || pickedIds.has(chosen.id) || chosen.position === 'GK') {
+        chosen = outfield.find(p => !pickedIds.has(p.id)) || outfield[0];
+      }
     }
     if (chosen) pickedIds.add(chosen.id);
     return {
@@ -474,16 +717,37 @@ export function getDefaultTacticsForClub(club: Club, players: Record<string, Pla
     };
   });
 
-  const remaining = clubPlayers.filter(p => !pickedIds.has(p.id));
-  const bench = remaining.slice(0, 9).map(p => p.id); // Strict 9 max bench players
-  const reserves = remaining.slice(9).map(p => p.id);
+  // Bench: Always put benchGk on bench first, then remaining outfield up to 9
+  const remainingOutfield = outfield.filter(p => !pickedIds.has(p.id));
+  const benchIds: string[] = [];
+  if (benchGk && !pickedIds.has(benchGk.id)) {
+    benchIds.push(benchGk.id);
+  }
+  for (const op of remainingOutfield) {
+    if (benchIds.length >= 9) break;
+    benchIds.push(op.id);
+  }
+
+  // Reserves: Reserve GKs (bench out) + rest of outfield
+  const benchSet = new Set(benchIds);
+  const reserveIds: string[] = [];
+  reserveGks.forEach(rg => {
+    if (!pickedIds.has(rg.id) && !benchSet.has(rg.id)) {
+      reserveIds.push(rg.id);
+    }
+  });
+  remainingOutfield.forEach(op => {
+    if (!benchSet.has(op.id)) {
+      reserveIds.push(op.id);
+    }
+  });
 
   const baseTactics: TeamTactics = {
     formation: '4-3-3',
     lineup: {
       starters,
-      bench,
-      reserves
+      bench: benchIds,
+      reserves: reserveIds
     },
     instructions: {
       attackingStyle: 'ポゼッション・パス',

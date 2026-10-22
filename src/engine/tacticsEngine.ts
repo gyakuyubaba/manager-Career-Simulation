@@ -391,48 +391,6 @@ export const FORMATION_TEMPLATES: Record<FormationName, FormationSlot[]> = {
     { position: 'ST', pitchX: 50, pitchY: 16 }
   ],
 
-  '偽SB型4-3-3': [
-    { position: 'GK', pitchX: 50, pitchY: 92 },
-    { position: 'CDM', pitchX: 64, pitchY: 60 },
-    { position: 'CB', pitchX: 68, pitchY: 80 },
-    { position: 'CB', pitchX: 40, pitchY: 80 },
-    { position: 'LB', pitchX: 16, pitchY: 74 },
-    { position: 'CDM', pitchX: 42, pitchY: 62 },
-    { position: 'CAM', pitchX: 68, pitchY: 38 },
-    { position: 'CM', pitchX: 32, pitchY: 46 },
-    { position: 'RW', pitchX: 84, pitchY: 22 },
-    { position: 'ST', pitchX: 50, pitchY: 16 },
-    { position: 'LW', pitchX: 18, pitchY: 22 }
-  ],
-
-  '攻撃時3バック化': [
-    { position: 'GK', pitchX: 50, pitchY: 92 },
-    { position: 'CB', pitchX: 76, pitchY: 80 },
-    { position: 'CB', pitchX: 50, pitchY: 82 },
-    { position: 'CB', pitchX: 24, pitchY: 80 },
-    { position: 'LM', pitchX: 12, pitchY: 44 },
-    { position: 'CDM', pitchX: 60, pitchY: 62 },
-    { position: 'CDM', pitchX: 40, pitchY: 62 },
-    { position: 'RM', pitchX: 88, pitchY: 44 },
-    { position: 'CAM', pitchX: 50, pitchY: 36 },
-    { position: 'ST', pitchX: 60, pitchY: 18 },
-    { position: 'ST', pitchX: 40, pitchY: 18 }
-  ],
-
-  '守備時5バック化': [
-    { position: 'GK', pitchX: 50, pitchY: 92 },
-    { position: 'RWB', pitchX: 86, pitchY: 78 },
-    { position: 'CB', pitchX: 68, pitchY: 82 },
-    { position: 'CB', pitchX: 50, pitchY: 84 },
-    { position: 'CB', pitchX: 32, pitchY: 82 },
-    { position: 'LWB', pitchX: 14, pitchY: 78 },
-    { position: 'RM', pitchX: 82, pitchY: 52 },
-    { position: 'CM', pitchX: 60, pitchY: 56 },
-    { position: 'CM', pitchX: 40, pitchY: 56 },
-    { position: 'LM', pitchX: 18, pitchY: 52 },
-    { position: 'ST', pitchX: 50, pitchY: 22 }
-  ],
-
   'ダイヤモンド型4-4-2': [
     { position: 'GK', pitchX: 50, pitchY: 92 },
     { position: 'RB', pitchX: 85, pitchY: 76 },
@@ -632,25 +590,44 @@ export function updateTacticsFormation(
     const p = playersMap?.[s.playerId];
     return p?.position === 'GK' || s.position === 'GK';
   });
-  if (gkStarterIndex === -1 && currentStarters.length > 0) {
-    gkStarterIndex = 0;
-  }
 
   const assignedSlotIndices = new Set<number>();
   const assignedStarterIndices = new Set<number>();
   const newStarters: { playerId: string; position: Position; pitchX: number; pitchY: number }[] = new Array(11);
+  let newBench = [...(currentTactics.lineup?.bench || [])];
 
-  // Assign GK
-  if (gkSlotIndex !== -1 && gkStarterIndex !== -1) {
+  // Assign GK strictly
+  if (gkSlotIndex !== -1) {
     const gkSlot = template[gkSlotIndex];
+    let assignedGkId = '';
+
+    if (gkStarterIndex !== -1) {
+      assignedGkId = currentStarters[gkStarterIndex].playerId;
+      assignedStarterIndices.add(gkStarterIndex);
+    } else {
+      // Find GK from bench or reserves
+      const benchGkId = newBench.find(bId => playersMap?.[bId]?.position === 'GK');
+      if (benchGkId) {
+        assignedGkId = benchGkId;
+        newBench = newBench.filter(id => id !== benchGkId);
+      } else {
+        const reserveGkId = (currentTactics.lineup?.reserves || []).find(rId => playersMap?.[rId]?.position === 'GK');
+        if (reserveGkId) {
+          assignedGkId = reserveGkId;
+        } else if (currentStarters.length > 0) {
+          assignedGkId = currentStarters[0].playerId;
+          assignedStarterIndices.add(0);
+        }
+      }
+    }
+
     newStarters[gkSlotIndex] = {
-      playerId: currentStarters[gkStarterIndex].playerId,
+      playerId: assignedGkId,
       position: gkSlot.position,
       pitchX: gkSlot.pitchX,
       pitchY: gkSlot.pitchY
     };
     assignedSlotIndices.add(gkSlotIndex);
-    assignedStarterIndices.add(gkStarterIndex);
   }
 
   // For remaining outfield players, match optimally to slots
@@ -659,10 +636,19 @@ export function updateTacticsFormation(
     const slot = template[slotIdx];
     const p = playersMap?.[starter.playerId];
 
-    let score = 0;
     const playerPos = p?.position || starter.position;
     const slotLine = getLine(slot.position);
     const playerLine = getLine(playerPos);
+
+    // CRITICAL REQUIREMENT: GK can NEVER play outfield slots, Outfield players can NEVER play GK slot!
+    if (playerPos === 'GK' && slot.position !== 'GK') {
+      return -999999;
+    }
+    if (playerPos !== 'GK' && slot.position === 'GK') {
+      return -999999;
+    }
+
+    let score = 0;
 
     if (p) {
       const fit = getPositionFitOvr(p, slot.position);
@@ -729,9 +715,8 @@ export function updateTacticsFormation(
     }
   }
 
-  // Realistic bench swap: If any slot ended up with an empty playerId OR a severe mismatch (Grade D / penalty >= 18)
+  // Realistic bench swap: If any outfield slot ended up with an empty playerId OR a severe mismatch (Grade D / penalty >= 18)
   // find the best matching player from bench/reserves so that defenders defend, midfielders midfield, attackers attack
-  let newBench = [...(currentTactics.lineup?.bench || [])];
   if (playersMap) {
     for (let slIdx = 0; slIdx < template.length; slIdx++) {
       const slot = template[slIdx];
@@ -739,7 +724,7 @@ export function updateTacticsFormation(
       const currentPlayer = currentAssignedId ? playersMap[currentAssignedId] : null;
       const fit = currentPlayer ? getPositionFitOvr(currentPlayer, slot.position) : null;
 
-      const isSevereMismatch = !currentAssignedId || (fit && fit.fitGrade === 'D');
+      const isSevereMismatch = !currentAssignedId || (fit && fit.fitGrade === 'D') || (slot.position !== 'GK' && currentPlayer?.position === 'GK');
       if (isSevereMismatch && newBench.length > 0) {
         // Find best bench candidate for this slot
         let bestBenchIdx = -1;
@@ -748,6 +733,10 @@ export function updateTacticsFormation(
         newBench.forEach((bId, bIdx) => {
           const bp = playersMap[bId];
           if (!bp) return;
+          // CRITICAL: Never swap bench GK into outfield slot, never swap outfield into GK slot
+          if (slot.position !== 'GK' && bp.position === 'GK') return;
+          if (slot.position === 'GK' && bp.position !== 'GK') return;
+
           const bFit = getPositionFitOvr(bp, slot.position);
           if (bFit.fitGrade === 'S' || bFit.fitGrade === 'A' || bFit.fitGrade === 'B') {
             const bScore = 100 - bFit.penalty * 3 + bp.ovr;
@@ -788,6 +777,26 @@ export function updateTacticsFormation(
         pitchX: slot.pitchX,
         pitchY: slot.pitchY
       };
+    }
+  }
+
+  // Final Invariant Safeguard: Ensure no GK is in an outfield slot
+  if (playersMap) {
+    for (let slIdx = 0; slIdx < template.length; slIdx++) {
+      const slot = template[slIdx];
+      const s = newStarters[slIdx];
+      const p = s?.playerId ? playersMap[s.playerId] : null;
+      if (slot.position !== 'GK' && p?.position === 'GK') {
+        // Find outfield replacement from bench
+        const outfieldCandidateIdx = newBench.findIndex(bId => playersMap[bId]?.position !== 'GK');
+        if (outfieldCandidateIdx !== -1) {
+          const outId = newBench[outfieldCandidateIdx];
+          newBench.splice(outfieldCandidateIdx, 1);
+          const oldGkId = s.playerId;
+          newStarters[slIdx].playerId = outId;
+          newBench.unshift(oldGkId);
+        }
+      }
     }
   }
 

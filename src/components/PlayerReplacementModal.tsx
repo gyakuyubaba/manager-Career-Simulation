@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { GameWorldState, Player, TeamTactics, Position } from '../types/game';
 import { executePlayerReplacement } from '../engine/dataValidator';
 import { ConditionDot } from './common/FatigueGauge';
@@ -30,9 +30,18 @@ export const PlayerReplacementModal: React.FC<Props> = ({
   onCompleteReplacement,
   onClose
 }) => {
+  const isOldGk = oldPlayer?.position === 'GK';
   const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'GK' | 'DF' | 'MF' | 'FW'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedFilter(oldPlayer?.position === 'GK' ? 'GK' : 'ALL');
+      setSearchQuery('');
+      setErrorMessage(null);
+    }
+  }, [isOpen, oldPlayer]);
 
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
 
@@ -44,6 +53,9 @@ export const PlayerReplacementModal: React.FC<Props> = ({
         if (!p || p.id === oldPlayer.id) return false;
         if (p.clubId !== state.userClubId) return false;
         if (p.isLoaned && p.loanClubId && p.loanClubId !== state.userClubId) return false;
+        // CRITICAL REQUIREMENT: Strict separation between GK and Outfield
+        if (isOldGk && p.position !== 'GK') return false;
+        if (!isOldGk && p.position === 'GK') return false;
         return true;
       })
       .sort((a, b) => {
@@ -62,7 +74,7 @@ export const PlayerReplacementModal: React.FC<Props> = ({
         // Priority 3: OVR descending
         return b.ovr - a.ovr;
       });
-  }, [userClub, oldPlayer, state.players, state.userClubId]);
+  }, [userClub, oldPlayer, state.players, state.userClubId, isOldGk]);
 
   if (!isOpen || !oldPlayer || !userClub) return null;
 
@@ -107,6 +119,15 @@ export const PlayerReplacementModal: React.FC<Props> = ({
     }
     if (candidate.isLoaned && candidate.loanClubId !== state.userClubId) {
       setErrorMessage(`【選択不可】レンタル移籍中の選手は選択できません。`);
+      return;
+    }
+
+    if (isOldGk && candidate.position !== 'GK') {
+      setErrorMessage(`【GK配置制限】GK枠にはフィールドプレイヤーを配置できません。控えGKを選択してください。`);
+      return;
+    }
+    if (!isOldGk && candidate.position === 'GK') {
+      setErrorMessage(`【GK配置制限】GKはフィールドプレイヤー枠には配置できません。正GK枠と交代してください。`);
       return;
     }
 
@@ -210,7 +231,7 @@ export const PlayerReplacementModal: React.FC<Props> = ({
         <div className="px-4 sm:px-5 pt-3 pb-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
           {/* Position Tabs */}
           <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-            {(['ALL', 'GK', 'DF', 'MF', 'FW'] as const).map(tab => (
+            {(isOldGk ? (['GK'] as const) : (['ALL', 'DF', 'MF', 'FW'] as const)).map(tab => (
               <button
                 key={tab}
                 type="button"

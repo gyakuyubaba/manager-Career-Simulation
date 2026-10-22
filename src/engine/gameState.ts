@@ -61,6 +61,7 @@ export function createInitialStandings(clubs: Record<string, Club>): Record<Leag
 
 export { generateSeasonFixtures } from './fixtureGenerator';
 import { generateSeasonFixtures } from './fixtureGenerator';
+import { createPreSeasonScheduleNews } from './preSeasonEngine';
 
 
 export function createNewGameWorld(manager: ManagerProfile, difficultySettings?: DifficultySettings): GameWorldState {
@@ -252,7 +253,9 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
   });
 
   const userTactics = getDefaultTacticsForClub(chosenClub, updatedPlayers);
-  const fixtures = generateSeasonFixtures(updatedClubs, chosenClubId);
+  const fixtures = generateSeasonFixtures(updatedClubs, chosenClubId, 2026, state.manager);
+  const psFixtures = fixtures.filter(f => f.competition === 'pre-season');
+  const psNews = createPreSeasonScheduleNews(chosenClub, psFixtures, updatedClubs, state.currentDate);
 
   const customYouth = (!state.youthAcademy || state.youthAcademy.length < 5 || state.youthAcademy.some(y => y.id === 'youth_1' || y.name.includes('高橋 蓮') || y.name.includes('(')))
     ? generateRandomYouthAcademy(chosenClub.country, 6)
@@ -275,7 +278,7 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     players: updatedPlayers,
     tactics: userTactics,
     fixtures,
-    news: [appointNews, ...state.news],
+    news: [appointNews, psNews, ...state.news],
     youthAcademy: customYouth,
     boardConfidence: 85,
     fanApproval: 80

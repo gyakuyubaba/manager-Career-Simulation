@@ -73,7 +73,8 @@ export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
     { name: 'Amad Diallo', position: 'RW', age: 24, nationality: 'コートジボワール', ovr: 80, shirtNumber: 16 },
     { name: 'Casemiro', position: 'CDM', age: 34, nationality: 'ブラジル', ovr: 82, shirtNumber: 18 },
     { name: 'Noussair Mazraoui', position: 'RB', age: 28, nationality: 'モロッコ', ovr: 81, shirtNumber: 3 },
-    { name: 'Harry Maguire', position: 'CB', age: 33, nationality: 'イングランド', ovr: 80, shirtNumber: 5 }
+    { name: 'Harry Maguire', position: 'CB', age: 33, nationality: 'イングランド', ovr: 80, shirtNumber: 5 },
+    { name: 'Leny Yoro', position: 'CB', age: 19, nationality: 'フランス', ovr: 80, shirtNumber: 15 }
   ],
 
   newcastle: [

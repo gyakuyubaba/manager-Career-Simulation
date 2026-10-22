@@ -3,6 +3,7 @@ import React from 'react';
 import { GameWorldState, MatchFixture } from '../../types/game';
 import { formatDateJP } from '../../engine/dateEngine';
 import { PRE_SEASON_TOURNAMENTS } from '../../data/initialData';
+import { generatePreSeasonTourOptions } from '../../engine/preSeasonEngine';
 import { 
   Trophy, 
   Calendar, 
@@ -88,7 +89,7 @@ export const HomeDashboardTab: React.FC<Props> = ({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {PRE_SEASON_TOURNAMENTS.map(t => (
+              {(userClub ? generatePreSeasonTourOptions(userClub, state.manager) : PRE_SEASON_TOURNAMENTS).map(t => (
                 <button
                   key={t.id}
                   type="button"

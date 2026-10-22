@@ -302,14 +302,21 @@ export function checkPlayerDataIntegrity(
     }
 
     // Remove punctuation, spaces, and separators while preserving Kanji, Hiragana, Katakana, Hangul, and Latin characters
-    const canonicalName = player.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') || player.name.trim().toLowerCase();
+    let canonicalName = player.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') || player.name.trim().toLowerCase();
 
     if (canonicalName && seenCanonical.has(canonicalName)) {
       const existingId = seenCanonical.get(canonicalName)!;
-      result.duplicateNames.push(player.name);
-      result.logs.push(`[DUPLICATE DETECTED] Duplicate player found: "${player.name}" (${existingId} vs ${player.id}). Eliminating duplicate clone.`);
-      result.repairedCount++;
-      continue;
+      const existingPlayer = cleanPlayers[existingId];
+      // If belongs to a different club, disambiguate name to prevent stripping squad of players
+      if (existingPlayer && existingPlayer.clubId !== player.clubId) {
+        player.name = `${player.name} (${clubs[player.clubId]?.shortName || player.clubId})`;
+        canonicalName = player.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+      } else {
+        result.duplicateNames.push(player.name);
+        result.logs.push(`[DUPLICATE DETECTED] Duplicate player found: "${player.name}" (${existingId} vs ${player.id}). Eliminating duplicate clone.`);
+        result.repairedCount++;
+        continue;
+      }
     }
 
     let assignedId = player.id;
@@ -423,7 +430,8 @@ export function autoReplaceIneligiblePlayers(
   currentStarterIds.forEach((pId, idx) => {
     const p = players[pId];
     if (!p || !isEligible(p) || p.squadStatus === 'OUT_OF_SQUAD') {
-      const targetPos = p?.position || 'CM';
+      const isGkSlot = idx === 0 || p?.position === 'GK';
+      const targetPos = isGkSlot ? 'GK' : (p?.position || 'CM');
       let candidate: Player | undefined;
 
       // Priority 1: Exact position bench player
@@ -433,10 +441,10 @@ export function autoReplaceIneligiblePlayers(
         currentBenchIds = currentBenchIds.filter(id => id !== candidate!.id);
       }
 
-      // Priority 2: Adaptable position bench player
-      if (!candidate) {
+      // Priority 2: Adaptable position bench player (Outfield only!)
+      if (!candidate && !isGkSlot) {
         const adaptable = ADAPTABLE_MAP[targetPos] || [];
-        const benchAdaptIdx = healthyBench.findIndex(bp => adaptable.includes(bp.position));
+        const benchAdaptIdx = healthyBench.findIndex(bp => bp.position !== 'GK' && adaptable.includes(bp.position));
         if (benchAdaptIdx !== -1) {
           candidate = healthyBench.splice(benchAdaptIdx, 1)[0];
           currentBenchIds = currentBenchIds.filter(id => id !== candidate!.id);
@@ -448,9 +456,9 @@ export function autoReplaceIneligiblePlayers(
         const resExactIdx = healthyReserves.findIndex(rp => rp.position === targetPos);
         if (resExactIdx !== -1) {
           candidate = healthyReserves.splice(resExactIdx, 1)[0];
-        } else {
+        } else if (!isGkSlot) {
           const adaptable = ADAPTABLE_MAP[targetPos] || [];
-          const resAdaptIdx = healthyReserves.findIndex(rp => adaptable.includes(rp.position));
+          const resAdaptIdx = healthyReserves.findIndex(rp => rp.position !== 'GK' && adaptable.includes(rp.position));
           if (resAdaptIdx !== -1) {
             candidate = healthyReserves.splice(resAdaptIdx, 1)[0];
           }
@@ -538,6 +546,63 @@ export function executePlayerReplacement(
   const oldBenchIdx = currentBench.indexOf(oldPlayerId);
   const newBenchIdx = currentBench.indexOf(newPlayerId);
   const newStarterIdx = currentStarters.findIndex(s => s.playerId === newPlayerId);
+
+  // CRITICAL REQUIREMENT: Strict GK position isolation
+  // 1. Both are starters: GK and outfield player can NEVER exchange positions
+  if (oldStarterIdx !== -1 && newStarterIdx !== -1) {
+    const isOldGk = oldPlayer.position === 'GK' || currentStarters[oldStarterIdx].position === 'GK';
+    const isNewGk = newPlayer.position === 'GK' || currentStarters[newStarterIdx].position === 'GK';
+    if (isOldGk !== isNewGk) {
+      return { 
+        newTactics: tactics, 
+        updatedPlayers: players, 
+        success: false, 
+        message: '【GK配置制限】GKとフィールドプレイヤーのスタメン位置交換はできません。GKは正GK枠専任です。' 
+      };
+    }
+  }
+
+  // 2. Old player is in Starters: new player must match slot GK type
+  if (oldStarterIdx !== -1) {
+    const slotIsGk = currentStarters[oldStarterIdx].position === 'GK' || oldPlayer.position === 'GK';
+    if (slotIsGk && newPlayer.position !== 'GK') {
+      return { 
+        newTactics: tactics, 
+        updatedPlayers: players, 
+        success: false, 
+        message: '【GK配置制限】フィールドプレイヤーはGK枠には配置できません。控えGKを選択してください。' 
+      };
+    }
+    if (!slotIsGk && newPlayer.position === 'GK') {
+      return { 
+        newTactics: tactics, 
+        updatedPlayers: players, 
+        success: false, 
+        message: '【GK配置制限】GKはフィールドプレイヤー枠には配置できません。正GK枠と交代してください。' 
+      };
+    }
+  }
+
+  // 3. New player is in Starters: old player must match slot GK type
+  if (newStarterIdx !== -1) {
+    const slotIsGk = currentStarters[newStarterIdx].position === 'GK' || newPlayer.position === 'GK';
+    if (slotIsGk && oldPlayer.position !== 'GK') {
+      return { 
+        newTactics: tactics, 
+        updatedPlayers: players, 
+        success: false, 
+        message: '【GK配置制限】フィールドプレイヤーはGK枠には配置できません。控えGKを選択してください。' 
+      };
+    }
+    if (!slotIsGk && oldPlayer.position === 'GK') {
+      return { 
+        newTactics: tactics, 
+        updatedPlayers: players, 
+        success: false, 
+        message: '【GK配置制限】GKはフィールドプレイヤー枠には配置できません。正GK枠と交代してください。' 
+      };
+    }
+  }
 
   if (oldStarterIdx !== -1) {
     // 1. Old player is in Starters

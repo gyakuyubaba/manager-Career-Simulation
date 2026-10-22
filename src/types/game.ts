@@ -232,6 +232,7 @@ export interface Club {
   playerIds: string[];
   rivalClubIds?: string[];
   isUserClub?: boolean;
+  tactics?: TeamTactics;
 }
 
 export type FormationName = 
@@ -264,9 +265,6 @@ export type FormationName =
   | '5-3-1-1'
   | '非対称4-3-3'
   | '非対称4-2-3-1'
-  | '偽SB型4-3-3'
-  | '攻撃時3バック化'
-  | '守備時5バック化'
   | 'ダイヤモンド型4-4-2'
   | 'フラット型4-5-1'
   | '2トップ＋トップ下型'

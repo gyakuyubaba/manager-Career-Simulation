@@ -4,6 +4,7 @@ import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRand
 import { simulateAITransfers } from './transferEngine';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateSeasonFixtures } from './fixtureGenerator';
+import { processPreSeasonMatchRewards } from './preSeasonEngine';
 
 // Format ISO date to display string YYYY年M月D日
 export function formatDateJP(dateStr: string): string {
@@ -178,13 +179,20 @@ export function applyMatchResultToWorld(
     });
   }
 
-  return {
+  const baseResultState: GameWorldState = {
     ...state,
     fixtures,
     standings,
     players,
     news: updatedNews
   };
+
+  if (finalFixture.competition === 'pre-season' && finalFixture.isUserMatch) {
+    const psRes = processPreSeasonMatchRewards(baseResultState, finalFixture);
+    return psRes.updatedState;
+  }
+
+  return baseResultState;
 }
 
 // Advance exactly 1 day (Requirement 3: autoSimulateUserMatch for month skip & 7-day skip)
@@ -647,8 +655,8 @@ export function processSeasonEndPromotionsAndRelegations(state: GameWorldState):
     }));
   });
 
-  // Regenerate season fixtures for the next season with updated league memberships
-  const nextFixtures = generateSeasonFixtures(clubs, state.userClubId);
+  // Regenerate season fixtures for the next season with updated league memberships and fresh randomized pre-season
+  const nextFixtures = generateSeasonFixtures(clubs, state.userClubId, 2027, state.manager);
 
   return {
     state: {

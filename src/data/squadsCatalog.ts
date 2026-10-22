@@ -23,7 +23,8 @@ export const CURATED_REAL_SQUADS: Record<string, Player[]> = {
     makeRealPlayer('ars_partey', 'Thomas Partey', 'arsenal', 'CDM', 32, 'ガーナ', 82, 82, 22000000, 180000, 5, '右', 'アンカー'),
     makeRealPlayer('ars_jorginho', 'Jorginho', 'arsenal', 'CM', 33, 'イタリア', 81, 81, 15000000, 120000, 20, '右', 'チャンスメイカー'),
     makeRealPlayer('ars_kiwior', 'Jakub Kiwior', 'arsenal', 'CB', 25, 'ポーランド', 80, 83, 28000000, 85000, 15, '左', 'ボール運べるCB', ['LB']),
-    makeRealPlayer('ars_zinchenko', 'Oleksandr Zinchenko', 'arsenal', 'LB', 28, 'ウクライナ', 81, 82, 25000000, 140000, 35, '左', '攻撃的SB', ['CM'])
+    makeRealPlayer('ars_zinchenko', 'Oleksandr Zinchenko', 'arsenal', 'LB', 28, 'ウクライナ', 81, 82, 25000000, 140000, 35, '左', '攻撃的SB', ['CM']),
+    makeRealPlayer('ars_sterling', 'Raheem Sterling', 'arsenal', 'LW', 30, 'イングランド', 83, 83, 40000000, 180000, 30, '右', '俊足ドリブラー', ['RW', 'CF'])
   ],
 
   man_city: [
@@ -99,7 +100,8 @@ export const CURATED_REAL_SQUADS: Record<string, Player[]> = {
     makeRealPlayer('che_nkunku', 'Christopher Nkunku', 'chelsea', 'CF', 27, 'フランス', 84, 86, 65000000, 190000, 18, '右', 'ゴールゲッター', ['CAM', 'LW']),
     makeRealPlayer('che_sancho', 'Jadon Sancho', 'chelsea', 'LW', 25, 'イングランド', 81, 84, 40000000, 150000, 19, '右', '俊足ドリブラー'),
     makeRealPlayer('che_lavia', 'Roméo Lavia', 'chelsea', 'CDM', 21, 'ベルギー', 79, 87, 35000000, 60000, 45, '右', 'アンカー'),
-    makeRealPlayer('che_james', 'Reece James', 'chelsea', 'RB', 25, 'イングランド', 83, 86, 45000000, 220000, 24, '右', '攻撃的SB')
+    makeRealPlayer('che_james', 'Reece James', 'chelsea', 'RB', 25, 'イングランド', 83, 86, 45000000, 220000, 24, '右', '攻撃的SB'),
+    makeRealPlayer('che_felix', 'João Félix', 'chelsea', 'CF', 25, 'ポルトガル', 83, 86, 50000000, 160000, 14, '右', 'チャンスメイカー', ['LW', 'CAM'])
   ],
 
   // ==========================================

@@ -1,6 +1,13 @@
-import { MatchFixture, Club, LeagueKey } from '../types/game';
+import { MatchFixture, Club, LeagueKey, ManagerProfile } from '../types/game';
+import { generatePreSeasonFixtures } from './preSeasonEngine';
 
-export function generateSeasonFixtures(clubs: Record<string, Club>, userClubId: string | null): MatchFixture[] {
+export function generateSeasonFixtures(
+  clubs: Record<string, Club>, 
+  userClubId: string | null,
+  seasonYear: number = 2026,
+  manager?: ManagerProfile,
+  selectedTourId?: string
+): MatchFixture[] {
   const fixtures: MatchFixture[] = [];
 
   // Group clubs by league
@@ -10,42 +17,10 @@ export function generateSeasonFixtures(clubs: Record<string, Club>, userClubId: 
     leagues[c.league].push(c);
   });
 
-  // Pre-season friendly on July 10, 20, 30
+  // Randomized Pre-Season matches with progression-aware opponents (July 10, 20, 30)
   if (userClubId && clubs[userClubId]) {
-    const opponents = Object.values(clubs).filter(c => c.id !== userClubId);
-    
-    fixtures.push({
-      id: 'fix_ps_1',
-      date: '2026-07-10',
-      competition: 'pre-season',
-      competitionName: 'プレシーズン・親善マッチ第1戦',
-      homeClubId: userClubId,
-      awayClubId: opponents[0]?.id || 'brighton',
-      status: 'upcoming',
-      isUserMatch: true
-    });
-
-    fixtures.push({
-      id: 'fix_ps_2',
-      date: '2026-07-20',
-      competition: 'pre-season',
-      competitionName: 'プレシーズン・親善マッチ第2戦',
-      homeClubId: opponents[1]?.id || 'leverkusen',
-      awayClubId: userClubId,
-      status: 'upcoming',
-      isUserMatch: true
-    });
-
-    fixtures.push({
-      id: 'fix_ps_3',
-      date: '2026-07-30',
-      competition: 'pre-season',
-      competitionName: 'サマー・トロフィー決定戦',
-      homeClubId: userClubId,
-      awayClubId: opponents[2]?.id || 'frankfurt',
-      status: 'upcoming',
-      isUserMatch: true
-    });
+    const psFixtures = generatePreSeasonFixtures(clubs, userClubId, seasonYear, manager, selectedTourId);
+    fixtures.push(...psFixtures);
   }
 
   // League matchdays throughout the season
