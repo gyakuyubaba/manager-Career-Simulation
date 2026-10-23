@@ -5,6 +5,8 @@ import { simulateAITransfers } from './transferEngine';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateSeasonFixtures } from './fixtureGenerator';
 import { processPreSeasonMatchRewards } from './preSeasonEngine';
+import { evaluateMatchBoardConfidence } from './boardConfidenceEngine';
+import { updateClubVisionAfterSeason } from './clubVisionEngine';
 
 // Format ISO date to display string YYYY年M月D日
 export function formatDateJP(dateStr: string): string {
@@ -115,6 +117,32 @@ export function applyMatchResultToWorld(
     });
   }
 
+  // 3.5 Decrement suspensions for official competitive matches (Requirement 3: プレシーズンでは消化しない)
+  if (finalFixture.competition !== 'pre-season') {
+    const newlyCardedPlayerIds = new Set(
+      (finalFixture.events || [])
+        .filter(e => e.type === 'red_card' || e.type === 'second_yellow')
+        .map(e => e.playerId)
+    );
+    const participatingTeamIds = [finalFixture.homeClubId, finalFixture.awayClubId];
+
+    Object.values(players).forEach(p => {
+      if (participatingTeamIds.includes(p.clubId) && p.suspension?.isSuspended && !newlyCardedPlayerIds.has(p.id)) {
+        if (p.suspension.matchesRemaining > 0) {
+          p.suspension.matchesRemaining -= 1;
+        }
+        if (p.suspension.matchesRemaining <= 0) {
+          p.suspension.isSuspended = false;
+          p.suspension.matchesRemaining = 0;
+          p.suspension.reason = undefined;
+          if (p.squadStatus === 'OUT_OF_SQUAD') {
+            p.squadStatus = 'RESERVE';
+          }
+        }
+      }
+    });
+  }
+
   // 4. Knockout Cup Tournament Advancement (Requirement 9)
   const isKnockout = finalFixture.competition.includes('cup') ||
                      ['copa-del-rey', 'coppa-italia', 'dfb-pokal', 'coupe-de-france', 'ucl', 'uel', 'pre-season'].includes(finalFixture.competition);
@@ -179,12 +207,54 @@ export function applyMatchResultToWorld(
     });
   }
 
+  // 5. Board Confidence, Fan Approval, and Sacking Evaluation for User Matches
+  let boardConfidence = state.boardConfidence;
+  let fanApproval = state.fanApproval;
+  let consecutiveLosses = state.consecutiveLosses;
+  let consecutiveWinless = state.consecutiveWinless || 0;
+  let isSacked = state.isSacked;
+  let managerStats = { ...state.manager };
+
+  if (finalFixture.isUserMatch && finalFixture.homeScore !== undefined && finalFixture.awayScore !== undefined) {
+    const isUserHome = finalFixture.homeClubId === state.userClubId;
+    const userScore = isUserHome ? finalFixture.homeScore : finalFixture.awayScore;
+    const oppScore = isUserHome ? finalFixture.awayScore : finalFixture.homeScore;
+
+    const evalResult = evaluateMatchBoardConfidence(state, finalFixture, userScore, oppScore);
+    boardConfidence = evalResult.newConfidence;
+    fanApproval = evalResult.newFanApproval;
+    consecutiveLosses = evalResult.newConsecutiveLosses;
+    consecutiveWinless = evalResult.newConsecutiveWinless;
+    if (evalResult.sackTriggered) {
+      isSacked = true;
+    }
+    if (evalResult.newsItem) {
+      updatedNews.unshift(evalResult.newsItem);
+    }
+
+    managerStats.matchesManaged += 1;
+    if (userScore > oppScore) {
+      managerStats.wins += 1;
+      managerStats.reputation = Math.min(99, managerStats.reputation + 1);
+    } else if (userScore === oppScore) {
+      managerStats.draws += 1;
+    } else {
+      managerStats.losses += 1;
+    }
+  }
+
   const baseResultState: GameWorldState = {
     ...state,
     fixtures,
     standings,
     players,
-    news: updatedNews
+    news: updatedNews,
+    boardConfidence,
+    fanApproval,
+    consecutiveLosses,
+    consecutiveWinless,
+    isSacked,
+    manager: managerStats
   };
 
   if (finalFixture.competition === 'pre-season' && finalFixture.isUserMatch) {
@@ -452,18 +522,31 @@ export function advanceOneDay(
   // Re-synchronize standings from match records (Requirement 1 & 11)
   state.standings = rebuildStandingsFromMatchResults(state.fixtures, state.clubs, state.standings);
 
-  // End of Season Revenue & Promotions / Relegations check (May 25)
-  if (nextDate === '2027-05-25') {
-    const promRel = processSeasonEndPromotionsAndRelegations(state);
+  // Dynamic Season Transition check (Specification 8 & 9: 7月のシーズン更新と昇降格・2年目以降のプレシーズン開始)
+  const currentSeasonYear = parseInt(state.season.split('/')[0], 10) || 2026;
+  const seasonString = `${currentSeasonYear}/${String(currentSeasonYear + 1).slice(2)}`;
+
+  if (nextDate.endsWith('-07-01') || (nextDate >= `${currentSeasonYear + 1}-07-01` && state.season === seasonString)) {
+    // Complete any unsimulated fixtures from the previous season to ensure complete data integrity
+    state.fixtures.forEach(f => {
+      if (f.status === 'upcoming' && f.date < nextDate) {
+        f.status = 'finished';
+        f.homeScore = f.homeScore ?? 1;
+        f.awayScore = f.awayScore ?? 0;
+        f.isResultApplied = true;
+      }
+    });
+
+    const promRel = processSeasonEndPromotionsAndRelegations(state, currentSeasonYear + 1);
     state = promRel.state;
     state.news = [promRel.news, ...state.news];
     if (!autoSimulateUserMatch) {
-      stoppedReason = '【シーズン全日程終了】J1/J2/J3の昇格・降格クラブおよび欧州カップ戦出場クラブが決定しました！';
+      stoppedReason = `【${state.season}新シーズン開幕】昇降格が反映され、新シーズンのプレシーズンツアーが開幕しました！`;
     }
   }
 
   // Transfer window deadline day check
-  if ((nextDate === '2026-08-31' || nextDate === '2026-01-31') && !autoSimulateUserMatch) {
+  if ((nextDate.endsWith('-08-31') || nextDate.endsWith('-01-31')) && !autoSimulateUserMatch) {
     state.showDeadlineSummary = true;
     stoppedReason = '【移籍市場最終日】夏の移籍ウィンドウのデッドラインデイを迎えました！';
   }
@@ -475,10 +558,10 @@ export function advanceOneDay(
   };
 }
 
-// -------------------------------------------------------------
-// 【7. 欧州5大国＆日本 全6リーグ 昇降格システム (SEASON END PROMOTION & RELEGATION)】
-// -------------------------------------------------------------
-export function processSeasonEndPromotionsAndRelegations(state: GameWorldState): { state: GameWorldState; news: NewsItem } {
+export function processSeasonEndPromotionsAndRelegations(
+  state: GameWorldState,
+  targetSeasonYear?: number | string
+): { state: GameWorldState; news: NewsItem } {
   const clubs = { ...state.clubs };
   const standings = state.standings;
 
@@ -496,7 +579,7 @@ export function processSeasonEndPromotionsAndRelegations(state: GameWorldState):
 
   // 2. SPAIN: La Liga (20) ⇄ Segunda División (22)
   const llRows = getStandings('laliga');
-  const llRelegated = llRows.length >= 20 ? llRows.slice(-3).map(r => r.clubId) : (llRows.length >= 3 ? llRows.slice(-3).map(r => r.clubId) : []);
+  const llRelegated = llRows.length >= 20 ? plRows.slice(-3).map(r => r.clubId) : (llRows.length >= 3 ? llRows.slice(-3).map(r => r.clubId) : []);
   const segRows = getStandings('segunda-division');
   const segDirectPromoted = segRows.length >= 2 ? segRows.slice(0, 2).map(r => r.clubId) : [];
   const segPlayoffPool = segRows.length >= 6 ? segRows.slice(2, 6) : [];
@@ -553,24 +636,24 @@ export function processSeasonEndPromotionsAndRelegations(state: GameWorldState):
   const j2PlayoffWinner = j2Rows.length >= 3 ? j2Rows[2]?.clubId : '';
   const j2Promoted = [...j2DirectPromoted, ...(j2PlayoffWinner ? [j2PlayoffWinner] : [])];
 
-  // Swap league divisions
-  plRelegated.forEach(id => { if (clubs[id]) clubs[id].league = 'championship'; });
-  champPromoted.forEach(id => { if (clubs[id]) clubs[id].league = 'premier-league'; });
+  // Swap league divisions and set division numbers
+  plRelegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'championship'; clubs[id].division = 2; } });
+  champPromoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'premier-league'; clubs[id].division = 1; } });
 
-  llRelegated.forEach(id => { if (clubs[id]) clubs[id].league = 'segunda-division'; });
-  segPromoted.forEach(id => { if (clubs[id]) clubs[id].league = 'laliga'; });
+  llRelegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'segunda-division'; clubs[id].division = 2; } });
+  segPromoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'laliga'; clubs[id].division = 1; } });
 
-  blRelegated.forEach(id => { if (clubs[id]) clubs[id].league = '2-bundesliga'; });
-  bl2Promoted.forEach(id => { if (clubs[id]) clubs[id].league = 'bundesliga'; });
+  blRelegated.forEach(id => { if (clubs[id]) { clubs[id].league = '2-bundesliga'; clubs[id].division = 2; } });
+  bl2Promoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'bundesliga'; clubs[id].division = 1; } });
 
-  saRelegated.forEach(id => { if (clubs[id]) clubs[id].league = 'serie-b'; });
-  sbPromoted.forEach(id => { if (clubs[id]) clubs[id].league = 'serie-a'; });
+  saRelegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'serie-b'; clubs[id].division = 2; } });
+  sbPromoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'serie-a'; clubs[id].division = 1; } });
 
-  l1Relegated.forEach(id => { if (clubs[id]) clubs[id].league = 'ligue-2'; });
-  l2Promoted.forEach(id => { if (clubs[id]) clubs[id].league = 'ligue-1'; });
+  l1Relegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'ligue-2'; clubs[id].division = 2; } });
+  l2Promoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'ligue-1'; clubs[id].division = 1; } });
 
-  j1Relegated.forEach(id => { if (clubs[id]) clubs[id].league = 'j2-league'; });
-  j2Promoted.forEach(id => { if (clubs[id]) clubs[id].league = 'j1-league'; });
+  j1Relegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'j2-league'; clubs[id].division = 2; } });
+  j2Promoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'j1-league'; clubs[id].division = 1; } });
 
   // Handle User Club Promotion / Relegation effects
   let userClubNewsHeadline = '';
@@ -655,16 +738,38 @@ export function processSeasonEndPromotionsAndRelegations(state: GameWorldState):
     }));
   });
 
+  // Calculate next season string dynamically
+  const currentYear = parseInt(state.season.split('/')[0], 10) || 2026;
+  const nextYear = typeof targetSeasonYear === 'number'
+    ? targetSeasonYear 
+    : targetSeasonYear 
+      ? parseInt(String(targetSeasonYear).split('/')[0], 10) || (currentYear + 1)
+      : (currentYear + 1);
+  const nextSeason = `${nextYear}/${String(nextYear + 1).slice(2)}`;
+  const nextDate = `${nextYear}-07-01`;
+
   // Regenerate season fixtures for the next season with updated league memberships and fresh randomized pre-season
-  const nextFixtures = generateSeasonFixtures(clubs, state.userClubId, 2027, state.manager);
+  const nextFixtures = generateSeasonFixtures(clubs, state.userClubId, nextYear, state.manager);
+
+  // Update Club Vision Roadmap for the new season
+  let updatedVision = state.clubVision;
+  if (state.userClubId && clubs[state.userClubId]) {
+    const userClub = clubs[state.userClubId];
+    if (updatedVision) {
+      updatedVision = updateClubVisionAfterSeason(updatedVision, userClub, nextSeason, state);
+    }
+  }
 
   return {
     state: {
       ...state,
-      season: '2027/28',
+      season: nextSeason,
+      currentDate: nextDate,
       clubs,
       standings: updatedStandings,
-      fixtures: nextFixtures
+      fixtures: nextFixtures,
+      selectedPreSeason: undefined, // Clears selection so pre-season invitations show in July!
+      clubVision: updatedVision
     },
     news: mainNews
   };

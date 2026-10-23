@@ -33,7 +33,7 @@ import {
   CURRENT_SCHEMA_VERSION,
   APP_CODE_VERSION
 } from '../../engine/storageEngine';
-import { runAll16Tests, TestResult } from '../../engine/testSuite';
+import { runAll27Tests, TestResult } from '../../engine/testSuite';
 import { generateRandomYouthAcademy } from '../../data/youthGenerator';
 
 interface Props {
@@ -64,7 +64,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
     setIsRunningTests(true);
     setTimeout(() => {
       try {
-        const results = runAll16Tests();
+        const results = runAll27Tests();
         setTestResults(results);
       } catch (e: any) {
         console.error(e);

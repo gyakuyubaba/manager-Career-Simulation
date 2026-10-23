@@ -4,6 +4,7 @@ import { ALL_CLUBS } from '../data/clubsData';
 import { J2_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
 import { buildCompletePlayersRegistry } from '../data/squadPopulator';
+import { generateClubVisionRoadmap } from '../engine/clubVisionEngine';
 import { 
   Trophy, 
   DollarSign, 
@@ -80,6 +81,12 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
     const list = Object.values(allPlayersMap).filter(p => p.clubId === selectedClub.id);
     return list.sort((a, b) => b.ovr - a.ovr);
   }, [allPlayersMap, selectedClub?.id]);
+
+  // Roadmap & Club Vision Preview for selected club
+  const roadmapPreview = useMemo(() => {
+    if (!selectedClub) return null;
+    return generateClubVisionRoadmap(selectedClub);
+  }, [selectedClub]);
 
   // Filtered clubs for "All Clubs" browse mode
   const filteredClubs = ALL_SELECTABLE_CLUBS.filter(c => {
@@ -542,6 +549,52 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
                 「{manager.name}監督、貴殿の【{manager.style}】の指導方針と【{manager.specialty}】の実績に深く敬意を表します。当クラブが今季掲げる【{selectedClub.target}】を成し遂げるため、チーム編成の全権を委託し、戦力補強とアカデミー改革の全面バックアップをお約束いたします。」
               </p>
             </div>
+
+            {/* Club Vision & Multi-Year Roadmap (クラブの未来予想図) */}
+            {roadmapPreview && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs sm:text-sm font-bold text-white">
+                      クラブの未来予想図 (Club Vision & Multi-Year Roadmap)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                      理事会方針: {roadmapPreview.boardPatienceLevel}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300">
+                      {roadmapPreview.division === 2 ? '2部リーグ (昇格挑戦)' : '1部トップリーグ'}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {roadmapPreview.overviewPhilosophy}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-emerald-400 font-bold block mb-1">【1年目・短期目標】</span>
+                    <span className="text-xs text-slate-200 leading-snug block">{roadmapPreview.shortTermObjective}</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-blue-400 font-bold block mb-1">【2年目・中期目標】</span>
+                    <span className="text-xs text-slate-200 leading-snug block">{roadmapPreview.midTermObjective}</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                    <span className="text-[10px] text-amber-400 font-bold block mb-1">【3〜5年後・長期ビジョン】</span>
+                    <span className="text-xs text-slate-200 leading-snug block">{roadmapPreview.longTermObjective}</span>
+                  </div>
+                </div>
+
+                <div className="pt-1 text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>補強方針: {roadmapPreview.transferPolicy}</span>
+                </div>
+              </div>
+            )}
 
             {/* Squad Roster Preview (2025/26 Centenary & European Complete Authentic Squad) */}
             <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">

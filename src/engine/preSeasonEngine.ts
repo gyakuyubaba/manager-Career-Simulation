@@ -39,9 +39,11 @@ export function calculateClubGrowthScore(club: Club, manager?: ManagerProfile): 
  * Generates 3 dynamic, context-appropriate pre-season tournament invitations
  * based on the club's status, league, and growth level.
  */
-export function generatePreSeasonTourOptions(userClub: Club, manager?: ManagerProfile): PreSeasonTournament[] {
+export function generatePreSeasonTourOptions(userClub: Club, manager?: ManagerProfile, seasonYear: number = 2026): PreSeasonTournament[] {
   const growth = calculateClubGrowthScore(userClub, manager);
   const isJapan = userClub.league === 'j1-league' || userClub.league === 'j2-league';
+  const yStr = String(seasonYear);
+  const deadline = `${yStr}-07-15`;
 
   if (isJapan) {
     if (growth < 65) {
@@ -49,30 +51,30 @@ export function generatePreSeasonTourOptions(userClub: Club, manager?: ManagerPr
       return [
         {
           id: 'ps_japan_domestic',
-          name: '国内サマーキャンプ＆強化マッチツアー (御殿場/宮崎)',
+          name: `国内サマーキャンプ＆強化マッチツアー (御殿場/宮崎)`,
           region: '国内',
           prizeMoney: 600000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_japan_pacific',
-          name: 'パシフィック・サマーチャレンジ (日韓・豪州親善)',
+          name: `パシフィック・サマーチャレンジ (日韓・豪州親善)`,
           region: 'アジア・オセアニア',
           prizeMoney: 1500000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_japan_world',
-          name: 'Jリーグ ワールドチャレンジ (欧州招待枠)',
+          name: `Jリーグ ワールドチャレンジ (欧州招待枠)`,
           region: '国際',
           prizeMoney: 3000000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         }
       ];
     } else {
@@ -80,30 +82,30 @@ export function generatePreSeasonTourOptions(userClub: Club, manager?: ManagerPr
       return [
         {
           id: 'ps_japan_world',
-          name: 'Jリーグ ワールドチャレンジ 2026 (東京/横浜)',
+          name: `Jリーグ ワールドチャレンジ ${yStr} (東京/横浜)`,
           region: '日本・国際',
           prizeMoney: 3500000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_asia_super',
-          name: 'アジア・チャンピオンズ・ツアー (東京/シンガポール)',
+          name: `アジア・チャンピオンズ・ツアー (東京/シンガポール)`,
           region: 'アジア',
           prizeMoney: 4500000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_global_champions',
-          name: 'インターナショナル・サマーツアー (欧州・北米遠征)',
+          name: `インターナショナル・サマーツアー (欧州・北米遠征)`,
           region: '欧州・北米',
           prizeMoney: 7000000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         }
       ];
     }
@@ -113,60 +115,60 @@ export function generatePreSeasonTourOptions(userClub: Club, manager?: ManagerPr
       return [
         {
           id: 'ps_euro_regional',
-          name: 'アルプス・サマー・チャレンジ (独/墺/瑞ツアー)',
+          name: `アルプス・サマー・チャレンジ (独/墺/瑞ツアー)`,
           region: '欧州',
           prizeMoney: 1800000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_euro_tour',
-          name: 'ヨーロピアン・フレンドリー・トロフィー',
+          name: `ヨーロピアン・フレンドリー・トロフィー`,
           region: '欧州',
           prizeMoney: 3200000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_asia_tour',
-          name: 'アジア・パシフィック・ツアー (日本/韓国遠征)',
+          name: `アジア・パシフィック・ツアー (日本/韓国遠征)`,
           region: 'アジア遠征',
           prizeMoney: 4500000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         }
       ];
     } else {
       return [
         {
           id: 'ps_usa_super',
-          name: 'インターナショナル・スーパーカップ (米国ツアー)',
+          name: `インターナショナル・スーパーカップ (米国ツアー)`,
           region: '北米',
           prizeMoney: 8500000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_asia_super',
-          name: 'アジア・サマーツアー (東京/シンガポール/上海)',
+          name: `アジア・サマーツアー (東京/シンガポール/上海)`,
           region: 'アジア遠征',
           prizeMoney: 6500000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         },
         {
           id: 'ps_euro_elite',
-          name: 'ヨーロピアン・エリート・サマートロフィー',
+          name: `ヨーロピアン・エリート・サマートロフィー`,
           region: '欧州',
           prizeMoney: 5000000,
           participants: [],
           matchesCount: 3,
-          deadline: '2026-07-15'
+          deadline
         }
       ];
     }

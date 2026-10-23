@@ -121,7 +121,8 @@ export default function App() {
     setIsSimulating(false);
 
     if (result.hasUserMatchToday && result.userMatchFixture) {
-      setActiveMatchFixture(result.userMatchFixture);
+      const oppClub = result.updatedState.clubs[result.userMatchFixture.homeClubId === result.updatedState.userClubId ? result.userMatchFixture.awayClubId : result.userMatchFixture.homeClubId];
+      setDayAlertMessage(`⚽ 本日は試合日です（VS ${oppClub?.name || '対戦相手'}）。スタメンや戦術を確認の上、「試合を開始する」を押してください。`);
     } else if (result.stoppedReason) {
       setDayAlertMessage(result.stoppedReason);
     }
@@ -137,7 +138,8 @@ export default function App() {
     setIsSimulating(false);
 
     if (result.hasUserMatchToday && result.userMatchFixture) {
-      setActiveMatchFixture(result.userMatchFixture);
+      const oppClub = result.updatedState.clubs[result.userMatchFixture.homeClubId === result.updatedState.userClubId ? result.userMatchFixture.awayClubId : result.userMatchFixture.homeClubId];
+      setDayAlertMessage(`⚽ 試合当日に到着しました（VS ${oppClub?.name || '対戦相手'}）。スタメンや戦術を確認の上、「試合を開始する」を押してください。`);
     } else if (result.stoppedReason) {
       setDayAlertMessage(result.stoppedReason);
     }
@@ -225,75 +227,13 @@ export default function App() {
       updatedFixtures[fixtureIdx] = updatedFixture;
     }
 
-    // Check consecutive losses & manager record
-    const isUserHome = updatedFixture.homeClubId === gameState.userClubId;
-    const userScore = isUserHome ? (updatedFixture.homeScore ?? 0) : (updatedFixture.awayScore ?? 0);
-    const oppScore = isUserHome ? (updatedFixture.awayScore ?? 0) : (updatedFixture.homeScore ?? 0);
-
-    let wins = gameState.manager.wins;
-    let draws = gameState.manager.draws;
-    let losses = gameState.manager.losses;
-    let consecutiveLosses = gameState.consecutiveLosses;
-    let boardConfidence = gameState.boardConfidence;
-
-    if (userScore > oppScore) {
-      wins++;
-      consecutiveLosses = 0;
-      boardConfidence = Math.min(100, boardConfidence + 3);
-    } else if (userScore === oppScore) {
-      draws++;
-      consecutiveLosses = 0;
-    } else {
-      losses++;
-      consecutiveLosses++;
-      boardConfidence = Math.max(10, boardConfidence - 4);
-    }
-
-    const updatedManager: ManagerProfile = {
-      ...gameState.manager,
-      matchesManaged: gameState.manager.matchesManaged + 1,
-      wins,
-      draws,
-      losses,
-      reputation: Math.min(99, gameState.manager.reputation + (userScore > oppScore ? 1 : 0))
-    };
-
-    // Generate post-match news for any injuries that occurred in this fixture (Requirement 15: 試合後の怪我ニュース反映)
-    const injuryEvents = (updatedFixture.events || []).filter(e => e.type === 'injury');
-    const injuryNewsItems: NewsItem[] = [];
-    injuryEvents.forEach((e, idx) => {
-      const p = updatedPlayers[e.playerId || ''];
-      if (p && p.injury?.isInjured) {
-        const isUserClub = p.clubId === gameState.userClubId;
-        const targetClub = gameState.clubs[p.clubId];
-        injuryNewsItems.push({
-          id: `news_inj_${Date.now()}_${p.id}_${idx}`,
-          date: gameState.currentDate,
-          headline: `【負傷離脱】${p.name}が試合中に負傷退場。${p.injury.type}で全治${p.injury.recoveryDays}日、復帰予定は${p.injury.returnDate || p.injuryReturnDate || '未定'}`,
-          body: `先日の公式戦で負傷交代を余儀なくされた${targetClub?.name || ''}所属の${p.name}選手について、精密検査の結果「${p.injury.type}」と診断されました。離脱期間は約${p.injury.recoveryDays}日（復帰予定日: ${p.injury.returnDate || p.injuryReturnDate || '未定'}）となる見込みです。戦線離脱期間中は別メニュー調整となります。`,
-          category: 'match',
-          relatedClubId: p.clubId,
-          relatedPlayerId: p.id,
-          importance: isUserClub ? 'high' : 'medium'
-        });
-      }
-    });
-
-    // Requirement 1 & 10: Unified MATCH_RESULT processing for ALL clubs
+    // Requirement 1 & 10: Unified MATCH_RESULT processing for ALL clubs (evaluates board confidence, records, standings, injuries)
     const stateWithMatchResult = applyMatchResultToWorld(gameState, updatedFixture, updatedPlayers);
 
     // Simulate all other scheduled league matches for this round so ALL clubs update played and standings simultaneously
     const stateWithAllMatches = simulatePendingAIFixturesForDate(stateWithMatchResult, updatedFixture.date);
 
-    const nextState: GameWorldState = {
-      ...stateWithAllMatches,
-      manager: updatedManager,
-      consecutiveLosses,
-      boardConfidence,
-      news: injuryNewsItems.length > 0 ? [...injuryNewsItems, ...stateWithAllMatches.news] : stateWithAllMatches.news
-    };
-
-    setGameState(nextState);
+    setGameState(stateWithAllMatches);
   };
 
   // Press conference completion

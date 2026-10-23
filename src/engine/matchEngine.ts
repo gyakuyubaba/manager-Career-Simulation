@@ -240,6 +240,66 @@ export function getRandomWeightedInjury(): { name: string; days: number } {
   return { name: INJURY_VARIETIES[0].name, days: INJURY_VARIETIES[0].days };
 }
 
+/**
+ * Requirement 3: レッドカードの危険性・悪質性に応じた出場停止試合数の動的判定
+ * - 比較的軽い退場（2枚目警告など）：1試合
+ * - 通常の退場（DOGSO・決定機阻止など）：1〜2試合
+ * - 危険なプレー（危険な足裏タックル）：2〜4試合
+ * - 非常に悪質な行為（乱闘・暴力行為）：5〜8試合
+ * - 極めて重大な行為（審判侮辱・重大反則）：最大10試合（極めて稀・約1%）
+ */
+export interface RedCardDetails {
+  matchesRemaining: number;
+  reason: string;
+  reasonEn: string;
+  severity: 'minor' | 'standard' | 'dangerous' | 'violent' | 'egregious';
+}
+
+export function determineRedCardSeverityAndSuspension(isSecondYellow: boolean, rng: () => number = Math.random): RedCardDetails {
+  if (isSecondYellow) {
+    return {
+      matchesRemaining: 1,
+      reason: '累積警告（イエローカード2枚目）による退場',
+      reasonEn: 'Sent off for two yellow cards (Second Caution)',
+      severity: 'minor'
+    };
+  }
+
+  const roll = rng();
+  if (roll < 0.55) {
+    const matches = rng() < 0.5 ? 1 : 2;
+    return {
+      matchesRemaining: matches,
+      reason: '決定機阻止（DOGSO）による一発退場',
+      reasonEn: 'Direct red card for denying an obvious goal-scoring opportunity (DOGSO)',
+      severity: 'standard'
+    };
+  } else if (roll < 0.90) {
+    const matches = 2 + Math.floor(rng() * 3); // 2, 3, or 4
+    return {
+      matchesRemaining: matches,
+      reason: '危険なタックル（足裏・過度な力）による一発退場',
+      reasonEn: 'Direct red card for serious foul play (Reckless studs-up challenge)',
+      severity: 'dangerous'
+    };
+  } else if (roll < 0.99) {
+    const matches = 5 + Math.floor(rng() * 4); // 5, 6, 7, or 8
+    return {
+      matchesRemaining: matches,
+      reason: '乱闘・相手選手への暴力行為による退場処分',
+      reasonEn: 'Direct red card for violent conduct / physical altercation',
+      severity: 'violent'
+    };
+  } else {
+    return {
+      matchesRemaining: 10,
+      reason: '主審への異議・極めて悪質な重大違反行為による長期出場停止処分',
+      reasonEn: 'Direct red card for extreme gross misconduct / assaulting match officials (Max 10 matches)',
+      severity: 'egregious'
+    };
+  }
+}
+
 // Commentary pools
 const GOAL_COMMENTARIES = [
   (s: string, a?: string) => `【GOAL!!】${s}がディフェンスラインの裏へ抜け出し、冷静にGKの脇を抜く技ありゴール！${a ? ` (${a}の見事なスルーパス)` : ''}`,
@@ -768,15 +828,16 @@ export function simulateFullMatch(
         const priorYellows = yellowCardCounts[offender.id] || 0;
 
         if (priorYellows === 1) {
-          // 2nd Yellow -> Red Card
+          // 2nd Yellow -> Red Card (1 match suspension)
           yellowCardCounts[offender.id] = 2;
+          const cardDetails = determineRedCardSeverityAndSuspension(true, rng);
           events.push({
             minute: eventMin,
             type: 'second_yellow',
             clubId: targetClub.id,
             playerId: offender.id,
             playerName: offender.name,
-            description: `【警告退場】${offender.name}が2枚目のイエローカードを受けて退場処分！チームは残り時間を10名で戦うことになります。`
+            description: `【警告退場】${offender.name}が2枚目のイエローカードを受けて退場処分！チームは残り時間を10名で戦うことになります。（${cardDetails.matchesRemaining}試合出場停止）`
           });
 
           if (isHomeFoul) {
@@ -788,21 +849,48 @@ export function simulateFullMatch(
           if (updatedPlayers[offender.id]) {
             updatedPlayers[offender.id].suspension = {
               isSuspended: true,
-              matchesRemaining: 1,
-              reason: '累積警告による退場'
+              matchesRemaining: cardDetails.matchesRemaining,
+              reason: cardDetails.reason
             };
             updatedPlayers[offender.id].squadStatus = 'OUT_OF_SQUAD';
           }
         } else if (priorYellows === 0) {
-          yellowCardCounts[offender.id] = 1;
-          events.push({
-            minute: eventMin,
-            type: 'yellow_card',
-            clubId: targetClub.id,
-            playerId: offender.id,
-            playerName: offender.name,
-            description: `【警告】${offender.name}が無謀なタックルにより主審からイエローカードを提示されました。`
-          });
+          // Low realistic chance of straight red card (DOGSO, dangerous tackle, violent conduct, extreme rare 10-match)
+          const isStraightRed = rng() < 0.018;
+          if (isStraightRed) {
+            const cardDetails = determineRedCardSeverityAndSuspension(false, rng);
+            events.push({
+              minute: eventMin,
+              type: 'red_card',
+              clubId: targetClub.id,
+              playerId: offender.id,
+              playerName: offender.name,
+              description: `【一発退場】${offender.name}に対し主審から直接レッドカード提示！理由: ${cardDetails.reason}（${cardDetails.matchesRemaining}試合出場停止処分）`
+            });
+            if (isHomeFoul) {
+              homePitchPlayers = homePitchPlayers.filter(id => id !== offender.id);
+            } else {
+              awayPitchPlayers = awayPitchPlayers.filter(id => id !== offender.id);
+            }
+            if (updatedPlayers[offender.id]) {
+              updatedPlayers[offender.id].suspension = {
+                isSuspended: true,
+                matchesRemaining: cardDetails.matchesRemaining,
+                reason: cardDetails.reason
+              };
+              updatedPlayers[offender.id].squadStatus = 'OUT_OF_SQUAD';
+            }
+          } else {
+            yellowCardCounts[offender.id] = 1;
+            events.push({
+              minute: eventMin,
+              type: 'yellow_card',
+              clubId: targetClub.id,
+              playerId: offender.id,
+              playerName: offender.name,
+              description: `【警告】${offender.name}が無謀なタックルにより主審からイエローカードを提示されました。`
+            });
+          }
         }
       }
     }

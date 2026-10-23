@@ -99,6 +99,8 @@ export interface PlayerInjury {
   type?: string;
   recoveryDays?: number;
   returnDate?: string;
+  severity?: 'minor' | 'moderate' | 'severe';
+  daysRemaining?: number;
 }
 
 export interface PlayerSuspension {
@@ -154,7 +156,7 @@ export interface Player {
   loanPlayingTimeGuaranteed?: boolean;
 
   // Formal Squad Status
-  squadStatus?: 'STARTING' | 'BENCH' | 'OUT_OF_SQUAD';
+  squadStatus?: 'STARTING' | 'BENCH' | 'RESERVE' | 'OUT_OF_SQUAD';
 
   playstyle: PlayStyle;
   personality: PlayerPersonality;
@@ -444,7 +446,7 @@ export interface NewsItem {
   date: string;
   headline: string;
   body: string;
-  category: 'transfer' | 'match' | 'injury' | 'crisis' | 'press' | 'tournament' | 'youth';
+  category: 'transfer' | 'match' | 'injury' | 'crisis' | 'press' | 'tournament' | 'youth' | 'board';
   relatedClubId?: string;
   relatedPlayerId?: string;
   importance: 'high' | 'medium' | 'low';
@@ -510,6 +512,66 @@ export interface PreSeasonTournament {
   deadline: string;
 }
 
+export interface ClubRoadmapGoal {
+  id: string;
+  yearTarget: number; // 1 (今季), 2 (2年目), 3 (3年目), etc.
+  category: 'league' | 'cup' | 'continental' | 'financial' | 'growth';
+  title: string;
+  description: string;
+  targetCondition: string;
+  achieved?: boolean;
+  status: 'in_progress' | 'completed' | 'failed';
+}
+
+export interface ClubVisionRoadmap {
+  clubId: string;
+  clubName: string;
+  leagueId: LeagueKey;
+  division: 1 | 2;
+  overviewPhilosophy: string;
+  shortTermObjective: string; // 今季の至上命題
+  midTermObjective: string;   // 2〜3年以内
+  longTermObjective: string;  // 3〜5年後の到達点
+  goals: ClubRoadmapGoal[];
+  boardPatienceLevel: '忍耐強い' | '標準的' | '結果即時要求';
+  transferPolicy: string;
+  updatedAtSeason: string;
+}
+
+export interface MatchIncidentNotice {
+  id: string;
+  minute: number;
+  type: 'injury' | 'red_card' | 'second_yellow';
+  clubId: string;
+  clubName?: string;
+  isUserClub?: boolean;
+  playerId?: string;
+  playerName?: string;
+  message?: string;
+  requiresConfirmation?: boolean;
+  injuryDetails?: {
+    injuryType: string;
+    severity?: 'minor' | 'moderate' | 'severe';
+    daysOut?: number;
+    returnDate?: string;
+    canContinue?: boolean;
+  };
+  redCardDetails?: {
+    isSecondYellow?: boolean;
+    reason: string;
+    severity?: string;
+    matchesRemaining: number;
+  };
+  details?: {
+    injuryType?: string;
+    recoveryDays?: number;
+    returnDate?: string;
+    substitutionRequired?: boolean;
+    cardReason?: string;
+  };
+  event?: MatchEvent;
+}
+
 export interface GameWorldState {
   currentDate: string; // ISO string e.g. "2026-07-01"
   season: string; // "2026/27" (with 2025/26 database)
@@ -520,6 +582,7 @@ export interface GameWorldState {
   boardConfidence: number; // 0 - 100
   fanApproval: number; // 0 - 100
   consecutiveLosses: number;
+  consecutiveWinless?: number; // Tracks draws + losses for realistic crisis penalty
   isSacked: boolean;
   difficultySettings: DifficultySettings;
 
@@ -533,6 +596,7 @@ export interface GameWorldState {
   youthAcademy: YouthProspect[];
   careerHistory: SeasonHistory[];
 
+  clubVision?: ClubVisionRoadmap; // 未来予想図・クラブ成長計画
   selectedPreSeason?: string;
   trainingFocus: 'バランス総合' | '攻撃・連係強化' | '守備戦術・プレス' | 'コンディション回復' | '若手重点育成';
   incomingOffers?: IncomingAIOffer[];

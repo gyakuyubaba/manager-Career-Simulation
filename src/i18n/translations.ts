@@ -699,22 +699,28 @@ export const TRANSLATIONS: Record<Language, Translations> = {
 };
 
 const LANG_KEY = 'fm26_app_language';
+let memoryLanguage: Language = 'ja';
 
 export function getSavedLanguage(): Language {
   try {
-    const saved = localStorage.getItem(LANG_KEY);
-    if (saved === 'en' || saved === 'es' || saved === 'ja') {
-      return saved;
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(LANG_KEY);
+      if (saved === 'en' || saved === 'es' || saved === 'ja') {
+        return saved;
+      }
     }
   } catch (e) {
     // Ignore
   }
-  return 'ja';
+  return memoryLanguage;
 }
 
 export function saveLanguage(lang: Language): void {
+  memoryLanguage = lang;
   try {
-    localStorage.setItem(LANG_KEY, lang);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LANG_KEY, lang);
+    }
   } catch (e) {
     // Ignore
   }

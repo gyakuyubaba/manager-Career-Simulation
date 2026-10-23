@@ -14,15 +14,14 @@ const LanguageContext = createContext<LanguageContextType>({
 });
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Japanese only as requested in Requirement 1
-  const [language, setLanguageState] = useState<Language>('ja');
+  const [language, setLanguageState] = useState<Language>(() => getSavedLanguage());
 
   const setLanguage = (lang: Language) => {
-    setLanguageState('ja');
-    saveLanguage('ja');
+    setLanguageState(lang);
+    saveLanguage(lang);
   };
 
-  const t = TRANSLATIONS['ja'];
+  const t = TRANSLATIONS[language] || TRANSLATIONS['ja'];
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t }}>

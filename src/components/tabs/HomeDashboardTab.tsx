@@ -12,8 +12,14 @@ import {
   ShieldAlert, 
   TrendingUp, 
   DollarSign, 
-  Sparkles 
+  Sparkles,
+  Compass,
+  Target,
+  Flag,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
+import { generateClubVisionRoadmap } from '../../engine/clubVisionEngine';
 
 interface Props {
   state: GameWorldState;
@@ -246,6 +252,120 @@ export const HomeDashboardTab: React.FC<Props> = ({
           <div className="text-[11px] text-slate-500 mt-0.5">8月31日デッドライン</div>
         </div>
       </div>
+
+      {/* Requirement 3: クラブの未来予想図 (Club Vision & Roadmap) */}
+      {userClub && (() => {
+        const vision = state.clubVision || generateClubVisionRoadmap(userClub, state.season);
+        const isDiv2 = vision.division === 2 || userClub.division === 2 || userClub.league === 'j2-league';
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                      クラブの未来予想図 (Club Vision & Roadmap)
+                    </h3>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      isDiv2 ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                    }`}>
+                      {isDiv2 ? '【2部リーグ所属】昇格・地盤構築プラン' : '【1部リーグ所属】国内・大陸コンペ挑戦プラン'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                    理事会期待値: 【{vision.boardPatienceLevel}】 · 補強方針: {vision.transferPolicy}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-400">取締役会評価:</span>
+                <span className={`px-2.5 py-1 rounded-lg font-bold text-xs ${
+                  state.boardConfidence >= 70 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                  state.boardConfidence >= 40 ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                  'bg-rose-950 text-rose-300 border border-rose-800 animate-pulse'
+                }`}>
+                  信頼度 {state.boardConfidence}% {state.boardConfidence < 20 ? '(解任危機)' : ''}
+                </span>
+              </div>
+            </div>
+
+            {/* Philosophy Banner */}
+            <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/90 text-xs text-slate-300 flex items-start gap-2.5">
+              <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-white block mb-0.5">クラブの指導・育成哲学</span>
+                <span>{vision.overviewPhilosophy}</span>
+              </div>
+            </div>
+
+            {/* Yearly Roadmap Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { year: 1, title: '今季の至上命題 (Year 1)', objective: vision.shortTermObjective, isPrimary: true },
+                { year: 2, title: '中期プラン (Year 2)', objective: vision.midTermObjective, isPrimary: false },
+                { year: 3, title: '長期ビジョン (Year 3〜5)', objective: vision.longTermObjective, isPrimary: false }
+              ].map(item => (
+                <div 
+                  key={item.year}
+                  className={`p-3.5 rounded-2xl border flex flex-col justify-between transition-all ${
+                    item.isPrimary 
+                      ? 'bg-slate-950 border-purple-500/50 ring-1 ring-purple-500/20' 
+                      : 'bg-slate-950/60 border-slate-800/80'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800/60">
+                      <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
+                        item.isPrimary ? 'bg-purple-900/60 text-purple-200' : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {item.title}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-200 leading-relaxed font-medium">
+                      {item.objective}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">進捗状況</span>
+                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{item.isPrimary ? '進行中' : '次期フェーズ'}</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Individual Concrete Goals */}
+            {vision.goals && vision.goals.length > 0 && (
+              <div className="pt-2 border-t border-slate-800/60">
+                <span className="text-[11px] font-bold text-slate-400 block mb-2">【具体的な達成条件・ロードマップ目標】</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {vision.goals.map(g => (
+                    <div key={g.id} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-start gap-2">
+                      <Target className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span>{g.title}</span>
+                          <span className="text-[10px] text-purple-300 font-mono">({g.yearTarget}年目)</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">{g.description}</div>
+                        <div className="text-[10px] text-emerald-400 font-mono mt-1">条件: {g.targetCondition}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Squad Growth Spotlight Widget (選手成長の可視化ハイライト) */}
       {userClub && (

@@ -80,14 +80,28 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [subPlayerOffId, setSubPlayerOffId] = useState<string | null>(null);
   const [subPlayerOnId, setSubPlayerOnId] = useState<string | null>(null);
 
-  // In-match injury modal state (Requirement 15: 試合中の怪我)
-  const [activeInjuryModalData, setActiveInjuryModalData] = useState<{
+  // Unified In-match incident modal state (Requirement 1: 負傷およびレッドカード発生時の即座一時停止)
+  const [activeIncidentNotice, setActiveIncidentNotice] = useState<{
+    id: string;
+    minute: number;
+    type: 'injury' | 'red_card' | 'second_yellow';
+    player: Player | { id: string; name: string; position?: string; shirtNumber?: number; clubId?: string };
+    clubId: string;
+    clubName: string;
+    isUserClub: boolean;
+    injuryDetails?: {
+      type: string;
+      recoveryDays: number;
+      returnDate: string;
+      needsSub: boolean;
+    };
+    redCardDetails?: {
+      isSecondYellow: boolean;
+      reason: string;
+    };
     event: MatchEvent;
-    player: Player;
-    injuryType: string;
-    recoveryDays: number;
-    returnDate: string;
   } | null>(null);
+  const handledIncidentsRef = useRef<Set<string>>(new Set());
   const [injurySubChoiceId, setInjurySubChoiceId] = useState<string | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -103,6 +117,72 @@ export const MatchSimulationView: React.FC<Props> = ({
   }, []);
 
   const isHighlightPausedRef = useRef<boolean>(false);
+
+  // Helper to trigger incident pause and modal
+  const triggerIncidentPause = (e: MatchEvent, eventMin: number) => {
+    const key = `${e.minute}_${e.type}_${e.playerId || 'unknown'}`;
+    if (handledIncidentsRef.current.has(key)) return false;
+    handledIncidentsRef.current.add(key);
+
+    isHighlightPausedRef.current = false;
+    setIsPlaying(false);
+
+    const isUserTeam = e.clubId === state.userClubId;
+    const targetClub = state.clubs[e.clubId] || (e.clubId === homeClub.id ? homeClub : awayClub);
+    const p = state.players[e.playerId || ''] || simulatedResult?.updatedPlayers?.[e.playerId || ''] || {
+      id: e.playerId || 'unknown',
+      name: e.playerName || '選手',
+      position: 'MF',
+      shirtNumber: 10,
+      clubId: e.clubId
+    };
+    const updatedP = simulatedResult?.updatedPlayers?.[e.playerId || ''] || p;
+
+    if (e.type === 'injury') {
+      const injuryType = updatedP?.injury?.type || '足首捻挫';
+      const recoveryDays = updatedP?.injury?.recoveryDays || 14;
+      const returnDate = updatedP?.injury?.returnDate || updatedP?.injuryReturnDate || '未定';
+
+      setActiveIncidentNotice({
+        id: key,
+        minute: eventMin,
+        type: 'injury',
+        player: p,
+        clubId: e.clubId,
+        clubName: targetClub?.name || 'チーム',
+        isUserClub: isUserTeam,
+        injuryDetails: {
+          type: injuryType,
+          recoveryDays,
+          returnDate,
+          needsSub: true
+        },
+        event: e
+      });
+      setInjurySubChoiceId(null);
+      return true;
+    } else if (e.type === 'red_card' || e.type === 'second_yellow') {
+      const isSecondYellow = e.type === 'second_yellow';
+      const reason = isSecondYellow ? '累積警告（イエローカード2枚目）による退場' : '危険なプレーによる直接レッドカード';
+
+      setActiveIncidentNotice({
+        id: key,
+        minute: eventMin,
+        type: e.type,
+        player: p,
+        clubId: e.clubId,
+        clubName: targetClub?.name || 'チーム',
+        isUserClub: isUserTeam,
+        redCardDetails: {
+          isSecondYellow,
+          reason
+        },
+        event: e
+      });
+      return true;
+    }
+    return false;
+  };
 
   // Timer loop for paced live match simulation
   useEffect(() => {
@@ -125,6 +205,12 @@ export const MatchSimulationView: React.FC<Props> = ({
         if (simulatedResult?.fixture?.events) {
           const newEvents = simulatedResult.fixture.events.filter((e: MatchEvent) => e.minute === nextMin);
           if (newEvents.length > 0) {
+            // Check for unhandled incident (Injury or Red Card) in this minute
+            const incident = newEvents.find((e: MatchEvent) => 
+              (e.type === 'injury' || e.type === 'red_card' || e.type === 'second_yellow') &&
+              !handledIncidentsRef.current.has(`${e.minute}_${e.type}_${e.playerId || 'unknown'}`)
+            );
+
             setRevealedEvents(old => [...old, ...newEvents]);
             newEvents.forEach((e: MatchEvent) => {
               if (e.type === 'goal') {
@@ -134,7 +220,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   setCurrentScore(sc => [sc[0], sc[1] + 1]);
                 }
 
-                // Pause timer and show dramatic goal celebration highlight banner (Requirements 3 & 4)
+                // Pause timer and show dramatic goal celebration highlight banner
                 isHighlightPausedRef.current = true;
                 setActiveHighlightEvent(e);
                 const pauseDuration = simSpeed === 4 ? 1800 : simSpeed === 2 ? 2600 : 3600;
@@ -142,34 +228,14 @@ export const MatchSimulationView: React.FC<Props> = ({
                   setActiveHighlightEvent(null);
                   isHighlightPausedRef.current = false;
                 }, pauseDuration);
-              } else if (e.type === 'injury' && e.clubId === state.userClubId) {
-                // Interactive In-Match Injury Flow (Requirement 15: 試合中の怪我)
-                setIsPlaying(false);
-                const p = state.players[e.playerId || ''] || simulatedResult?.updatedPlayers?.[e.playerId || ''];
-                const updatedP = simulatedResult?.updatedPlayers?.[e.playerId || ''] || p;
-                const injuryType = updatedP?.injury?.type || '足首捻挫';
-                const recoveryDays = updatedP?.injury?.recoveryDays || 14;
-                const returnDate = updatedP?.injury?.returnDate || updatedP?.injuryReturnDate || '未定';
-
-                setActiveInjuryModalData({
-                  event: e,
-                  player: p || updatedP,
-                  injuryType,
-                  recoveryDays,
-                  returnDate
-                });
-                setInjurySubChoiceId(null);
-              } else if (e.type === 'red_card' || e.type === 'injury' || e.type === 'var' || e.type === 'save') {
-                // Pause timer briefly for VAR, red cards, injuries, and big saves
-                isHighlightPausedRef.current = true;
-                setActiveHighlightEvent(e);
-                const pauseDuration = simSpeed === 4 ? 1200 : simSpeed === 2 ? 1800 : 2500;
-                setTimeout(() => {
-                  setActiveHighlightEvent(null);
-                  isHighlightPausedRef.current = false;
-                }, pauseDuration);
               }
             });
+
+            // If an incident occurred, halt simulation immediately!
+            if (incident) {
+              triggerIncidentPause(incident, nextMin);
+              return nextMin;
+            }
           }
         }
 
@@ -282,15 +348,53 @@ export const MatchSimulationView: React.FC<Props> = ({
     setIsPlaying(true);
   };
 
-  // Skip simulation to end of current half or full time (Requirement 7: 完全同期)
+  // Skip simulation to end of current half or full time (Requirement 1 & 7: 負傷/レッドカード発生時は即座に停止)
   const handleInstantSkip = () => {
     if (!homeClub || !awayClub) return;
 
+    const targetMin = minute < 45 ? 45 : 90;
+    const allEvents: MatchEvent[] = simulatedResult?.fixture?.events || [];
+
+    // Search ahead for any unhandled injury or red card incident between current minute and targetMin
+    const upcomingIncidents = allEvents.filter(
+      (e: MatchEvent) =>
+        e.minute > minute &&
+        e.minute <= targetMin &&
+        (e.type === 'injury' || e.type === 'red_card' || e.type === 'second_yellow') &&
+        !handledIncidentsRef.current.has(`${e.minute}_${e.type}_${e.playerId || 'unknown'}`)
+    ).sort((a, b) => a.minute - b.minute);
+
+    if (upcomingIncidents.length > 0) {
+      // HALT at earliest incident minute!
+      const incident = upcomingIncidents[0];
+      const stopMin = incident.minute;
+
+      // Reveal events up to stopMin
+      const eventsUpToStop = allEvents.filter((e: MatchEvent) => e.minute <= stopMin);
+      setRevealedEvents(eventsUpToStop);
+
+      let hScore = 0;
+      let aScore = 0;
+      eventsUpToStop.forEach((e: MatchEvent) => {
+        if (e.type === 'goal') {
+          if (e.clubId === homeClub.id) hScore++;
+          else aScore++;
+        }
+      });
+      setCurrentScore([hScore, aScore]);
+      setMinute(stopMin);
+      setIsPlaying(false);
+
+      // Trigger incident notice modal - user must confirm before continuing!
+      triggerIncidentPause(incident, stopMin);
+      return;
+    }
+
+    // No upcoming incidents: perform clean fast-forward
     const homeTac = isUserHome ? tactics : getDefaultTacticsForClub(homeClub, state.players);
     const awayTac = !isUserHome ? tactics : getDefaultTacticsForClub(awayClub, state.players);
 
     if (minute < 45) {
-      // Fast forward to half time without losing current events
       const res = fastForwardRemainingMatch(
         minute,
         revealedEvents,
@@ -320,7 +424,6 @@ export const MatchSimulationView: React.FC<Props> = ({
       setMatchPhase('halftime');
       setShowHalftimeModal(true);
     } else {
-      // Fast forward to full time: preserves first half score and events strictly
       const res = fastForwardRemainingMatch(
         minute,
         revealedEvents,
@@ -387,81 +490,104 @@ export const MatchSimulationView: React.FC<Props> = ({
     setSubPlayerOnId(null);
   };
 
-  // Confirm Injury Substitution (Requirement 15: 試合中の怪我)
-  const handleConfirmInjurySubstitution = () => {
-    if (!activeInjuryModalData) return;
-    const { player: injuredPlayer, injuryType, recoveryDays, returnDate } = activeInjuryModalData;
+  // Confirm Incident (Injury or Red Card) and resume (Requirement 1: 負傷・レッドカード共通の停止と再開)
+  const handleConfirmIncident = (resumeMatch = true) => {
+    if (!activeIncidentNotice) return;
+    const inc = activeIncidentNotice;
 
-    if (injurySubChoiceId && subCount < 5) {
-      const subInPlayer = state.players[injurySubChoiceId];
-      
-      const subEvent: MatchEvent = {
-        minute,
-        type: 'sub',
-        clubId: state.userClubId || '',
-        playerId: injuredPlayer.id,
-        playerName: injuredPlayer.name,
-        subInPlayerId: subInPlayer?.id,
-        subInPlayerName: subInPlayer?.name,
-        description: `🔄 負傷交代 (${minute}分): OUT: ${injuredPlayer.name} (負傷退場・全治${recoveryDays}日) ➔ IN: ${subInPlayer?.name} (${subInPlayer?.position})`
-      };
+    if (inc.type === 'injury') {
+      const injuredPlayer = inc.player as Player;
+      const injuryType = inc.injuryDetails?.type || '足首捻挫';
+      const recoveryDays = inc.injuryDetails?.recoveryDays || 14;
+      const returnDate = inc.injuryDetails?.returnDate || '未定';
 
-      setRevealedEvents(prev => [...prev, subEvent]);
-      setSubCount(c => c + 1);
+      if (inc.isUserClub) {
+        if (injurySubChoiceId && subCount < 5) {
+          const subInPlayer = state.players[injurySubChoiceId];
+          const subEvent: MatchEvent = {
+            minute: inc.minute,
+            type: 'sub',
+            clubId: state.userClubId || '',
+            playerId: injuredPlayer.id,
+            playerName: injuredPlayer.name,
+            subInPlayerId: subInPlayer?.id,
+            subInPlayerName: subInPlayer?.name,
+            description: `🔄 負傷交代 (${inc.minute}分): OUT: ${injuredPlayer.name} (負傷退場・全治${recoveryDays}日) ➔ IN: ${subInPlayer?.name} (${subInPlayer?.position})`
+          };
 
-      const newStarters = tactics.lineup.starters.map(s => {
-        if (s.playerId === injuredPlayer.id) {
-          return { ...s, playerId: injurySubChoiceId };
+          setRevealedEvents(prev => [...prev, subEvent]);
+          setSubCount(c => c + 1);
+
+          const newStarters = tactics.lineup.starters.map(s => {
+            if (s.playerId === injuredPlayer.id) {
+              return { ...s, playerId: injurySubChoiceId };
+            }
+            return s;
+          });
+          const newBench = tactics.lineup.bench.filter(id => id !== injurySubChoiceId);
+
+          setTactics({
+            ...tactics,
+            lineup: {
+              ...tactics.lineup,
+              starters: newStarters,
+              bench: newBench
+            }
+          });
+        } else {
+          const tenManEvent: MatchEvent = {
+            minute: inc.minute,
+            type: 'sub',
+            clubId: state.userClubId || '',
+            playerId: injuredPlayer.id,
+            playerName: injuredPlayer.name,
+            description: `🚑 負傷退場 (${inc.minute}分): ${injuredPlayer.name}が負傷によりピッチを去りました（交代枠なし・10名で試合続行）`
+          };
+          setRevealedEvents(prev => [...prev, tenManEvent]);
+
+          const newStarters = tactics.lineup.starters.filter(s => s.playerId !== injuredPlayer.id);
+          setTactics({
+            ...tactics,
+            lineup: {
+              ...tactics.lineup,
+              starters: newStarters,
+              bench: tactics.lineup.bench
+            }
+          });
         }
-        return s;
-      });
-      const newBench = tactics.lineup.bench.filter(id => id !== injurySubChoiceId);
+      }
 
-      setTactics({
-        ...tactics,
-        lineup: {
-          ...tactics.lineup,
-          starters: newStarters,
-          bench: newBench
-        }
-      });
-    } else {
-      const tenManEvent: MatchEvent = {
-        minute,
-        type: 'sub',
-        clubId: state.userClubId || '',
-        playerId: injuredPlayer.id,
-        playerName: injuredPlayer.name,
-        description: `🚑 負傷退場 (${minute}分): ${injuredPlayer.name}が負傷によりピッチを去りました（交代枠なし・10名で試合続行）`
-      };
-      setRevealedEvents(prev => [...prev, tenManEvent]);
-
-      const newStarters = tactics.lineup.starters.filter(s => s.playerId !== injuredPlayer.id);
-      setTactics({
-        ...tactics,
-        lineup: {
-          ...tactics.lineup,
-          starters: newStarters,
-          bench: tactics.lineup.bench
-        }
-      });
+      if (simulatedResult?.updatedPlayers?.[injuredPlayer.id]) {
+        simulatedResult.updatedPlayers[injuredPlayer.id].injury = {
+          isInjured: true,
+          type: injuryType,
+          recoveryDays,
+          returnDate
+        };
+        simulatedResult.updatedPlayers[injuredPlayer.id].injuryStatus = 'INJURED';
+        simulatedResult.updatedPlayers[injuredPlayer.id].injuryReturnDate = returnDate;
+        simulatedResult.updatedPlayers[injuredPlayer.id].squadStatus = 'OUT_OF_SQUAD';
+      }
+    } else if (inc.type === 'red_card' || inc.type === 'second_yellow') {
+      if (inc.isUserClub) {
+        // Red card on user club: player removed from active starters (plays with 10)
+        const newStarters = tactics.lineup.starters.filter(s => s.playerId !== inc.player.id);
+        setTactics({
+          ...tactics,
+          lineup: {
+            ...tactics.lineup,
+            starters: newStarters,
+            bench: tactics.lineup.bench
+          }
+        });
+      }
     }
 
-    if (simulatedResult?.updatedPlayers?.[injuredPlayer.id]) {
-      simulatedResult.updatedPlayers[injuredPlayer.id].injury = {
-        isInjured: true,
-        type: injuryType,
-        recoveryDays,
-        returnDate
-      };
-      simulatedResult.updatedPlayers[injuredPlayer.id].injuryStatus = 'INJURED';
-      simulatedResult.updatedPlayers[injuredPlayer.id].injuryReturnDate = returnDate;
-      simulatedResult.updatedPlayers[injuredPlayer.id].squadStatus = 'OUT_OF_SQUAD';
-    }
-
-    setActiveInjuryModalData(null);
+    setActiveIncidentNotice(null);
     setInjurySubChoiceId(null);
-    setIsPlaying(true);
+    if (resumeMatch) {
+      setIsPlaying(true);
+    }
   };
 
   // Extract all goals scored so far for header display
@@ -1202,103 +1328,149 @@ export const MatchSimulationView: React.FC<Props> = ({
           </div>
         )}
 
-        {/* IN-MATCH INJURY SUBSTITUTION MODAL (Requirement 15: 試合中の怪我) */}
-        {activeInjuryModalData && (
+        {/* UNIFIED IN-MATCH INCIDENT MODAL (Requirement 1: 負傷・レッドカード発生時の完全停止・手動再開モーダル) */}
+        {activeIncidentNotice && (
           <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
             <div className="bg-slate-900 border-2 border-red-500/80 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
-              {/* 1. Header: 「○○選手が負傷しました」 */}
+              
+              {/* Header */}
               <div className="flex items-center gap-3 border-b border-red-500/30 pb-3">
-                <div className="w-10 h-10 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
-                  <AlertTriangle className="w-6 h-6" />
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${
+                  activeIncidentNotice.type === 'injury'
+                    ? 'bg-red-500/20 border border-red-500/40 text-red-400'
+                    : 'bg-rose-600/30 border border-rose-500 text-rose-300'
+                }`}>
+                  {activeIncidentNotice.type === 'injury' ? '🚑' : '🟥'}
                 </div>
                 <div>
                   <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">
-                    緊急選手交代要請 (Injury Stoppage {minute}&apos;)
+                    {activeIncidentNotice.type === 'injury' 
+                      ? `負傷発生による試合一時停止 (${activeIncidentNotice.minute}分)`
+                      : `退場処分による試合一時停止 (${activeIncidentNotice.minute}分)`}
                   </span>
                   <h3 className="text-lg font-black text-white">
-                    {activeInjuryModalData.player.name} 選手が負傷しました
+                    {activeIncidentNotice.player.name} 選手（{activeIncidentNotice.clubName}）
                   </h3>
                 </div>
               </div>
 
-              {/* 2. Message: 「○○選手はプレー続行できません」 */}
-              <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-800/60 space-y-1">
-                <div className="text-sm font-bold text-red-300 flex items-center gap-2">
-                  <span>❌</span>
-                  <span>{activeInjuryModalData.player.name} 選手はプレー続行できません</span>
+              {/* Incident Details Card */}
+              {activeIncidentNotice.type === 'injury' ? (
+                <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-800/60 space-y-1.5">
+                  <div className="text-sm font-bold text-red-300 flex items-center gap-2">
+                    <span>❌</span>
+                    <span>{activeIncidentNotice.player.name} 選手はプレー続行不可能です</span>
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    初期診断：<strong className="text-white">{activeIncidentNotice.injuryDetails?.type}</strong>（全治約{activeIncidentNotice.injuryDetails?.recoveryDays}日・復帰予定日: {activeIncidentNotice.injuryDetails?.returnDate}）
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    所属: {activeIncidentNotice.clubName} {activeIncidentNotice.isUserClub ? '（自クラブ）' : '（対戦相手）'} · 次節以降の公式戦も欠場となります。
+                  </div>
                 </div>
-                <div className="text-xs text-slate-300">
-                  初期診断：<strong className="text-white">{activeInjuryModalData.injuryType}</strong>（全治約{activeInjuryModalData.recoveryDays}日・復帰予定: {activeInjuryModalData.returnDate}）
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-800/60 space-y-1.5">
+                  <div className="text-sm font-bold text-rose-300 flex items-center gap-2">
+                    <span>🟥</span>
+                    <span>
+                      {activeIncidentNotice.redCardDetails?.isSecondYellow ? 'イエローカード2枚目（警告退場処分）' : '一発レッドカード（即座退場処分）'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    退場理由：<strong className="text-white">{activeIncidentNotice.redCardDetails?.reason}</strong>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {activeIncidentNotice.clubName}は残り時間を10名で戦うことになります。次節も出場停止処分となります。
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* 3. Choose replacement player: 交代選手を選択 */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-200">
-                    交代選手を選択してください (ベンチメンバー / 残り交代枠: {5 - subCount})
-                  </span>
-                  <span className="text-slate-400 font-mono">
-                    {userBench.length}名 待機中
-                  </span>
-                </div>
+              {/* Substitution selection if user club injury */}
+              {activeIncidentNotice.type === 'injury' && activeIncidentNotice.isUserClub && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-200">
+                      交代選手を選択してください (ベンチメンバー / 残り交代枠: {5 - subCount})
+                    </span>
+                    <span className="text-slate-400 font-mono">
+                      {userBench.length}名 待機中
+                    </span>
+                  </div>
 
-                {subCount < 5 && userBench.length > 0 ? (
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                    {userBench.map(p => {
-                      const isSelected = injurySubChoiceId === p.id;
-                      const isInj = p.injury?.isInjured || p.injuryStatus === 'INJURED';
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          disabled={isInj}
-                          onClick={() => setInjurySubChoiceId(p.id)}
-                          className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-emerald-950/60 border-emerald-500 ring-2 ring-emerald-500/40'
-                              : isInj
-                              ? 'opacity-40 bg-slate-950 border-slate-900 cursor-not-allowed'
-                              : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <span className="w-5 text-slate-500 font-mono text-[11px]">#{p.shirtNumber}</span>
-                              <span className="w-8 font-bold text-blue-400 font-mono text-xs">{p.position}</span>
-                              <div>
-                                <div className="text-xs font-bold text-white">{p.name}</div>
-                                <div className="text-[10px] text-slate-400">{p.age}歳 · {p.playstyle}</div>
+                  {subCount < 5 && userBench.length > 0 ? (
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                      {userBench.map(p => {
+                        const isSelected = injurySubChoiceId === p.id;
+                        const isInj = p.injury?.isInjured || p.injuryStatus === 'INJURED';
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={isInj}
+                            onClick={() => setInjurySubChoiceId(p.id)}
+                            className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-emerald-950/60 border-emerald-500 ring-2 ring-emerald-500/40'
+                                : isInj
+                                ? 'opacity-40 bg-slate-950 border-slate-900 cursor-not-allowed'
+                                : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <span className="w-5 text-slate-500 font-mono text-[11px]">#{p.shirtNumber}</span>
+                                <span className="w-8 font-bold text-blue-400 font-mono text-xs">{p.position}</span>
+                                <div>
+                                  <div className="text-xs font-bold text-white">{p.name}</div>
+                                  <div className="text-[10px] text-slate-400">{p.age}歳 · {p.playstyle}</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-bold text-emerald-400">OVR {p.ovr}</span>
+                                <span className="text-[10px] text-slate-400">疲労 {p.fatigue}%</span>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono font-bold text-emerald-400">OVR {p.ovr}</span>
-                              <span className="text-[10px] text-slate-400">疲労 {p.fatigue}%</span>
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-amber-300">
-                    交代枠上限(5枠)に達しているか、ベンチに選手がいないため、残り時間を10名で戦うことになります。
-                  </div>
-                )}
-              </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-amber-300">
+                      交代枠上限(5枠)に達しているかベンチが不在のため、残り時間を10名で戦います。
+                    </div>
+                  )}
+                </div>
+              )}
 
-              {/* 4. Action button */}
+              {/* Opponent injury notice */}
+              {activeIncidentNotice.type === 'injury' && !activeIncidentNotice.isUserClub && (
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300">
+                  相手チームのメディカルスタッフがピッチへ入り、負傷選手を搬送しました。相手ベンチは交代カードを切って試合を再開します。
+                </div>
+              )}
+
+              {/* Action button */}
               <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleConfirmInjurySubstitution}
-                  disabled={subCount < 5 && userBench.length > 0 && !injurySubChoiceId}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 active:scale-[0.98] text-white font-bold text-xs sm:text-sm cursor-pointer shadow-lg shadow-red-600/30 transition-all"
-                >
-                  {subCount < 5 && userBench.length > 0
-                    ? (injurySubChoiceId ? '交代を実行して試合再開' : '交代選手を選択してください')
-                    : '10人で試合を再開する'}
-                </button>
+                {activeIncidentNotice.type === 'injury' && activeIncidentNotice.isUserClub ? (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmIncident(true)}
+                    disabled={subCount < 5 && userBench.length > 0 && !injurySubChoiceId}
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 active:scale-[0.98] text-white font-bold text-xs sm:text-sm cursor-pointer shadow-lg shadow-red-600/30 transition-all"
+                  >
+                    {subCount < 5 && userBench.length > 0
+                      ? (injurySubChoiceId ? '交代を実行して試合再開' : '交代選手を選択してください')
+                      : '10人で試合を再開する'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmIncident(true)}
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs sm:text-sm cursor-pointer shadow-lg shadow-emerald-500/20 transition-all"
+                  >
+                    内容を確認して試合を再開する (Resume Match)
+                  </button>
+                )}
               </div>
             </div>
           </div>

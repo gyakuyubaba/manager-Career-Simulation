@@ -18,6 +18,7 @@ import { deriveRealisticAltPositions } from '../data/playerPositionsHelper';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { getDaysUntilDeadline } from './dateEngine';
 import { ensureYouthAcademyProspects } from './dataValidator';
+import { generateClubVisionRoadmap } from './clubVisionEngine';
 import { 
   saveGameToStorage, 
   loadGameFromStorage, 
@@ -290,6 +291,8 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     importance: 'high'
   };
 
+  const clubVision = generateClubVisionRoadmap(chosenClub, state.season);
+
   const nextState: GameWorldState = {
     ...state,
     userClubId: chosenClubId,
@@ -300,7 +303,9 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     news: [appointNews, psNews, ...state.news],
     youthAcademy: customYouth,
     boardConfidence: 85,
-    fanApproval: 80
+    fanApproval: 80,
+    consecutiveWinless: 0,
+    clubVision
   };
 
   saveGameState(nextState);
