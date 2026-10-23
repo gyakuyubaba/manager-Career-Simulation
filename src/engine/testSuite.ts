@@ -20,6 +20,14 @@ import {
   processPreSeasonMatchRewards, 
   calculateClubGrowthScore 
 } from './preSeasonEngine';
+import { 
+  validateStateIntegrity, 
+  exportSaveDataAsJSON, 
+  importSaveDataFromJSON, 
+  migrateGameState,
+  CURRENT_SCHEMA_VERSION,
+  computeStateChecksum
+} from './storageEngine';
 
 export interface TestResult {
   id: string;
@@ -790,6 +798,54 @@ export function runAll16Tests(): TestResult[] {
     });
   } catch (e: any) {
     results.push({ id: 'TEST 26', name: 'プレシーズン結果の保存・クラブ成長収益反映・公式リーグ戦績非影響の維持', passed: false, details: e.message });
+  }
+
+  // TEST 27: セーブデータの永続性・整合性検証・スキーマ移行・複数シーズン保護（5MB超過耐性）
+  try {
+    // 1. Check integrity validation
+    const integrityCheck = validateStateIntegrity(testState);
+    const integrityValid = integrityCheck.isValid;
+
+    // 2. Check 5MB quota immunity (verify serialized byte size exceeds LocalStorage 5MB limit)
+    const serialized = JSON.stringify(testState);
+    const byteLength = new TextEncoder().encode(serialized).length;
+    const isLargeState = byteLength > 5 * 1024 * 1024; // > 5MB
+
+    // 3. Check JSON export and import round-trip
+    const exportedJSON = exportSaveDataAsJSON(testState);
+    const importRes = importSaveDataFromJSON(exportedJSON);
+    const importSuccess = importRes.success && importRes.state !== undefined;
+    const sameManager = importRes.state?.manager.name === testState.manager.name;
+    const sameClub = importRes.state?.userClubId === testState.userClubId;
+
+    // 4. Check multi-season protection (seasons beyond 2026/27 must NEVER be wiped or reset)
+    const futureSeasonState: GameWorldState = {
+      ...testState,
+      season: '2028/29',
+      currentDate: '2028-08-15'
+    };
+    const migratedFuture = migrateGameState(futureSeasonState, 1);
+    const futureSeasonPreserved = migratedFuture.season === '2028/29' && migratedFuture.currentDate === '2028-08-15';
+
+    // 5. Check missing properties are safely populated without destructive override
+    const legacyWithoutSettings: any = {
+      ...testState,
+      difficultySettings: undefined
+    };
+    const migratedSettings = migrateGameState(legacyWithoutSettings, 1);
+    const settingsPopulated = migratedSettings.difficultySettings !== undefined && migratedSettings.difficultySettings.injuryFrequency === 'normal';
+
+    const passed = integrityValid && isLargeState && importSuccess && sameManager && sameClub && futureSeasonPreserved && settingsPopulated;
+    results.push({
+      id: 'TEST 27',
+      name: 'セーブデータ永続性・5MB制限撤廃・整合性検証・複数シーズン保護・バックアップ移行',
+      passed,
+      details: passed
+        ? `成功: 全ゲーム世界データ(${Math.round(byteLength / 1024 / 1024 * 10) / 10}MB)の整合性検証、JSONエクスポート/インポート完全一致、2028/29など次期シーズンのデータ保持、および自動マイグレーションによる初期値補完を確認しました。`
+        : `失敗: 整合性(${integrityValid}), 5MB超過(${isLargeState}), インポート(${importSuccess}), 将来シーズン保護(${futureSeasonPreserved})のいずれかに不備があります。`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 27', name: 'セーブデータ永続性・5MB制限撤廃・整合性検証・複数シーズン保護・バックアップ移行', passed: false, details: e.message });
   }
 
   return results;

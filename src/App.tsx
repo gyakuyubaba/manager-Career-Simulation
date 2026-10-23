@@ -16,7 +16,10 @@ import {
   loadGameState, 
   saveGameState, 
   clearGameState,
-  resetGameWorldToInitial
+  resetGameWorldToInitial,
+  loadGameFromStorage,
+  saveGameToStorage,
+  clearAllGameStorage
 } from './engine/gameState';
 import { advanceOneDay, fastForwardUntil, applyMatchResultToWorld, simulatePendingAIFixturesForDate } from './engine/dateEngine';
 import { exerciseLoanBuyOption } from './engine/transferEngine';
@@ -34,10 +37,12 @@ import { ManagerCareerTab } from './components/tabs/ManagerCareerTab';
 import { MatchSimulationView } from './components/tabs/MatchSimulationView';
 import { PressConferenceModal } from './components/tabs/PressConferenceModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
-import { Bell, AlertCircle, CheckCircle } from 'lucide-react';
+import { Bell, AlertCircle, CheckCircle, Database } from 'lucide-react';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameWorldState | null>(null);
+  const [isStorageReady, setIsStorageReady] = useState<boolean>(false);
+  const [storageToast, setStorageToast] = useState<{ message: string; type: 'info' | 'success' | 'warn' } | null>(null);
   const [activeTab, setActiveTab] = useState<MainTab>('home');
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
 
@@ -48,20 +53,49 @@ export default function App() {
   const [dayAlertMessage, setDayAlertMessage] = useState<string | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
 
-  // Initialize or load existing career
+  // Initialize or load existing career safely from authoritative IndexedDB
   useEffect(() => {
-    const saved = loadGameState();
-    if (saved) {
-      setGameState(saved);
+    let isMounted = true;
+    async function initCareerStorage() {
+      try {
+        const res = await loadGameFromStorage();
+        if (!isMounted) return;
+        if (res.state) {
+          setGameState(res.state);
+          if (res.source.includes('backup')) {
+            setStorageToast({
+              message: 'セーブデータ整合性保護のため、バックアップ世代から安全に復元しました。',
+              type: 'warn'
+            });
+            setTimeout(() => setStorageToast(null), 5000);
+          } else if (res.migrated) {
+            setStorageToast({
+              message: 'セーブデータを最新のスキーマバージョンへ安全に自動移行しました。',
+              type: 'info'
+            });
+            setTimeout(() => setStorageToast(null), 4000);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load career from permanent storage:', err);
+      } finally {
+        if (isMounted) {
+          setIsStorageReady(true);
+        }
+      }
     }
+    initCareerStorage();
+    return () => { isMounted = false; };
   }, []);
 
-  // Save game state whenever it changes
+  // Safe auto-save: Only saves when storage is initialized and valid state is loaded/active
   useEffect(() => {
-    if (gameState) {
-      saveGameState(gameState);
+    if (isStorageReady && gameState) {
+      saveGameToStorage(gameState).catch(err => {
+        console.warn('Auto-save error:', err);
+      });
     }
-  }, [gameState]);
+  }, [gameState, isStorageReady]);
 
   // Step 1: Manager Creation
   const handleManagerCreated = (profile: ManagerProfile) => {
@@ -396,7 +430,8 @@ export default function App() {
     setDayAlertMessage(null);
     setActiveTab('home');
 
-    // 3. Clear memory state so App transitions back to ManagerCreationModal
+    // 3. Clear memory state & storage (creates pre-reset safety backup in IndexedDB first)
+    clearAllGameStorage().catch(err => console.error('Error during storage clear:', err));
     clearGameState();
     setGameState(null);
 
@@ -408,7 +443,29 @@ export default function App() {
     setShowResetConfirmModal(true);
   };
 
-  // PHASE 1: NO GAME STATE YET -> CREATE MANAGER
+  // PHASE 0: STORAGE INITIALIZING (Prevents premature ManagerCreationModal or overwriting existing save)
+  if (!isStorageReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6">
+        <div className="flex flex-col items-center max-w-sm text-center space-y-4 animate-in fade-in">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+            <Database className="w-6 h-6 text-emerald-400 animate-pulse" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base font-bold text-white tracking-wide">キャリアデータ読み込み中</h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              IndexedDB永続ストレージおよびセーブバックアップ世代を照会しています...
+            </p>
+          </div>
+          <div className="w-48 h-1 bg-slate-800 rounded-full overflow-hidden">
+            <div className="w-full h-full bg-emerald-500 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PHASE 1: NO GAME STATE YET -> CREATE MANAGER (User explicitly initiates)
   if (!gameState) {
     return <ManagerCreationModal onComplete={handleManagerCreated} />;
   }
@@ -443,6 +500,29 @@ export default function App() {
         onResetCareer={handleOpenResetModal}
         isSimulating={isSimulating}
       />
+
+      {/* Storage & Backup Restoration Toast Banner */}
+      {storageToast && (
+        <div className="max-w-7xl mx-auto w-full px-3.5 sm:px-6 pt-3 animate-in fade-in">
+          <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
+            storageToast.type === 'warn'
+              ? 'bg-amber-950/70 border-amber-500/50 text-amber-200'
+              : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{storageToast.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStorageToast(null)}
+              className="text-slate-400 hover:text-white px-2 py-0.5 rounded cursor-pointer text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-3.5 sm:px-6 pt-4 pb-20">

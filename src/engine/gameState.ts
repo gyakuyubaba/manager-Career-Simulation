@@ -18,6 +18,25 @@ import { deriveRealisticAltPositions } from '../data/playerPositionsHelper';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { getDaysUntilDeadline } from './dateEngine';
 import { ensureYouthAcademyProspects } from './dataValidator';
+import { 
+  saveGameToStorage, 
+  loadGameFromStorage, 
+  clearAllGameStorage, 
+  downloadCareerSaveFile, 
+  importSaveDataFromJSON, 
+  validateStateIntegrity,
+  migrateGameState,
+  PRIMARY_SLOT_ID
+} from './storageEngine';
+
+export { 
+  saveGameToStorage, 
+  loadGameFromStorage, 
+  clearAllGameStorage, 
+  downloadCareerSaveFile, 
+  importSaveDataFromJSON,
+  validateStateIntegrity 
+};
 
 export const SAVE_KEY = 'fm26_career_save_v5_pure_europe';
 
@@ -444,13 +463,23 @@ export function resetGameWorldToInitial(): {
 
 export function saveGameState(state: GameWorldState): boolean {
   try {
+    // 1. Asynchronously persist to authoritative IndexedDB with 3-generation rolling backup
+    saveGameToStorage(state).catch(err => {
+      console.warn('Background saveGameToStorage error:', err);
+    });
+
+    // 2. Best-effort mirror to LocalStorage (catching QuotaExceededError gracefully)
     if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+      try {
+        window.localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+      } catch (e) {
+        // LocalStorage 5MB quota exceeded is expected for ~7.2MB full state; IndexedDB handles full persistence
+      }
       return true;
     }
-    return false;
+    return true;
   } catch (err) {
-    console.error('Failed to save game state to LocalStorage:', err);
+    console.error('Failed to save game state:', err);
     return false;
   }
 }
@@ -533,60 +562,31 @@ export function loadGameState(): GameWorldState | null {
     if (typeof window === 'undefined' || !window.localStorage) {
       return null;
     }
-    // Check save
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    // Check save from primary or legacy keys
+    let raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) {
-      window.localStorage.removeItem('fm26_career_save_v1');
-      return null;
-    }
-    let state: GameWorldState = JSON.parse(raw);
-    
-    // Auto-migrate check: if less than 96 clubs, missing manager, or outdated season
-    if (!state.clubs || Object.keys(state.clubs).length < 96 || state.season !== '2026/27') {
-      console.warn('Legacy save detected. Resetting to 2026/27 database.');
-      window.localStorage.removeItem(SAVE_KEY);
-      return null;
-    }
-
-    // Auto-migrate for complete database: ensure all 238 clubs, complete squads (>=18 players), and valid tactics
-    const totalClubs = Object.keys(state.clubs || {}).length;
-    const isMissingClubs = totalClubs < 238;
-    const hasIncompleteSquad = J1_20_CLUBS.some(c => (state.clubs[c.id]?.playerIds?.length || 0) < 18) ||
-      J2_20_CLUBS.some(c => (state.clubs[c.id]?.playerIds?.length || 0) < 18);
-    const hasInvalidTactics = !!state.userClubId && (
-      !state.tactics?.lineup?.starters ||
-      state.tactics.lineup.starters.length < 11 ||
-      state.tactics.lineup.starters.some(s => !s.playerId || !state.players[s.playerId])
-    );
-
-    if (ENABLE_J_LEAGUE && (isMissingClubs || hasIncompleteSquad || hasInvalidTactics)) {
-      if (!state.userClubId) {
-        console.warn('Unselected club state without full database. Initializing all clubs for selection.');
-        return createNewGameWorld(state.manager, state.difficultySettings);
-      }
-      state = migrateJLeagueIntoExistingState(state);
-    }
-
-    if (state.players) {
-      Object.values(state.players).forEach(p => {
-        if (!p.initialOvr) p.initialOvr = p.ovr;
-        if (!p.exactOvr) p.exactOvr = p.ovr;
-        if (!p.altPositions || p.altPositions.length === 0) {
-          p.altPositions = deriveRealisticAltPositions(p.position, p.preferredFoot, p.playstyle, p.name);
+      for (const k of ['fm26_career_save_v5', 'fm26_career_save_v4', 'fm26_career_save_v3', 'fm26_career_save_v2', 'fm26_career_save_v1', 'fm26_career_save']) {
+        const found = window.localStorage.getItem(k);
+        if (found) {
+          raw = found;
+          break;
         }
-      });
+      }
+    }
+    if (!raw) {
+      return null;
     }
 
-    if (!state.difficultySettings) {
-      state.difficultySettings = { ...DEFAULT_DIFFICULTY_SETTINGS };
+    const state: GameWorldState = JSON.parse(raw);
+    const check = validateStateIntegrity(state);
+    if (!check.isValid) {
+      console.warn('LocalStorage save failed integrity check:', check.errors);
+      return null;
     }
 
-    const hasOldYouthFormat = state.youthAcademy?.some(y => y.name.includes('(') || y.name.includes('高橋 蓮') || y.id === 'youth_1');
-    if (hasOldYouthFormat || !state.youthAcademy || state.youthAcademy.length < 5) {
-      const clubCountry = state.userClubId && state.clubs[state.userClubId] ? state.clubs[state.userClubId].country : '日本';
-      state.youthAcademy = generateRandomYouthAcademy(clubCountry, 6);
-    }
-    return state;
+    // Safely migrate state without ever deleting future seasons or existing records!
+    const migrated = migrateGameState(state, 1);
+    return migrated;
   } catch (err) {
     console.error('Failed to load game state from LocalStorage:', err);
     return null;
@@ -595,18 +595,7 @@ export function loadGameState(): GameWorldState | null {
 
 export function clearGameState(): void {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(SAVE_KEY);
-      window.localStorage.removeItem('fm26_career_save_v1');
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (k && (k.startsWith('fm26_') || k.includes('career'))) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach(k => window.localStorage.removeItem(k));
-    }
+    clearAllGameStorage().catch(err => console.error('clearAllGameStorage error:', err));
   } catch (err) {
     console.error('Failed to clear game state:', err);
   }

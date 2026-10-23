@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { GameWorldState, YouthProspect, Player } from '../../types/game';
 import { 
   Trophy, 
@@ -17,10 +17,22 @@ import {
   AlertTriangle,
   CheckCircle2,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Download,
+  Upload,
+  HardDrive,
+  ShieldCheck,
+  FileCheck
 } from 'lucide-react';
 import { useI18n } from '../../i18n/LanguageContext';
 import { saveGameState } from '../../engine/gameState';
+import { 
+  saveGameToStorage, 
+  downloadCareerSaveFile, 
+  importSaveDataFromJSON,
+  CURRENT_SCHEMA_VERSION,
+  APP_CODE_VERSION
+} from '../../engine/storageEngine';
 import { runAll16Tests, TestResult } from '../../engine/testSuite';
 import { generateRandomYouthAcademy } from '../../data/youthGenerator';
 
@@ -42,6 +54,9 @@ export const ManagerCareerTab: React.FC<Props> = ({
   const { language, setLanguage, t } = useI18n();
   const [subSection, setSubSection] = useState<'academy_training' | 'career_trophies' | 'finance_board' | 'settings'>('academy_training');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatusMsg, setSaveStatusMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const [isRunningTests, setIsRunningTests] = useState(false);
 
@@ -82,12 +97,54 @@ export const ManagerCareerTab: React.FC<Props> = ({
     setTimeout(() => setYouthScoutMessage(null), 3500);
   };
 
-  const handleManualSave = () => {
-    const ok = saveGameState(state);
-    if (ok) {
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
+  const handleManualSave = async () => {
+    setIsSaving(true);
+    setSaveStatusMsg(null);
+    try {
+      const res = await saveGameToStorage(state);
+      if (res.success) {
+        setSaveSuccess(true);
+        setSaveStatusMsg({ text: 'IndexedDB永続ストレージおよび3世代ローリングバックアップに正常保存されました！' });
+        setTimeout(() => setSaveSuccess(false), 2500);
+      } else {
+        setSaveStatusMsg({ text: res.error || 'セーブデータの保存に失敗しました', isError: true });
+      }
+    } catch (err: any) {
+      setSaveStatusMsg({ text: err?.message || '保存処理中にエラーが発生しました', isError: true });
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setSaveStatusMsg(null), 4500);
     }
+  };
+
+  const handleExportSave = () => {
+    try {
+      downloadCareerSaveFile(state);
+      setSaveStatusMsg({ text: 'セーブデータ（JSON）のダウンロードを開始しました。' });
+      setTimeout(() => setSaveStatusMsg(null), 4000);
+    } catch (err: any) {
+      setSaveStatusMsg({ text: 'エクスポートに失敗しました: ' + err.message, isError: true });
+    }
+  };
+
+  const handleImportSaveFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const content = ev.target?.result as string;
+      const res = importSaveDataFromJSON(content);
+      if (res.success && res.state) {
+        onUpdateState(res.state);
+        await saveGameToStorage(res.state);
+        setSaveStatusMsg({ text: 'バックアップJSONからキャリアデータを正常に復元・保存しました！' });
+      } else {
+        setSaveStatusMsg({ text: res.error || 'ファイルの読み込みに失敗しました', isError: true });
+      }
+      setTimeout(() => setSaveStatusMsg(null), 5000);
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const triggerResetModal = () => {
@@ -441,6 +498,131 @@ export const ManagerCareerTab: React.FC<Props> = ({
       {/* SUBSECTION 4: SETTINGS & DATA RESET */}
       {subSection === 'settings' && (
         <div className="space-y-5">
+          {/* Permanent Save Storage & Backup Management Panel */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <Database className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <span>セーブデータ永続管理 & バックアップ復元</span>
+                    <span className="text-[10px] bg-emerald-950 text-emerald-300 font-mono px-2 py-0.5 rounded-full border border-emerald-800/80">
+                      IndexedDB 永続化
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    ブラウザ再読み込み・更新・端末再起動でも完全保持。5MB容量制限を克服し3世代バックアップで保護されています。
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-800/80 text-[11px] text-emerald-400 font-mono font-bold">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  3世代バックアップ稼働中
+                </span>
+              </div>
+            </div>
+
+            {/* Storage Info Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">保存エンジン</span>
+                <span className="text-white font-bold text-xs mt-0.5 block">IndexedDB API</span>
+                <span className="text-emerald-400 text-[10px]">容量無制限・永続</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">バックアップ世代</span>
+                <span className="text-white font-bold text-xs mt-0.5 block">Primary + 2世代</span>
+                <span className="text-emerald-400 text-[10px]">破損時自動フォールバック</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">スキーマバージョン</span>
+                <span className="text-white font-bold text-xs mt-0.5 block">v{CURRENT_SCHEMA_VERSION}</span>
+                <span className="text-slate-400 text-[10px]">App v{APP_CODE_VERSION}</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">データ移行保護</span>
+                <span className="text-white font-bold text-xs mt-0.5 block">自動マイグレーション</span>
+                <span className="text-emerald-400 text-[10px]">複数シーズン非初期化</span>
+              </div>
+            </div>
+
+            {/* Save Status Notification Feedback */}
+            {saveStatusMsg && (
+              <div className={`p-3 rounded-2xl border text-xs font-semibold flex items-center justify-between animate-in fade-in ${
+                saveStatusMsg.isError 
+                  ? 'bg-red-950/80 border-red-500 text-red-200' 
+                  : 'bg-emerald-950/80 border-emerald-500 text-emerald-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {saveStatusMsg.isError ? (
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  )}
+                  <span>{saveStatusMsg.text}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSaveStatusMsg(null)}
+                  className="text-slate-400 hover:text-white px-1.5 cursor-pointer text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Save, Export, Import Action Buttons */}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleManualSave}
+                disabled={isSaving}
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 cursor-pointer transition-all flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                ) : saveSuccess ? (
+                  <Check className="w-4 h-4 text-slate-950" />
+                ) : (
+                  <Save className="w-4 h-4 text-slate-950" />
+                )}
+                <span>{isSaving ? 'IndexedDB書き込み中...' : saveSuccess ? 'セーブ完了！' : '今すぐ手動セーブ (IndexedDB)'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportSave}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 border border-slate-700 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+                title="セーブデータをJSON形式のバックアップファイルとしてPC/端末へダウンロードします"
+              >
+                <Download className="w-4 h-4 text-blue-400" />
+                <span>バックアップJSONをエクスポート</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 border border-slate-700 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+                title="以前エクスポートしたバックアップJSONファイルを選択してキャリアデータを復元します"
+              >
+                <Upload className="w-4 h-4 text-amber-400" />
+                <span>JSONファイルから復元 (インポート)</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImportSaveFile}
+                className="hidden"
+              />
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
+              ※ 日程進行・試合終了・選手移籍などのゲーム内アクション時にも自動でIndexedDBへセーブされます。また万が一データ破損が発生した場合は、自動的に直近の健全なバックアップから復元されます。
+            </p>
+          </div>
+
           {/* Language Selection */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex items-center gap-2.5 pb-2 border-b border-slate-800">
@@ -478,17 +660,17 @@ export const ManagerCareerTab: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* 16-Item System & Integrity Verification Test Suite */}
+          {/* 27-Item System & Integrity Verification Test Suite */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div>
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    システム検証・自動診断テスト（全20項目）
+                    システム検証・自動診断テスト（全27項目）
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    スタメン入替、怪我頻度抑制、月末全試合シミュレーション、ベンチ外整合性、J1リーグ所属、ユース育成など包括検証
+                    セーブデータ永続性、IndexedDB 5MB制限撤廃、ローリングバックアップ、スタメン入替、プレシーズン抽選、J1/J2対戦など包括検証
                   </p>
                 </div>
               </div>
@@ -498,7 +680,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
                 disabled={isRunningTests}
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 cursor-pointer shrink-0 transition-all flex items-center justify-center gap-1.5"
               >
-                {isRunningTests ? '検証中...' : 'テストを実行する（全20項目）'}
+                {isRunningTests ? '検証中...' : 'テストを実行する（全27項目）'}
               </button>
             </div>
 
