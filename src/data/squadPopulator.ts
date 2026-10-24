@@ -2,6 +2,7 @@ import { Player, Position, Club, TeamTactics, PlayStyle } from '../types/game';
 import { ALL_CLUBS, ALL_116_CLUBS, ENABLE_J_LEAGUE } from './clubsData';
 import { CURATED_REAL_SQUADS } from './squadsCatalog';
 import { ADDITIONAL_CLUB_SEEDS } from './allClubsSquads';
+import { EUROPEAN_MAJOR_CLUBS_2026_SEEDS } from './europeanMajorClubsRosters';
 import { makeRealPlayer } from './realPlayersDatabase';
 import { checkPlayerDataIntegrity } from '../engine/dataValidator';
 import { updateTacticsFormation } from '../engine/tacticsEngine';
@@ -214,6 +215,33 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     });
   });
 
+  // 2a-2. Register additional authentic European 1st-division major club seeds (Fulham, Wolves, Brentford, Forest, Leicester, Ipswich, Southampton, Betis, Villarreal, Valencia, Sevilla, Girona, Stuttgart, Frankfurt, Atalanta, Roma, Lazio, Fiorentina, Bologna, Lille, Nice, Lens, Rennes, etc.)
+  Object.entries(EUROPEAN_MAJOR_CLUBS_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_eur26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 85 ? 65000000 : seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 2500000;
+      const wageMultiplier = seed.ovr >= 85 ? 200000 : seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 12000;
+
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 22 ? 6 : seed.age <= 26 ? 3 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
+
+      addPlayerIfUnique(player);
+    });
+  });
+
   // 2b. Register must-check stars and European 2nd division authentic seeds
   Object.entries(MUST_CHECK_AND_OVERSEAS_SEEDS).forEach(([clubId, seeds]) => {
     seeds.forEach((seed, idx) => {
@@ -251,6 +279,10 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
         ? 'southampton_yukinari_sugawara'
         : seed.name.includes('板倉')
         ? 'gladbach_ko_itakura'
+        : seed.name.includes('鎌田')
+        ? 'crystal_palace_daichi_kamada'
+        : seed.name.includes('田中 碧')
+        ? 'leeds_ao_tanaka'
         : `${clubId}_seed_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
 
       const tierMultiplier = seed.ovr >= 85 ? 65000000 : seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;

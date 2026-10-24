@@ -185,8 +185,8 @@ export interface Translations {
 
 export const TRANSLATIONS: Record<Language, Translations> = {
   ja: {
-    appTitle: 'フットボールマネージャー 2025/26',
-    season: '2025/26シーズン',
+    appTitle: 'フットボールマネージャー 2026/27',
+    season: '2026/27シーズン',
     date: '日付',
     nextDay: '次の日へ',
     simulating: 'シミュレーション中...',
@@ -197,7 +197,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     skipMonthEnd: '月末まで進む',
     resetGameData: '🔄 ゲームデータを初期化',
     resetConfirmTitle: 'ゲームデータを初期化しますか？',
-    resetConfirmBody: '現在の監督キャリア、試合結果、移籍履歴、選手状態、順位がすべて消去され、2025/26開始時の初期状態に完全リセットされます。実在選手やクラブの基本データは保持されます。',
+    resetConfirmBody: '現在の監督キャリア、試合結果、移籍履歴、選手状態、順位がすべて消去され、2026/27開始時の初期状態に完全リセットされます。実在選手やクラブの基本データは保持されます。',
     resetTypeConfirmPrompt: '確認のため「RESET」と入力してください：',
     cancel: 'キャンセル',
     confirmReset: '初期化を実行する',
@@ -217,7 +217,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     daysRemaining: '日',
 
     createManagerTitle: 'オリジナル監督プロファイル作成',
-    createManagerSub: '2025/26シーズン、世界最高峰の舞台に挑む指揮官の能力を設定してください',
+    createManagerSub: '2026/27シーズン、世界最高峰の舞台に挑む指揮官の能力を設定してください',
     managerName: '監督名',
     nationality: '国籍',
     age: '年齢',
@@ -356,8 +356,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
   },
 
   en: {
-    appTitle: 'Football Manager 2025/26',
-    season: '2025/26 Season',
+    appTitle: 'Football Manager 2026/27',
+    season: '2026/27 Season',
     date: 'Date',
     nextDay: 'Next Day',
     simulating: 'Simulating...',
@@ -368,7 +368,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     skipMonthEnd: 'Until End of Month',
     resetGameData: '🔄 Reset Game Data',
     resetConfirmTitle: 'Reset Game Data Completely?',
-    resetConfirmBody: 'This will erase all current manager career history, match results, transfers, player conditions, and standings, returning the world state to 2025/26 pre-season. Base database of 116 real clubs and players will remain intact.',
+    resetConfirmBody: 'This will erase all current manager career history, match results, transfers, player conditions, and standings, returning the world state to 2026/27 pre-season. Base database of real clubs and players will remain intact.',
     resetTypeConfirmPrompt: 'Type "RESET" to confirm:',
     cancel: 'Cancel',
     confirmReset: 'Execute Reset',
@@ -388,7 +388,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     daysRemaining: 'days',
 
     createManagerTitle: 'Create Manager Profile',
-    createManagerSub: 'Configure your attributes to begin your journey across world football in the 2025/26 season.',
+    createManagerSub: 'Configure your attributes to begin your journey across world football in the 2026/27 season.',
     managerName: 'Manager Name',
     nationality: 'Nationality',
     age: 'Age',
@@ -527,8 +527,8 @@ export const TRANSLATIONS: Record<Language, Translations> = {
   },
 
   es: {
-    appTitle: 'Football Manager 2025/26',
-    season: 'Temporada 2025/26',
+    appTitle: 'Football Manager 2026/27',
+    season: 'Temporada 2026/27',
     date: 'Fecha',
     nextDay: 'Siguiente día',
     simulating: 'Simulando...',
@@ -539,7 +539,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     skipMonthEnd: 'Hasta final de mes',
     resetGameData: '🔄 Reiniciar datos del juego',
     resetConfirmTitle: '¿Reiniciar todos los datos?',
-    resetConfirmBody: 'Se eliminarán la carrera del entrenador, resultados de partidos, fichajes, estados de jugadores y clasificaciones. Se restablecerá el estado al inicio de la temporada 2025/26. La base de datos de 116 clubes y jugadores reales se mantendrá intacta.',
+    resetConfirmBody: 'Se eliminarán la carrera del entrenador, resultados de partidos, fichajes, estados de jugadores y clasificaciones. Se restablecerá el estado al inicio de la temporada 2026/27. La base de datos de clubes y jugadores reales se mantendrá intacta.',
     resetTypeConfirmPrompt: 'Escribe "RESET" para confirmar:',
     cancel: 'Cancelar',
     confirmReset: 'Confirmar reinicio',
@@ -559,7 +559,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     daysRemaining: 'días',
 
     createManagerTitle: 'Crear Perfil de Entrenador',
-    createManagerSub: 'Configura tus atributos para iniciar tu carrera en la élite del fútbol mundial en la temporada 2025/26.',
+    createManagerSub: 'Configura tus atributos para iniciar tu carrera en la élite del fútbol mundial en la temporada 2026/27.',
     managerName: 'Nombre del entrenador',
     nationality: 'Nacionalidad',
     age: 'Edad',

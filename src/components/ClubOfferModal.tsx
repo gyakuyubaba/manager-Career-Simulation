@@ -138,13 +138,13 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
         <div className="text-center mb-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>2025/26 欧州5大リーグ ＋ 明治安田J1百年構想リーグ＆J2（実名選手完全登録）</span>
+            <span>2026/27 欧州5大リーグ ＋ 明治安田J1百年構想リーグ＆J2（実名選手完全登録）</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-display">
             監督就任クラブの決定
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl mx-auto">
-            {manager.name}監督（{manager.style} / {manager.specialty}）の招聘を希望するクラブ一覧です。推薦オファーに加え、<span className="text-amber-400 font-bold">25/26 J1百年構想リーグ（全20クラブ）</span>、<span className="text-cyan-400 font-bold">J2（全20クラブ）</span>および欧州主要5大リーグ（全96クラブ）から全選手登録済みの状態で自由に就任先を選択できます。
+            {manager.name}監督（{manager.style} / {manager.specialty}）の招聘を希望するクラブ一覧です。推薦オファーに加え、<span className="text-amber-400 font-bold">26/27 J1百年構想リーグ（全20クラブ）</span>、<span className="text-cyan-400 font-bold">J2（全20クラブ）</span>および欧州主要5大リーグ（全96クラブ）から全選手登録済みの状態で自由に就任先を選択できます。
           </p>
         </div>
 
@@ -175,7 +175,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
             <span className="text-base">🇯🇵</span>
             <span>J1百年構想 (20クラブ)</span>
             <span className="px-1.5 py-0.2 rounded bg-amber-950/40 text-[10px] text-amber-900 font-black border border-amber-500/40">
-              25/26
+              26/27
             </span>
           </button>
 
@@ -596,13 +596,13 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
               </div>
             )}
 
-            {/* Squad Roster Preview (2025/26 Centenary & European Complete Authentic Squad) */}
+            {/* Squad Roster Preview (2026/27 Centenary & European Complete Authentic Squad) */}
             <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
                   <UserCheck className="w-4 h-4 text-emerald-400" />
                   <span className="text-xs sm:text-sm font-bold text-white">
-                    {selectedClub.name} 所属登録選手（2025/26最新登録メンバー 全{clubPlayers.length}名）
+                    {selectedClub.name} 所属登録選手（2026/27最新登録メンバー 全{clubPlayers.length}名）
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-slate-400">

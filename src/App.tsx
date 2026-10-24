@@ -37,6 +37,7 @@ import { ManagerCareerTab } from './components/tabs/ManagerCareerTab';
 import { MatchSimulationView } from './components/tabs/MatchSimulationView';
 import { PressConferenceModal } from './components/tabs/PressConferenceModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
+import { SackedDismissalModal } from './components/SackedDismissalModal';
 import { Bell, AlertCircle, CheckCircle, Database } from 'lucide-react';
 
 export default function App() {
@@ -70,7 +71,7 @@ export default function App() {
             setTimeout(() => setStorageToast(null), 5000);
           } else if (res.migrated) {
             setStorageToast({
-              message: 'セーブデータを最新のスキーマバージョンへ安全に自動移行しました。',
+              message: '2026/27シーズン公式名鑑マスターデータへの安全な自動移行が完了しました。',
               type: 'info'
             });
             setTimeout(() => setStorageToast(null), 4000);
@@ -410,9 +411,47 @@ export default function App() {
     return <ManagerCreationModal onComplete={handleManagerCreated} />;
   }
 
+  // PHASE 1.5: SACKED STATE -> SHOW FORMAL DISMISSAL MODAL THEN RE-OFFER 5 CLUBS (仕様：監督解任したら、また5クラブからオファーが来る)
+  if (gameState.isSacked) {
+    return (
+      <SackedDismissalModal
+        state={gameState}
+        onProceedToNewOffers={() => {
+          const oldClubId = gameState.userClubId;
+          const updatedClubs = { ...gameState.clubs };
+          if (oldClubId && updatedClubs[oldClubId]) {
+            updatedClubs[oldClubId] = {
+              ...updatedClubs[oldClubId],
+              isUserClub: false
+            };
+          }
+          const sackedNews: NewsItem = {
+            id: `news_sacked_transition_${Date.now()}`,
+            date: gameState.currentDate,
+            headline: `【新天地へ】前クラブを離れた${gameState.manager.name}監督、世界5クラブから就任オファーを受領`,
+            body: `退任直後にもかかわらず、国内外の複数クラブが${gameState.manager.name}監督へ熱烈なアプローチを開始。5クラブから正式オファーが届き、新たな挑戦の舞台を選択することになります。`,
+            category: 'press',
+            importance: 'high'
+          };
+          setGameState({
+            ...gameState,
+            userClubId: null, // Transitions immediately to PHASE 2: ClubOfferModal with 5 offers!
+            isSacked: false,
+            boardConfidence: 85,
+            fanApproval: 80,
+            consecutiveLosses: 0,
+            consecutiveWinless: 0,
+            clubs: updatedClubs,
+            news: [sackedNews, ...gameState.news]
+          });
+        }}
+      />
+    );
+  }
+
   // PHASE 2: MANAGER CREATED, BUT NO CLUB SELECTED -> SHOW 5 OFFERS
   if (!gameState.userClubId) {
-    const offers = getInitialClubOffers(gameState.clubs);
+    const offers = getInitialClubOffers(gameState.clubs, gameState.manager);
     return (
       <ClubOfferModal 
         manager={gameState.manager} 

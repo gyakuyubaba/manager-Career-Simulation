@@ -79,7 +79,7 @@ export const ManagerCreationModal: React.FC<Props> = ({ onComplete }) => {
               オリジナル監督プロファイル作成
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              2025/26シーズン、世界最高峰の舞台に挑む指揮官の能力を設定してください
+              2026/27シーズン、世界最高峰の舞台に挑む指揮官の能力を設定してください
             </p>
           </div>
 

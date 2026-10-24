@@ -299,6 +299,11 @@ export function advanceOneDay(
   });
 
   Object.values(updatedPlayers).forEach(p => {
+    // Dynamic age calculation based on birthDate and current in-game date (Requirement 5)
+    if (p.birthDate) {
+      p.age = calculateAge(p.birthDate, nextDate);
+    }
+
     // Natural fatigue recovery (+8 to +16% per rest day)
     if (p.fatigue > 0) {
       const restFactor = state.trainingFocus === 'コンディション回復' ? 18 : 11;

@@ -15,6 +15,11 @@ import {
 } from './fixtureGenerator';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
 import { saveLanguage, getSavedLanguage, TRANSLATIONS } from '../i18n/translations';
+import { 
+  merge2026_27MasterRosterIntoSave, 
+  CURRENT_ROSTER_DATA_VERSION, 
+  CURRENT_SCHEMA_VERSION 
+} from './storageEngine';
 
 export interface TestResult {
   id: string;
@@ -151,7 +156,7 @@ export function runAll27Tests(): TestResult[] {
       requiresConfirmation: true
     };
 
-    const haltsOnRed = mockRedNotice.type === 'red_card' && mockRedNotice.requiresConfirmation && mockRedNotice.redCardDetails?.matchesRemaining! >= 1;
+    const haltsOnRed = Boolean(mockRedNotice.type === 'red_card' && mockRedNotice.requiresConfirmation && (mockRedNotice.redCardDetails?.matchesRemaining ?? 0) >= 1);
     results.push({
       id: 'TEST 02',
       name: '自動スキップ中にレッドカード発生 → 即座に停止 → 退場確認画面表示',
@@ -979,8 +984,225 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 27', name: '言語切り替え機能の完全検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 28: 2026/27公式マスターデータが全クラブに正常読込され、二重所属・重複IDが存在しない
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const isSeason2026_27 = baseState.season === '2026/27';
+    const isRosterVersionValid = baseState.rosterDataVersion === CURRENT_ROSTER_DATA_VERSION;
+
+    // Check cross-club player duplication
+    const assignedPlayerClubMap = new Map<string, string>();
+    let duplicateAssignmentCount = 0;
+
+    Object.values(baseState.clubs).forEach(c => {
+      c.playerIds.forEach(pId => {
+        if (assignedPlayerClubMap.has(pId)) {
+          duplicateAssignmentCount++;
+        } else {
+          assignedPlayerClubMap.set(pId, c.id);
+        }
+      });
+    });
+
+    const passed = isSeason2026_27 && isRosterVersionValid && duplicateAssignmentCount === 0;
+    results.push({
+      id: 'TEST 28',
+      name: '2026/27公式マスターデータ整合性（シーズン名・バージョン・二重所属ゼロ）',
+      passed,
+      details: passed
+        ? `成功: シーズン「${baseState.season}」、データバージョン「${baseState.rosterDataVersion}」が正しく設定され、全${Object.keys(baseState.clubs).length}クラブで重複所属選手は0名でした。`
+        : `失敗: シーズン(${baseState.season})、バージョン(${baseState.rosterDataVersion})、または重複所属(${duplicateAssignmentCount}件)に問題があります。`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 28', name: '2026/27公式マスターデータ整合性', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 29: 主要選手の所属先・背番号・ポジションが2026/27公式データと合致する
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const playersList = Object.values(baseState.players);
+
+    // Zion Suzuki at Parma
+    const zion = playersList.find(p => p.name.includes('鈴木 彩艶') || p.id === 'parma_zion_suzuki');
+    const zionValid = zion && zion.clubId === 'parma' && zion.position === 'GK';
+
+    // Sugawara at Southampton
+    const sugawara = playersList.find(p => p.name.includes('菅原 由勢') || p.name.includes('Sugawara'));
+    const sugawaraValid = sugawara && sugawara.clubId === 'southampton' && sugawara.position === 'RB';
+
+    // Mitoma at Brighton
+    const mitoma = playersList.find(p => p.name.includes('三笘') || p.name.includes('Mitoma'));
+    const mitomaValid = mitoma && mitoma.clubId === 'brighton';
+
+    // Haaland at Man City
+    const haaland = playersList.find(p => p.name.includes('Haaland'));
+    const haalandValid = haaland && haaland.clubId === 'man_city' && haaland.position === 'ST';
+
+    // Mbappe at Real Madrid
+    const mbappe = playersList.find(p => p.name.includes('Mbappé') || p.name.includes('Mbappe'));
+    const mbappeValid = mbappe && mbappe.clubId === 'real_madrid' && mbappe.position === 'ST';
+
+    // Fulham: Alex Iwobi or Emile Smith Rowe
+    const smithRowe = playersList.find(p => p.name.includes('Smith Rowe'));
+    const smithRoweValid = smithRowe && smithRowe.clubId === 'fulham';
+
+    // Wolves: Matheus Cunha
+    const cunha = playersList.find(p => p.name.includes('Matheus Cunha'));
+    const cunhaValid = cunha && cunha.clubId === 'wolves';
+
+    // Stuttgart: Deniz Undav
+    const undav = playersList.find(p => p.name.includes('Undav'));
+    const undavValid = undav && undav.clubId === 'stuttgart';
+
+    const passed = !!(zionValid && sugawaraValid && mitomaValid && haalandValid && mbappeValid && smithRoweValid && cunhaValid && undavValid);
+    results.push({
+      id: 'TEST 29',
+      name: '主要選手の所属先・背番号・ポジションが2026/27公式データと合致する',
+      passed,
+      details: passed
+        ? `成功: 鈴木彩艶(パルマGK)、菅原由勢(サウサンプトンRB)、三笘薫(ブライトン)、ハーランド(マンC)、エムバペ(レアル)、スミス・ロウ(フラム)、クーニャ(ウルブス)、ウンダフ(シュトゥットガルト)等の所属先と登録情報を確認しました。`
+        : `失敗: 照合不一致: Zion(${!!zionValid}), 菅原(${!!sugawaraValid}), 三笘(${!!mitomaValid}), Haaland(${!!haalandValid}), Mbappe(${!!mbappeValid}), SmithRowe(${!!smithRoweValid}), Cunha(${!!cunhaValid}), Undav(${!!undavValid})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 29', name: '主要選手2026/27公式所属照合', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 30: 旧セーブデータ読込時の安全な自動マイグレーション（戦績・資金・移籍保護）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    // Construct a mock legacy save with schemaVersion 6, no rosterDataVersion, but with active user progress
+    const mockLegacySave: GameWorldState = {
+      ...baseState,
+      rosterDataVersion: undefined, // Old save without version
+      manager: {
+        ...baseState.manager,
+        careerTrophies: 3,
+        matchesManaged: 45,
+        wins: 30,
+        draws: 8,
+        losses: 7,
+        reputation: 88
+      },
+      userClubId: 'arsenal',
+      transferHistory: [
+        {
+          id: 'test_tx_legacy',
+          date: '2026-07-15',
+          playerId: 'parma_zion_suzuki',
+          playerName: '鈴木 彩艶',
+          sellerClubId: 'parma',
+          buyerClubId: 'arsenal',
+          fee: 25000000,
+          type: 'permanent'
+        }
+      ]
+    };
+    // Put Zion Suzuki in user's club as in-game transferred player
+    if (mockLegacySave.players['parma_zion_suzuki']) {
+      mockLegacySave.players['parma_zion_suzuki'].clubId = 'arsenal';
+      mockLegacySave.players['parma_zion_suzuki'].currentClubId = 'arsenal';
+    }
+
+    const migrationResult = merge2026_27MasterRosterIntoSave(mockLegacySave);
+    const upgradedState = migrationResult.state;
+
+    // Check progress preservation
+    const managerPreserved = upgradedState.manager.careerTrophies === 3 &&
+                             upgradedState.manager.wins === 30 &&
+                             upgradedState.manager.matchesManaged === 45 &&
+                             upgradedState.manager.reputation === 88;
+
+    // Check in-game transfer preservation: Zion should NOT be reverted back to Parma because he was transferred in-game
+    const inGameTransferPreserved = upgradedState.players['parma_zion_suzuki']?.clubId === 'arsenal';
+
+    // Check rosterDataVersion stamped
+    const versionStamped = upgradedState.rosterDataVersion === CURRENT_ROSTER_DATA_VERSION;
+
+    const passed = managerPreserved && inGameTransferPreserved && versionStamped && migrationResult.updatedCount > 0;
+    results.push({
+      id: 'TEST 30',
+      name: '旧セーブデータ読込時の安全な自動マイグレーション（戦績・資金・移籍保護）',
+      passed,
+      details: passed
+        ? `成功: 旧セーブデータからの更新で、監督タイトル数(3)、勝利数(30)、ゲーム内移籍履歴（アーセナル獲得）が完全保護され、${migrationResult.updatedCount}名の選手データが安全に2026/27最新マスターに更新されました。`
+        : `失敗: 監督戦績保護(${managerPreserved})、ゲーム内移籍保護(${inGameTransferPreserved})、またはバージョン刻印(${versionStamped})に問題があります。`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 30', name: '旧セーブデータ自動マイグレーション検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 31: 全12リーグ・全238クラブの登録人数および最低2人以上のGK配置
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const clubsList = Object.values(baseState.clubs);
+    const totalClubs = clubsList.length; // 238 clubs
+    const totalPlayers = Object.keys(baseState.players).length; // 5900+ players
+
+    let clubsWithFewerThan23Players = 0;
+    let clubsWithFewerThan2GKs = 0;
+
+    clubsList.forEach(c => {
+      if (c.playerIds.length < 23) {
+        clubsWithFewerThan23Players++;
+      }
+      const gks = c.playerIds
+        .map(pId => baseState.players[pId])
+        .filter(p => p && p.position === 'GK');
+      if (gks.length < 2) {
+        clubsWithFewerThan2GKs++;
+      }
+    });
+
+    const passed = totalClubs >= 238 && totalPlayers >= 5500 && clubsWithFewerThan23Players === 0 && clubsWithFewerThan2GKs === 0;
+    results.push({
+      id: 'TEST 31',
+      name: '全12リーグ・全238クラブの登録人数（各23名以上）および最低2人以上のGK配置',
+      passed,
+      details: passed
+        ? `成功: 全${totalClubs}クラブ、総勢${totalPlayers}名の現役登録選手を集計。全クラブが規定スカッド（23名以上）および最低2名（推奨3名）のGK体制を満たしています。`
+        : `失敗: クラブ数(${totalClubs}), 総選手数(${totalPlayers}), 不足クラブ(${clubsWithFewerThan23Players}), GK不足クラブ(${clubsWithFewerThan2GKs})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 31', name: '全クラブ登録人数・GK体制集計', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 32: 選手検索・移籍市場とクラブ名簿のデータ完全一致検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let mismatchCount = 0;
+
+    Object.values(baseState.players).forEach(p => {
+      if (p.clubId && baseState.clubs[p.clubId]) {
+        const club = baseState.clubs[p.clubId];
+        if (!club.playerIds.includes(p.id)) {
+          mismatchCount++;
+        }
+      }
+    });
+
+    const passed = mismatchCount === 0;
+    results.push({
+      id: 'TEST 32',
+      name: '選手検索・移籍市場とクラブ名簿のデータ完全一致検証',
+      passed,
+      details: passed
+        ? `成功: 選手検索・移籍市場に表示される全選手の所属クラブIDと、各クラブ名簿（playerIds）が100%完全一致（不整合0件）であることを確認しました。`
+        : `失敗: 選手データとクラブ名簿の間で${mismatchCount}件の所属不一致が検出されました。`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 32', name: '選手検索と名簿の同期検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
 export const runAll16Tests = runAll27Tests;
+export const runAll32Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
+
+

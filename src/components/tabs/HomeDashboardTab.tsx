@@ -66,7 +66,7 @@ export const HomeDashboardTab: React.FC<Props> = ({
         <div className="absolute bottom-4 left-4 right-4 sm:bottom-6 sm:left-6 sm:right-6">
           <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>2026/27 シーズン（2025/26公式最終データ基準） 監督キャリア進行中</span>
+            <span>2026/27 シーズン（2026/27公式選手名鑑・最新データ基準） 監督キャリア進行中</span>
           </div>
           <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
             {userClub?.name}

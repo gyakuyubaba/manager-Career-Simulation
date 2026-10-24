@@ -16,7 +16,7 @@ import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionC
 import { generateRandomYouthAcademy, generateSingleRandomYouthProspect } from '../data/youthGenerator';
 import { deriveRealisticAltPositions } from '../data/playerPositionsHelper';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
-import { getDaysUntilDeadline } from './dateEngine';
+import { getDaysUntilDeadline, calculateAge } from './dateEngine';
 import { ensureYouthAcademyProspects } from './dataValidator';
 import { generateClubVisionRoadmap } from './clubVisionEngine';
 import { 
@@ -27,7 +27,8 @@ import {
   importSaveDataFromJSON, 
   validateStateIntegrity,
   migrateGameState,
-  PRIMARY_SLOT_ID
+  PRIMARY_SLOT_ID,
+  CURRENT_ROSTER_DATA_VERSION
 } from './storageEngine';
 
 export { 
@@ -117,8 +118,8 @@ export function createNewGameWorld(manager: ManagerProfile, difficultySettings?:
   const welcomeNews: NewsItem = {
     id: 'news_welcome_1',
     date: initialDate,
-    headline: `【2026/27シーズン開幕】2025/26基準の欧州主要5大リーグ（全96クラブ）始動！`,
-    body: `2026/27監督キャリアが正式スタート。2025/26シーズン終了時点の最新基礎データを基準に、プレミアリーグ、ラ・リーガ、ブンデスリーガ、セリエA、リーグ・アンの全96クラブ・実名選手が完全集結。夏の移籍市場、プレシーズン国際ツアーが開幕しました。`,
+    headline: `【2026/27シーズン開幕】2026/27公式選手名鑑・最新データ基準の全クラブ始動！`,
+    body: `2026/27監督キャリアが正式スタート。2026/27シーズン公式選手名鑑および登録データを基準に、明治安田J1百年構想リーグ（20クラブ）、J2（20クラブ）、欧州5大リーグおよび2部ディビジョン（全クラブ）の実名選手が完全集結。夏の移籍市場、プレシーズン国際ツアーが開幕しました。`,
     category: 'tournament',
     importance: 'high'
   };
@@ -128,6 +129,7 @@ export function createNewGameWorld(manager: ManagerProfile, difficultySettings?:
   return {
     currentDate: initialDate,
     season: '2026/27',
+    rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
     isTransferWindowOpen: true,
     transferWindowClosingDays: getDaysUntilDeadline(initialDate),
     manager,
@@ -140,6 +142,9 @@ export function createNewGameWorld(manager: ManagerProfile, difficultySettings?:
     clubs,
     players: (() => {
       Object.values(players).forEach(p => {
+        if (p.birthDate) {
+          p.age = calculateAge(p.birthDate, initialDate);
+        }
         if (!p.initialOvr) p.initialOvr = p.ovr;
         if (!p.exactOvr) p.exactOvr = p.ovr;
         if (!p.altPositions || p.altPositions.length === 0) {
@@ -265,6 +270,9 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
   const chosenClub = updatedClubs[chosenClubId] || ALL_CLUBS.find(c => c.id === chosenClubId) || J2_20_CLUBS.find(c => c.id === chosenClubId);
 
   Object.values(updatedPlayers).forEach(p => {
+    if (p.birthDate) {
+      p.age = calculateAge(p.birthDate, state.currentDate);
+    }
     if (!p.initialOvr) p.initialOvr = p.ovr;
     if (!p.exactOvr) p.exactOvr = p.ovr;
     if (!p.altPositions || p.altPositions.length === 0) {

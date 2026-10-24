@@ -12,12 +12,12 @@ export interface RosterSeed {
 }
 
 /**
- * Authentic 2025/26 Season End Rosters for European Major League Clubs
+ * Authentic 2026/27 Season Official Rosters for European Major League Clubs
  * (Non-overlapping with CURATED_REAL_SQUADS in squadsCatalog.ts)
  */
 export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
   // ==========================================
-  // PREMIER LEAGUE (2025/26 Season End)
+  // PREMIER LEAGUE (2026/27 Season Official)
   // ==========================================
   aston_villa: [
     { name: 'Emiliano Martínez', position: 'GK', age: 34, nationality: 'アルゼンチン', ovr: 87, shirtNumber: 23 },
@@ -124,7 +124,7 @@ export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
   ],
 
   // ==========================================
-  // LALIGA (2025/26 Season End)
+  // LALIGA (2026/27 Season Official)
   // ==========================================
   atletico_madrid: [
     { name: 'Jan Oblak', position: 'GK', age: 33, nationality: 'スロベニア', ovr: 88, shirtNumber: 13 },
@@ -157,7 +157,7 @@ export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
   ],
 
   // ==========================================
-  // BUNDESLIGA (2025/26 Season End)
+  // BUNDESLIGA (2026/27 Season Official)
   // ==========================================
   dortmund: [
     { name: 'Gregor Kobel', position: 'GK', age: 28, nationality: 'スイス', ovr: 86, shirtNumber: 1 },
@@ -192,7 +192,7 @@ export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
   ],
 
   // ==========================================
-  // SERIE A (2025/26 Season End)
+  // SERIE A (2026/27 Season Official)
   // ==========================================
   milan: [
     { name: 'Mike Maignan', position: 'GK', age: 31, nationality: 'フランス', ovr: 87, shirtNumber: 16 },
@@ -261,7 +261,7 @@ export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
   ],
 
   // ==========================================
-  // LIGUE 1 (2025/26 Season End)
+  // LIGUE 1 (2026/27 Season Official)
   // ==========================================
   monaco: [
     { name: 'Philipp Köhn', position: 'GK', age: 28, nationality: 'スイス', ovr: 79, shirtNumber: 16 },

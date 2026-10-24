@@ -17,8 +17,9 @@ import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionC
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateRandomYouthAcademy } from '../data/youthGenerator';
 
-export const CURRENT_SCHEMA_VERSION = 6;
-export const APP_CODE_VERSION = '2026.2.1';
+export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V2_OFFICIAL';
+export const APP_CODE_VERSION = '2026.2.2';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
 export const STORE_NAME = 'career_saves';
@@ -55,6 +56,7 @@ export interface SaveMetadata {
 export interface SaveEnvelope {
   id: string; // Slot ID
   schemaVersion: number;
+  rosterDataVersion?: string;
   appVersion: string;
   savedAt: string; // ISO string
   checksum: number;
@@ -283,6 +285,129 @@ export function migrateGameState(state: GameWorldState, oldVersion: number): Gam
 }
 
 /**
+ * Safely updates player and club rosters to the official 2026/27 season master database
+ * WITHOUT destroying active user progress, manager trophies, career match results,
+ * bank finances, or transfers completed by the user in-game.
+ */
+export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
+  state: GameWorldState;
+  updatedCount: number;
+  addedCount: number;
+} {
+  const masterPlayers = buildCompletePlayersRegistry();
+  const nextPlayers: Record<string, Player> = { ...savedState.players };
+  let updatedCount = 0;
+  let addedCount = 0;
+
+  // Build a set of players who were transferred during game simulation
+  const inGameTransferredPlayerIds = new Set<string>();
+  if (Array.isArray(savedState.transferHistory)) {
+    savedState.transferHistory.forEach(rec => inGameTransferredPlayerIds.add(rec.playerId));
+  }
+
+  // Iterate over 2026/27 official master database players
+  Object.values(masterPlayers).forEach(masterPlayer => {
+    const existing = nextPlayers[masterPlayer.id];
+    if (existing) {
+      // Player already exists in save
+      const wasTransferredInGame = inGameTransferredPlayerIds.has(masterPlayer.id);
+
+      // Retain in-game club if transferred in-game, otherwise update to 2026/27 official club
+      const targetClubId = wasTransferredInGame ? existing.clubId : masterPlayer.clubId;
+
+      nextPlayers[masterPlayer.id] = {
+        ...existing,
+        name: masterPlayer.name,
+        clubId: targetClubId,
+        currentClubId: targetClubId,
+        position: masterPlayer.position,
+        altPositions: masterPlayer.altPositions || existing.altPositions,
+        nationality: masterPlayer.nationality,
+        shirtNumber: masterPlayer.shirtNumber,
+        playstyle: masterPlayer.playstyle || existing.playstyle,
+        preferredFoot: masterPlayer.preferredFoot || existing.preferredFoot,
+        ovr: Math.max(existing.ovr, masterPlayer.ovr),
+        exactOvr: Math.max(existing.exactOvr || existing.ovr, masterPlayer.exactOvr || masterPlayer.ovr),
+        initialOvr: masterPlayer.initialOvr || masterPlayer.ovr,
+        potential: Math.max(existing.potential, masterPlayer.potential),
+        birthDate: masterPlayer.birthDate || existing.birthDate,
+        age: masterPlayer.age
+      };
+      updatedCount++;
+    } else {
+      // New official 2026/27 player not present in old save
+      nextPlayers[masterPlayer.id] = { ...masterPlayer };
+      addedCount++;
+    }
+  });
+
+  // Re-synchronize each club's playerIds array to prevent duplicate or missing assignments
+  const nextClubs: Record<string, Club> = {};
+  Object.entries(savedState.clubs || {}).forEach(([cId, club]) => {
+    nextClubs[cId] = {
+      ...club,
+      playerIds: []
+    };
+  });
+
+  Object.values(nextPlayers).forEach(p => {
+    if (p.clubId && nextClubs[p.clubId]) {
+      if (!nextClubs[p.clubId].playerIds.includes(p.id)) {
+        nextClubs[p.clubId].playerIds.push(p.id);
+      }
+    }
+  });
+
+  // Ensure user club lineup references valid players currently at user club
+  let nextTactics = { ...savedState.tactics };
+  if (savedState.userClubId && nextClubs[savedState.userClubId]) {
+    const userClubPlayerIds = new Set(nextClubs[savedState.userClubId].playerIds);
+    const validStarters = (nextTactics.lineup?.starters || []).filter(s => userClubPlayerIds.has(s.playerId));
+    const validBench = (nextTactics.lineup?.bench || []).filter(bId => userClubPlayerIds.has(bId));
+    
+    // Fill missing starters if any were transferred away
+    const availablePlayers = nextClubs[savedState.userClubId].playerIds.filter(
+      pId => !validStarters.some(s => s.playerId === pId) && !validBench.includes(pId)
+    );
+
+    while (validStarters.length < 11 && availablePlayers.length > 0) {
+      const fillId = availablePlayers.shift()!;
+      const fillPlayer = nextPlayers[fillId];
+      validStarters.push({
+        playerId: fillId,
+        position: fillPlayer ? fillPlayer.position : 'CM',
+        pitchX: 50,
+        pitchY: 50
+      });
+    }
+
+    nextTactics = {
+      ...nextTactics,
+      lineup: {
+        starters: validStarters,
+        bench: validBench,
+        reserves: availablePlayers
+      }
+    };
+  }
+
+  const nextState: GameWorldState = {
+    ...savedState,
+    season: '2026/27',
+    rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
+    players: nextPlayers,
+    clubs: nextClubs,
+    tactics: nextTactics
+  };
+
+  return {
+    state: nextState,
+    updatedCount,
+    addedCount
+  };
+}
+
+/**
  * Concurrency Mutex & Queue for Saves
  */
 class StorageSaveManager {
@@ -356,10 +481,15 @@ async function executePhysicalSave(state: GameWorldState): Promise<{ success: bo
     const envelope: SaveEnvelope = {
       id: PRIMARY_SLOT_ID,
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
       appVersion: APP_CODE_VERSION,
       savedAt: now,
       checksum,
-      state,
+      state: {
+        ...state,
+        season: state.season || '2026/27',
+        rosterDataVersion: CURRENT_ROSTER_DATA_VERSION
+      },
       metadata
     };
 
@@ -435,9 +565,25 @@ export async function loadGameFromStorage(): Promise<{
       if (check.isValid) {
         let state = primary.state;
         let migrated = false;
-        if ((primary.schemaVersion || 0) < CURRENT_SCHEMA_VERSION) {
+
+        const needsSchemaMigration = (primary.schemaVersion || 0) < CURRENT_SCHEMA_VERSION;
+        const needsRosterUpdate = !primary.rosterDataVersion || 
+                                  primary.rosterDataVersion !== CURRENT_ROSTER_DATA_VERSION || 
+                                  !state.rosterDataVersion || 
+                                  state.rosterDataVersion !== CURRENT_ROSTER_DATA_VERSION;
+
+        if (needsSchemaMigration || needsRosterUpdate) {
           await writeEnvelopeToIDB({ ...primary, id: BACKUP_PRE_MIGRATION_SLOT_ID });
-          state = migrateGameState(state, primary.schemaVersion || 0);
+
+          if (needsSchemaMigration) {
+            state = migrateGameState(state, primary.schemaVersion || 0);
+          }
+
+          if (needsRosterUpdate) {
+            const rosterMerge = merge2026_27MasterRosterIntoSave(state);
+            state = rosterMerge.state;
+          }
+
           migrated = true;
           await saveGameToStorage(state);
         }
@@ -453,7 +599,12 @@ export async function loadGameFromStorage(): Promise<{
       const check = validateStateIntegrity(backup1.state);
       if (check.isValid) {
         console.info('Restored game state from Backup Generation 1.');
-        return { state: backup1.state, source: 'indexeddb_backup_1', migrated: false };
+        let state = backup1.state;
+        if (!state.rosterDataVersion || state.rosterDataVersion !== CURRENT_ROSTER_DATA_VERSION) {
+          state = merge2026_27MasterRosterIntoSave(state).state;
+          await saveGameToStorage(state);
+        }
+        return { state, source: 'indexeddb_backup_1', migrated: true };
       }
     }
 
@@ -463,14 +614,20 @@ export async function loadGameFromStorage(): Promise<{
       const check = validateStateIntegrity(backup2.state);
       if (check.isValid) {
         console.info('Restored game state from Backup Generation 2.');
-        return { state: backup2.state, source: 'indexeddb_backup_2', migrated: false };
+        let state = backup2.state;
+        if (!state.rosterDataVersion || state.rosterDataVersion !== CURRENT_ROSTER_DATA_VERSION) {
+          state = merge2026_27MasterRosterIntoSave(state).state;
+          await saveGameToStorage(state);
+        }
+        return { state, source: 'indexeddb_backup_2', migrated: true };
       }
     }
 
     // 4. Try Legacy LocalStorage keys
     const legacyState = harvestLegacyLocalStorage();
     if (legacyState) {
-      const migratedState = migrateGameState(legacyState, 1);
+      let migratedState = migrateGameState(legacyState, 1);
+      migratedState = merge2026_27MasterRosterIntoSave(migratedState).state;
       // Migrate permanently into IndexedDB so it's immune to quota
       await saveGameToStorage(migratedState);
       return { state: migratedState, source: 'legacy_localstorage', migrated: true };

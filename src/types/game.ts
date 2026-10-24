@@ -574,7 +574,8 @@ export interface MatchIncidentNotice {
 
 export interface GameWorldState {
   currentDate: string; // ISO string e.g. "2026-07-01"
-  season: string; // "2026/27" (with 2025/26 database)
+  season: string; // "2026/27" (2026/27 official database)
+  rosterDataVersion?: string; // Tracks official roster updates e.g. "2026_27_V2_OFFICIAL"
   isTransferWindowOpen: boolean;
   transferWindowClosingDays: number;
   manager: ManagerProfile;

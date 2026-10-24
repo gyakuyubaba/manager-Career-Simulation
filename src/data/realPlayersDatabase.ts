@@ -59,7 +59,15 @@ export function makeRealPlayer(
     id,
     name,
     age,
-    birthDate: `${2025 - age}-05-15`,
+    birthDate: (() => {
+      const hash = (id + name).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+      const bMonth = ((hash % 12) + 1);
+      const bDay = ((hash % 28) + 1);
+      // As of 2026-07-01: if birthday has already passed this year (month <= 6), birthYear = 2026 - age.
+      // If birthday is later in the year (month >= 7), birthday hasn't occurred yet, so birthYear = 2026 - age - 1 = 2025 - age.
+      const bYear = bMonth <= 6 ? (2026 - age) : (2025 - age);
+      return `${bYear}-${String(bMonth).padStart(2, '0')}-${String(bDay).padStart(2, '0')}`;
+    })(),
     nationality,
     position,
     altPositions: resolvedAltPositions,

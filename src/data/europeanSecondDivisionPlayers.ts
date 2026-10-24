@@ -51,6 +51,21 @@ export const MUST_CHECK_AND_OVERSEAS_SEEDS: Record<string, RosterSeed[]> = {
     { name: 'Lewis Dunk', position: 'CB', age: 34, nationality: 'イングランド', ovr: 81, shirtNumber: 5 }
   ],
 
+  // --- Crystal Palace (Daichi Kamada, Eberechi Eze, Mateta) ---
+  crystal_palace: [
+    { name: '鎌田 大地 (Daichi Kamada)', position: 'CAM', age: 29, nationality: '日本', ovr: 81, shirtNumber: 18, playstyle: 'チャンスメイカー', preferredFoot: '右' },
+    { name: 'Eberechi Eze', position: 'CAM', age: 28, nationality: 'イングランド', ovr: 83, shirtNumber: 10, playstyle: 'チャンスメイカー' },
+    { name: 'Jean-Philippe Mateta', position: 'ST', age: 29, nationality: 'フランス', ovr: 81, shirtNumber: 14, playstyle: 'ターゲットマン' },
+    { name: 'Marc Guéhi', position: 'CB', age: 26, nationality: 'イングランド', ovr: 83, shirtNumber: 6, playstyle: 'ボール運べるCB' },
+    { name: 'Adam Wharton', position: 'CDM', age: 22, nationality: 'イングランド', ovr: 81, shirtNumber: 20, playstyle: 'アンカー' },
+    { name: 'Dean Henderson', position: 'GK', age: 29, nationality: 'イングランド', ovr: 80, shirtNumber: 1, playstyle: 'ショットストッパー' },
+    { name: 'Daniel Muñoz', position: 'RB', age: 30, nationality: 'コロンビア', ovr: 80, shirtNumber: 12, playstyle: '攻撃的SB' },
+    { name: 'Maxence Lacroix', position: 'CB', age: 26, nationality: 'フランス', ovr: 79, shirtNumber: 5, playstyle: 'ボール運べるCB' },
+    { name: 'Ismaïla Sarr', position: 'RW', age: 28, nationality: 'セネガル', ovr: 79, shirtNumber: 7, playstyle: 'スピードスター' },
+    { name: 'Eddie Nketiah', position: 'ST', age: 27, nationality: 'イングランド', ovr: 78, shirtNumber: 9, playstyle: 'ゴールゲッター' },
+    { name: 'Tyrick Mitchell', position: 'LB', age: 26, nationality: 'イングランド', ovr: 79, shirtNumber: 3, playstyle: '守備的SB' }
+  ],
+
   // --- Lyon (Rayan Cherki) ---
   lyon: [
     { name: 'Rayan Cherki', position: 'CAM', age: 22, nationality: 'フランス', ovr: 81, shirtNumber: 18, playstyle: 'チャンスメイカー' },

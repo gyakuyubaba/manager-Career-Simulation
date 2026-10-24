@@ -2,7 +2,7 @@ import { Club } from '../types/game';
 
 // ==========================================
 // 1. EFL CHAMPIONSHIP (ENGLAND 2ND DIVISION - 24 CLUBS)
-// 2025/26 Season Official Clubs
+// 2026/27 Season Official Clubs
 // ==========================================
 export const CHAMPIONSHIP_24_CLUBS: Club[] = [
   {

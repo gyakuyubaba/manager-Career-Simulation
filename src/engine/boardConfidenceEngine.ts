@@ -233,34 +233,33 @@ export function evaluateMatchBoardConfidence(
   let newFanApproval = Math.max(5, Math.min(100, state.fanApproval + fanDelta));
 
   // -------------------------------------------------------------
-  // Sacking Risk Evaluation
+  // Sacking Risk Evaluation (仕様：解任ニュースや最後通牒が流れても即座には解任しない)
   // -------------------------------------------------------------
   let sackTriggered = false;
 
-  if (newConfidence < 20) {
-    // Sacking risk surges dramatically below 20%
-    let sackProb = 0.40;
-    if (newConfidence < 10) sackProb = 0.80;
-    if (newConsecutiveWinless >= 5) sackProb += 0.25;
-    if (newConsecutiveLosses >= 3) sackProb += 0.15;
-
-    // Roll for sack
-    if (Math.random() < Math.min(0.95, sackProb)) {
+  // 危機報道・最後通牒・解任協議のニュース（未勝利5〜7試合）が流れた段階では即解任しない
+  // 信頼度が致命的底値（10%未満）または未勝利8試合以上の深刻な低迷時のみ正式解任を発動
+  if (newConfidence <= 10 && newConsecutiveWinless >= 6) {
+    // 信頼度が10%以下かつ未勝利6試合以上の危機的底値
+    if (Math.random() < 0.85) {
       sackTriggered = true;
     }
-  } else if (newConfidence < 30 && newConsecutiveWinless >= 8) {
-    // High winless even above 20% with demanding club
-    if (userClub.tier === 'Elite' && Math.random() < 0.40) {
+  } else if (newConfidence < 15 && newConsecutiveWinless >= 8) {
+    // 未勝利8試合以上で信頼度15%未満の場合
+    if (Math.random() < 0.75) {
       sackTriggered = true;
     }
+  } else if (newConfidence <= 6) {
+    // 信頼度が完全崩壊（6%以下）
+    sackTriggered = true;
   }
 
   if (sackTriggered) {
     specialNews = {
       id: `news_sacked_${Date.now()}`,
       date: fixture.date || state.currentDate,
-      headline: `【電撃解任】${userClub.name}、成績不振を理由に${state.manager.name}監督との契約を即時解除`,
-      body: `度重なる未勝利と目標からの大幅な乖離を受け、${userClub.name}取締役会は${state.manager.name}監督の解任を正式に決定・発表しました。後任監督の人選は即座に開始されます。`,
+      headline: `【電撃解任】${userClub.name}、成績不振を理由に${state.manager.name}監督との契約を正式解除`,
+      body: `度重なる未勝利と理事会信頼度の低下を受け、${userClub.name}取締役会は${state.manager.name}監督の解任を正式に決定しました。なお、${state.manager.name}監督の実績を高く評価する他クラブ（5クラブ）から新たな就任オファーが届いています。`,
       category: 'board',
       relatedClubId: userClub.id,
       importance: 'high'

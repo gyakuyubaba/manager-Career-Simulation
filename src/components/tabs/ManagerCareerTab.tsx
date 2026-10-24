@@ -31,9 +31,10 @@ import {
   downloadCareerSaveFile, 
   importSaveDataFromJSON,
   CURRENT_SCHEMA_VERSION,
+  CURRENT_ROSTER_DATA_VERSION,
   APP_CODE_VERSION
 } from '../../engine/storageEngine';
-import { runAll27Tests, TestResult } from '../../engine/testSuite';
+import { runAll32Tests, TestResult } from '../../engine/testSuite';
 import { generateRandomYouthAcademy } from '../../data/youthGenerator';
 
 interface Props {
@@ -64,7 +65,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
     setIsRunningTests(true);
     setTimeout(() => {
       try {
-        const results = runAll27Tests();
+        const results = runAll32Tests();
         setTestResults(results);
       } catch (e: any) {
         console.error(e);
@@ -660,17 +661,17 @@ export const ManagerCareerTab: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* 27-Item System & Integrity Verification Test Suite */}
+          {/* 32-Item System & Integrity Verification Test Suite */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div>
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    システム検証・自動診断テスト（全27項目）
+                    システム検証・自動診断テスト（全32項目）
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    セーブデータ永続性、IndexedDB 5MB制限撤廃、ローリングバックアップ、スタメン入替、プレシーズン抽選、J1/J2対戦など包括検証
+                    2026/27公式選手名鑑・主要選手照合・セーブ移行保護・重複所属ゼロ・IndexedDB永続化など包括検証
                   </p>
                 </div>
               </div>
@@ -680,7 +681,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
                 disabled={isRunningTests}
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 cursor-pointer shrink-0 transition-all flex items-center justify-center gap-1.5"
               >
-                {isRunningTests ? '検証中...' : 'テストを実行する（全27項目）'}
+                {isRunningTests ? '検証中...' : 'テストを実行する（全32項目）'}
               </button>
             </div>
 
@@ -726,24 +727,24 @@ export const ManagerCareerTab: React.FC<Props> = ({
             <div className="flex items-center gap-2.5 pb-2 border-b border-slate-800">
               <Database className="w-4 h-4 text-emerald-400" />
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                ベースデータベース情報 (2025/26 Base Data)
+                ベースデータベース情報 (2026/27 Official Data)
               </h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
                 <span className="text-slate-500 block mb-0.5 text-[11px]">収録クラブ</span>
                 <span className="text-base font-bold text-white">{Object.keys(state.clubs).length} クラブ</span>
-                <span className="text-[10px] text-emerald-400 block mt-0.5">欧州116＋Jリーグ60</span>
+                <span className="text-[10px] text-emerald-400 block mt-0.5">全12リーグ完全網羅</span>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 block mb-0.5 text-[11px]">実在選手データ</span>
+                <span className="text-slate-500 block mb-0.5 text-[11px]">現役登録選手</span>
                 <span className="text-base font-bold text-white">{Object.keys(state.players).length} 名</span>
-                <span className="text-[10px] text-emerald-400 block mt-0.5">実在選手完全網羅</span>
+                <span className="text-[10px] text-emerald-400 block mt-0.5">公式2026/27名鑑</span>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 block mb-0.5 text-[11px]">収録リーグ</span>
-                <span className="text-base font-bold text-white">欧州5大＋Jリーグ</span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">J1 / J2 / J3完全収録</span>
+                <span className="text-slate-500 block mb-0.5 text-[11px]">名簿バージョン</span>
+                <span className="text-sm font-bold text-emerald-400 truncate block">{state.rosterDataVersion || CURRENT_ROSTER_DATA_VERSION}</span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">Schema v{CURRENT_SCHEMA_VERSION}</span>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
                 <span className="text-slate-500 block mb-0.5 text-[11px]">現在ゲーム日付</span>
@@ -755,7 +756,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
 
           {/* CRITICAL: Game Data Initialization Section (Requirement 9) */}
           <div className="bg-gradient-to-br from-red-950/40 via-slate-900 to-slate-900 border border-red-900/60 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-            <div className="flex items-center gap-2.5 pb-2 border-b border-red-900/40 text-red-400">
+            <div className="flex items-center gap-2.5 pb-2 border-red-900/40 text-red-400">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <h3 className="text-sm sm:text-base font-bold text-white uppercase tracking-wider">
                 ゲームデータ初期化（新規キャリア開始）
@@ -763,7 +764,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
             </div>
             
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              現在の監督データ、所属クラブ、シーズン進行、試合結果、移籍履歴、選手成長、怪我・疲労などの<strong>ゲーム内進行データ（GAME DATA）のみを完全に削除</strong>し、最新の2025/26開幕時点へ戻します。
+              現在の監督データ、所属クラブ、シーズン進行、試合結果、移籍履歴、選手成長、怪我・疲労などの<strong>ゲーム内進行データ（GAME DATA）のみを完全に削除</strong>し、最新の2026/27開幕時点へ戻します。
             </p>
 
             <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-xs text-slate-400 space-y-1.5">

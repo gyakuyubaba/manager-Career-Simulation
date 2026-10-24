@@ -1,7 +1,7 @@
 import { RawJPlayer } from './jLeagueData';
 
 // ============================================================================
-// 2025/26 J.LEAGUE OFFICIAL 100-YEAR VISION LEAGUE (明治安田J1百年構想リーグ & J2)
+// 2026/27 J.LEAGUE OFFICIAL 100-YEAR VISION LEAGUE (明治安田J1百年構想リーグ & J2)
 // COMPLETE AUTHENTIC SQUADS WITH REAL PLAYERS, NUMBERS, POSITIONS & STATS
 // ============================================================================
 
