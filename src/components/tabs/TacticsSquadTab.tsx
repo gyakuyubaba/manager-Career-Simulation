@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { GameWorldState, TeamTactics, FormationName, Player, Position, NewsItem } from '../../types/game';
 import { Shield, Users, Activity, Shuffle, Sliders, AlertCircle, AlertTriangle, ArrowLeftRight, CheckCircle2, Move, ZoomIn, ZoomOut, RotateCcw, Sparkles } from 'lucide-react';
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
-import { executePlayerReplacement } from '../../engine/dataValidator';
+import { executePlayerReplacement, updatePlayerShirtNumber } from '../../engine/dataValidator';
 import { getPositionFitOvr, FORMATION_TEMPLATES, updateTacticsFormation } from '../../engine/tacticsEngine';
 
 interface Props {
@@ -58,6 +58,38 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'lineup' | 'instructions' | 'roles'>('lineup');
   const [benchLimitError, setBenchLimitError] = useState<string | null>(null);
+
+  // Shirt number editing state
+  const [editingShirtPlayer, setEditingShirtPlayer] = useState<Player | null>(null);
+  const [shirtInputNumber, setShirtInputNumber] = useState<number>(1);
+  const [shirtConflict, setShirtConflict] = useState<{
+    targetPlayerId: string;
+    conflictPlayer: Player;
+    desiredNumber: number;
+  } | null>(null);
+
+  const handleShirtNumberChange = (playerId: string, newNumber: number, forceSwap: boolean = false) => {
+    if (!state.userClubId) return;
+    const res = updatePlayerShirtNumber(state.players, state.clubs, state.userClubId, playerId, newNumber, forceSwap);
+    if (!res.success && res.conflictPlayer) {
+      setShirtConflict({
+        targetPlayerId: playerId,
+        conflictPlayer: res.conflictPlayer,
+        desiredNumber: newNumber
+      });
+      return;
+    }
+    if (res.success && onUpdateState) {
+      onUpdateState({
+        ...state,
+        players: res.updatedPlayers
+      });
+      setToastMessage(res.message);
+      setTimeout(() => setToastMessage(null), 4000);
+      setEditingShirtPlayer(null);
+      setShirtConflict(null);
+    }
+  };
 
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
   const tactics = state.tactics;
@@ -885,6 +917,21 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      const p = state.players[selectedPlayerId];
+                      if (p) {
+                        setEditingShirtPlayer(p);
+                        setShirtInputNumber(p.shirtNumber);
+                        setShirtConflict(null);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-yellow-300 text-xs font-bold cursor-pointer border border-yellow-500/40"
+                    title="背番号を変更する"
+                  >
+                    #{state.players[selectedPlayerId].shirtNumber} 番号変更
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => onSelectPlayer(state.players[selectedPlayerId])}
                     className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer border border-slate-700"
                   >
@@ -974,7 +1021,18 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                             isSelected ? 'bg-yellow-950/40 text-yellow-200 border-l-4 border-yellow-400' : 'text-slate-200'
                           }`}
                         >
-                          <td className="py-2.5 px-2 font-mono text-slate-400 font-bold">#{p.shirtNumber}</td>
+                          <td 
+                            className="py-2.5 px-2 font-mono text-slate-400 hover:text-yellow-300 font-bold transition-colors cursor-pointer"
+                            title="クリックして背番号を変更"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingShirtPlayer(p);
+                              setShirtInputNumber(p.shirtNumber);
+                              setShirtConflict(null);
+                            }}
+                          >
+                            #{p.shirtNumber}
+                          </td>
                           <td className="py-2.5 px-2">
                             <span className="font-bold text-emerald-400 font-mono">{p.position}</span>
                           </td>
@@ -1118,7 +1176,18 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <span className="w-5 text-slate-500 font-mono text-[11px]">#{p.shirtNumber}</span>
+                        <span 
+                          className="w-5 text-slate-500 hover:text-yellow-300 font-mono text-[11px] font-bold cursor-pointer transition-colors"
+                          title="クリックして背番号を変更"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingShirtPlayer(p);
+                            setShirtInputNumber(p.shirtNumber);
+                            setShirtConflict(null);
+                          }}
+                        >
+                          #{p.shirtNumber}
+                        </span>
                         <span className="w-8 font-bold text-blue-400 font-mono text-xs">{p.position}</span>
                         <div>
                           <div className="text-xs font-bold text-white">{p.name}</div>
@@ -1253,7 +1322,18 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                       >
                         {/* Requirement 4: 選手名、ポジション、OVR、年齢、コンディション、出場可否 */}
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="w-5 text-slate-600 font-mono text-[11px]">#{p.shirtNumber}</span>
+                          <span 
+                            className="w-5 text-slate-600 hover:text-yellow-300 font-mono text-[11px] font-bold cursor-pointer transition-colors"
+                            title="クリックして背番号を変更"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingShirtPlayer(p);
+                              setShirtInputNumber(p.shirtNumber);
+                              setShirtConflict(null);
+                            }}
+                          >
+                            #{p.shirtNumber}
+                          </span>
                           <span className="w-8 font-semibold text-slate-400 font-mono text-xs">{p.position}</span>
                           <div className="min-w-0">
                             <div className="text-xs sm:text-sm font-bold text-slate-200 truncate flex items-center gap-2">
@@ -1521,6 +1601,97 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
           onCompleteReplacement={handleReplacementComplete}
           onClose={() => setReplacingPlayer(null)}
         />
+      )}
+
+      {/* SHIRT NUMBER EDIT MODAL */}
+      {editingShirtPlayer && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-left">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>背番号編集</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">1〜99</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  <strong className="text-white">{editingShirtPlayer.name}</strong>（現在 #{editingShirtPlayer.shirtNumber}）
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEditingShirtPlayer(null); setShirtConflict(null); }}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {shirtConflict ? (
+              <div className="space-y-4">
+                <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-200 leading-relaxed">
+                    <strong>背番号 #{shirtConflict.desiredNumber}</strong> は既に <strong className="text-white">{shirtConflict.conflictPlayer.name}</strong> が着用しています。
+                    <div className="mt-1 text-slate-300">
+                      背番号をスワップ（交換）して、{shirtConflict.conflictPlayer.name} には以前の背番号 #{editingShirtPlayer.shirtNumber} を割り当てますか？
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleShirtNumberChange(shirtConflict.targetPlayerId, shirtConflict.desiredNumber, true)}
+                    className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-md cursor-pointer"
+                  >
+                    スワップして変更
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShirtConflict(null)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    別の番号を選ぶ
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">新しい背番号 (1〜99)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={shirtInputNumber}
+                      onChange={e => setShirtInputNumber(Math.max(1, Math.min(99, Number(e.target.value) || 1)))}
+                      className="w-24 bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-center text-xl font-mono font-bold text-white focus:outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-xs text-slate-400">番</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleShirtNumberChange(editingShirtPlayer.id, shirtInputNumber, false)}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+                  >
+                    決定して保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditingShirtPlayer(null); setShirtConflict(null); }}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
     </div>

@@ -3,7 +3,7 @@ import { ManagerProfile, ManagerStyle, TacticalType, ManagerSpecialty } from '..
 import { User, Award, Shield, Compass, Sparkles, Check } from 'lucide-react';
 
 interface Props {
-  onComplete: (manager: ManagerProfile) => void;
+  onComplete: (manager: ManagerProfile, startMode?: 'preseason' | 'midseason') => void;
 }
 
 const MANAGER_STYLES: { id: ManagerStyle; name: string; desc: string }[] = [
@@ -42,6 +42,7 @@ export const ManagerCreationModal: React.FC<Props> = ({ onComplete }) => {
   const [style, setStyle] = useState<ManagerStyle>('戦術至上主義');
   const [tacticalType, setTacticalType] = useState<TacticalType>('ゲーゲンプレス');
   const [specialty, setSpecialty] = useState<ManagerSpecialty>('攻撃戦術');
+  const [startMode, setStartMode] = useState<'preseason' | 'midseason'>('preseason');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,10 +61,12 @@ export const ManagerCreationModal: React.FC<Props> = ({ onComplete }) => {
       matchesManaged: 0,
       wins: 0,
       draws: 0,
-      losses: 0
+      losses: 0,
+      careerStartDate: startMode === 'midseason' ? '2026-10-15' : '2026-07-01',
+      managerAppointmentDate: startMode === 'midseason' ? '2026-10-15' : '2026-07-01'
     };
 
-    onComplete(profile);
+    onComplete(profile, startMode);
   };
 
   return (
@@ -222,6 +225,50 @@ export const ManagerCreationModal: React.FC<Props> = ({ onComplete }) => {
                     <div className="text-[10px] text-slate-400 mt-0.5 truncate">{sp.desc}</div>
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Career Start Timing (Pre-season vs Mid-season appointment) */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">就任タイミング・開始モード</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStartMode('preseason')}
+                  className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                    startMode === 'preseason'
+                      ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500/30'
+                      : 'bg-slate-800/50 border-slate-700/80 hover:border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs sm:text-sm font-bold text-white">プレシーズン開幕から指揮</span>
+                    {startMode === 'preseason' && <Check className="w-4 h-4 text-emerald-400 shrink-0 ml-1" />}
+                  </div>
+                  <div className="text-[11px] text-emerald-300 font-mono mt-0.5 font-bold">2026年7月1日スタート</div>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    夏の親善ツアー、移籍市場開幕、戦術浸透など新チームを一からビルドアップする王道キャリア。
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStartMode('midseason')}
+                  className={`text-left p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                    startMode === 'midseason'
+                      ? 'bg-amber-950/40 border-amber-500 ring-1 ring-amber-500/30'
+                      : 'bg-slate-800/50 border-slate-700/80 hover:border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs sm:text-sm font-bold text-white">シーズン途中緊急就任</span>
+                    {startMode === 'midseason' && <Check className="w-4 h-4 text-amber-400 shrink-0 ml-1" />}
+                  </div>
+                  <div className="text-[11px] text-amber-300 font-mono mt-0.5 font-bold">2026年10月15日スタート（第9節時点）</div>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    開幕8〜10節消化時点で危機に瀕したクラブからオファー。実際の順位表と試合履歴を引き継ぎ再建へ。
+                  </p>
+                </button>
               </div>
             </div>
 

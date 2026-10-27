@@ -1,10 +1,12 @@
 import { 
   GameWorldState, 
   ManagerProfile, 
+  Player,
   Club, 
   LeagueKey, 
   StandingsRow, 
   MatchFixture, 
+  MatchStats,
   TeamTactics, 
   NewsItem,
   DifficultySettings,
@@ -13,10 +15,11 @@ import {
 import { ALL_CLUBS, ENABLE_J_LEAGUE } from '../data/clubsData';
 import { J1_20_CLUBS, J2_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
+import { FREE_AGENT_CLUB, FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 import { generateRandomYouthAcademy, generateSingleRandomYouthProspect } from '../data/youthGenerator';
 import { deriveRealisticAltPositions } from '../data/playerPositionsHelper';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
-import { getDaysUntilDeadline, calculateAge } from './dateEngine';
+import { getDaysUntilDeadline, calculateAge, rebuildStandingsFromMatchResults } from './dateEngine';
 import { ensureYouthAcademyProspects } from './dataValidator';
 import { generateClubVisionRoadmap } from './clubVisionEngine';
 import { 
@@ -60,6 +63,7 @@ export function createInitialStandings(clubs: Record<string, Club>): Record<Leag
   };
 
   Object.values(clubs).forEach(club => {
+    if (club.id === 'free_agent' || (club.league as string) === 'free-agent') return;
     if (standings[club.league]) {
       standings[club.league].push({
         clubId: club.id,
@@ -84,13 +88,128 @@ export { generateSeasonFixtures } from './fixtureGenerator';
 import { generateSeasonFixtures } from './fixtureGenerator';
 import { createPreSeasonScheduleNews } from './preSeasonEngine';
 
+/**
+ * Deterministically simulates matches before mid-season takeover date
+ */
+function simulatePreAppointmentMatches(
+  fixtures: MatchFixture[],
+  clubs: Record<string, Club>,
+  players: Record<string, Player>,
+  cutoffDate: string
+): MatchFixture[] {
+  return fixtures.map(f => {
+    if (f.date >= cutoffDate || f.status === 'finished') {
+      return f;
+    }
+    const seed = Math.abs(f.id.split('').reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) | 0, 0));
+    const pseudoRand = (offset: number) => {
+      const x = Math.sin(seed + offset) * 10000;
+      return x - Math.floor(x);
+    };
 
-export function createNewGameWorld(manager: ManagerProfile, difficultySettings?: DifficultySettings): GameWorldState {
+    let homeClub = clubs[f.homeClubId];
+    let awayClub = clubs[f.awayClubId];
+    let resolvedHomeClubId = f.homeClubId;
+    let resolvedAwayClubId = f.awayClubId;
+
+    if (!homeClub || !awayClub) {
+      if (f.homeClubId === 'tbd' || f.awayClubId === 'tbd') {
+        const j1Clubs = Object.values(clubs).filter(c => c.league === 'j1-league');
+        const hIdx = seed % j1Clubs.length;
+        const aIdx = (seed + 5) % j1Clubs.length;
+        homeClub = homeClub || j1Clubs[hIdx];
+        awayClub = awayClub || (hIdx === aIdx ? j1Clubs[(aIdx + 1) % j1Clubs.length] : j1Clubs[aIdx]);
+        resolvedHomeClubId = homeClub.id;
+        resolvedAwayClubId = awayClub.id;
+      } else {
+        return {
+          ...f,
+          status: 'finished' as const,
+          isResultApplied: true
+        };
+      }
+    }
+
+    const homeOvr = homeClub.reputation || 75;
+    const awayOvr = awayClub.reputation || 75;
+    const diff = (homeOvr + 2 - awayOvr) / 10;
+    const baseHomeExp = Math.max(0.4, 1.4 + diff * 0.4);
+    const baseAwayExp = Math.max(0.3, 1.1 - diff * 0.4);
+
+    const homeGoals = Math.min(5, Math.max(0, Math.round(baseHomeExp + (pseudoRand(1) - 0.5) * 2.2)));
+    const awayGoals = Math.min(5, Math.max(0, Math.round(baseAwayExp + (pseudoRand(2) - 0.5) * 2.2)));
+
+    const events: any[] = [];
+    const homePlayerIds = homeClub.playerIds || [];
+    const awayPlayerIds = awayClub.playerIds || [];
+
+    for (let g = 0; g < homeGoals; g++) {
+      const min = Math.floor(pseudoRand(10 + g) * 88) + 2;
+      const scorerId = homePlayerIds.length > 0 ? homePlayerIds[Math.floor(pseudoRand(20 + g) * homePlayerIds.length)] : undefined;
+      events.push({
+        id: `ev_pre_${f.id}_h${g}`,
+        minute: min,
+        type: 'goal',
+        clubId: homeClub.id,
+        playerId: scorerId,
+        playerName: scorerId && players[scorerId] ? players[scorerId].name : `${homeClub.shortName}選手`,
+        description: `⚽ ゴール！ ${homeClub.shortName}が得点 (${min}分)`
+      });
+    }
+
+    for (let g = 0; g < awayGoals; g++) {
+      const min = Math.floor(pseudoRand(30 + g) * 88) + 2;
+      const scorerId = awayPlayerIds.length > 0 ? awayPlayerIds[Math.floor(pseudoRand(40 + g) * awayPlayerIds.length)] : undefined;
+      events.push({
+        id: `ev_pre_${f.id}_a${g}`,
+        minute: min,
+        type: 'goal',
+        clubId: awayClub.id,
+        playerId: scorerId,
+        playerName: scorerId && players[scorerId] ? players[scorerId].name : `${awayClub.shortName}選手`,
+        description: `⚽ ゴール！ ${awayClub.shortName}が得点 (${min}分)`
+      });
+    }
+
+    events.sort((a, b) => a.minute - b.minute);
+
+    return {
+      ...f,
+      homeClubId: resolvedHomeClubId,
+      awayClubId: resolvedAwayClubId,
+      homeScore: homeGoals,
+      awayScore: awayGoals,
+      status: 'finished' as const,
+      isResultApplied: true,
+      events,
+      stats: {
+        homeScore: homeGoals,
+        awayScore: awayGoals,
+        possession: 50 + Math.round((pseudoRand(5) - 0.5) * 16),
+        shots: [homeGoals + Math.floor(pseudoRand(6) * 7) + 3, awayGoals + Math.floor(pseudoRand(7) * 7) + 2],
+        shotsOnTarget: [homeGoals + Math.floor(pseudoRand(8) * 3), awayGoals + Math.floor(pseudoRand(9) * 3)],
+        xG: [Number((homeGoals * 0.7 + pseudoRand(1) * 0.8).toFixed(2)), Number((awayGoals * 0.7 + pseudoRand(2) * 0.8).toFixed(2))],
+        corners: [Math.floor(pseudoRand(12) * 5) + 2, Math.floor(pseudoRand(13) * 5) + 2],
+        fouls: [Math.floor(pseudoRand(10) * 6) + 4, Math.floor(pseudoRand(11) * 6) + 4],
+        passesCompleted: [420 + Math.floor(pseudoRand(14) * 80), 380 + Math.floor(pseudoRand(15) * 80)],
+        passAccuracy: [82 + Math.floor(pseudoRand(16) * 8), 79 + Math.floor(pseudoRand(17) * 8)],
+        playerRatings: {}
+      }
+    };
+  });
+}
+
+export function createNewGameWorld(
+  manager: ManagerProfile, 
+  difficultySettings?: DifficultySettings,
+  startMode: 'preseason' | 'midseason' = 'preseason'
+): GameWorldState {
   const initialClubsMap: Record<string, Club> = {};
   const allClubsList = [
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
-    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS
+    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {
     initialClubsMap[c.id] = { ...c, playerIds: [] };
@@ -113,26 +232,47 @@ export function createNewGameWorld(manager: ManagerProfile, difficultySettings?:
     roles: {}
   };
 
-  const initialDate = '2026-07-01';
+  const isMidSeason = startMode === 'midseason';
+  const initialDate = isMidSeason ? '2026-10-15' : '2026-07-01';
+
+  const updatedManagerProfile: ManagerProfile = {
+    ...manager,
+    careerStartDate: initialDate,
+    managerAppointmentDate: initialDate
+  };
 
   const welcomeNews: NewsItem = {
-    id: 'news_welcome_1',
+    id: isMidSeason ? 'news_welcome_midseason' : 'news_welcome_1',
     date: initialDate,
-    headline: `【2026/27シーズン開幕】2026/27公式選手名鑑・最新データ基準の全クラブ始動！`,
-    body: `2026/27監督キャリアが正式スタート。2026/27シーズン公式選手名鑑および登録データを基準に、明治安田J1百年構想リーグ（20クラブ）、J2（20クラブ）、欧州5大リーグおよび2部ディビジョン（全クラブ）の実名選手が完全集結。夏の移籍市場、プレシーズン国際ツアーが開幕しました。`,
-    category: 'tournament',
+    headline: isMidSeason 
+      ? `【2026/27シーズン第9節終了】欧州＆Jリーグ混戦模様！各クラブの情勢と新体制募集`
+      : `【2026/27シーズン開幕】2026/27公式選手名鑑・最新データ基準の全クラブ始動！`,
+    body: isMidSeason
+      ? `2026年10月15日現在、2026/27シーズンは第8〜10節まで消化。序盤の混戦から各リーグの順位表が形作られ、下位に沈むクラブや期待値に届かない名門クラブで監督交代の動きが活発化しています。再建を託された新指揮官の選考が始まります。`
+      : `2026/27監督キャリアが正式スタート。2026/27シーズン公式選手名鑑および登録データを基準に、明治安田J1百年構想リーグ（20クラブ）、J2（20クラブ）、欧州5大リーグおよび2部ディビジョン（全クラブ）の実名選手が完全集結。夏の移籍市場、プレシーズン国際ツアーが開幕しました。`,
+    category: isMidSeason ? 'press' : 'tournament',
     importance: 'high'
   };
 
-  const standings = createInitialStandings(clubs);
+  let initialStandings = createInitialStandings(clubs);
+  let fixtures: MatchFixture[] = [];
+
+  if (isMidSeason) {
+    // Generate full season fixtures, then pre-simulate results up to Oct 14
+    const fullFixtures = generateSeasonFixtures(clubs, null, 2026, updatedManagerProfile);
+    fixtures = simulatePreAppointmentMatches(fullFixtures, clubs, players, initialDate);
+    initialStandings = rebuildStandingsFromMatchResults(fixtures, clubs, initialStandings);
+  }
 
   return {
     currentDate: initialDate,
     season: '2026/27',
     rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
-    isTransferWindowOpen: true,
-    transferWindowClosingDays: getDaysUntilDeadline(initialDate),
-    manager,
+    isTransferWindowOpen: !isMidSeason,
+    transferWindowClosingDays: isMidSeason ? 0 : getDaysUntilDeadline(initialDate),
+    manager: updatedManagerProfile,
+    managerAppointmentDate: initialDate,
+    isMidSeasonAppointment: isMidSeason,
     userClubId: null,
     boardConfidence: 80,
     fanApproval: 75,
@@ -154,8 +294,8 @@ export function createNewGameWorld(manager: ManagerProfile, difficultySettings?:
       return players;
     })(),
     tactics: initialTactics,
-    fixtures: [],
-    standings,
+    fixtures,
+    standings: initialStandings,
     negotiations: {},
     news: [welcomeNews],
     youthAcademy: generateRandomYouthAcademy(manager.nationality === '日本' ? '日本' : 'イングランド', 6),
@@ -281,19 +421,52 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
   });
 
   const userTactics = getDefaultTacticsForClub(chosenClub, updatedPlayers);
-  const fixtures = generateSeasonFixtures(updatedClubs, chosenClubId, 2026, state.manager);
-  const psFixtures = fixtures.filter(f => f.competition === 'pre-season');
-  const psNews = createPreSeasonScheduleNews(chosenClub, psFixtures, updatedClubs, state.currentDate);
+  
+  // FIX: Retain existing fixtures, results, and standings if already present!
+  // Never wipe finished match results or regenerate schedule mid-season.
+  const isMidSeason = state.isMidSeasonAppointment || state.currentDate > '2026-07-25';
+  let fixtures: MatchFixture[];
+  let psNews: NewsItem | null = null;
+
+  if (state.fixtures && state.fixtures.length > 0) {
+    fixtures = state.fixtures.map(f => ({
+      ...f,
+      isUserMatch: (f.homeClubId === chosenClubId || f.awayClubId === chosenClubId) && f.status === 'upcoming'
+    }));
+  } else {
+    fixtures = generateSeasonFixtures(updatedClubs, chosenClubId, 2026, state.manager);
+    const psFixtures = fixtures.filter(f => f.competition === 'pre-season');
+    psNews = createPreSeasonScheduleNews(chosenClub, psFixtures, updatedClubs, state.currentDate);
+  }
 
   const customYouth = (!state.youthAcademy || state.youthAcademy.length < 5 || state.youthAcademy.some(y => y.id === 'youth_1' || y.name.includes('高橋 蓮') || y.name.includes('(')))
     ? generateRandomYouthAcademy(chosenClub.country, 6)
     : state.youthAcademy;
 
+  // Standings report for mid-season appointment news
+  let midSeasonText = '';
+  if (isMidSeason) {
+    const leagueRows = state.standings[chosenClub.league] || [];
+    const rankIdx = leagueRows.findIndex(r => r.clubId === chosenClubId);
+    const clubRow = rankIdx >= 0 ? leagueRows[rankIdx] : null;
+    const rankStr = rankIdx >= 0 ? `第${rankIdx + 1}位` : '中位';
+    const played = clubRow?.played || 0;
+    const wins = clubRow?.won || 0;
+    const draws = clubRow?.drawn || 0;
+    const losses = clubRow?.lost || 0;
+    const points = clubRow?.points || 0;
+    midSeasonText = `現在リーグ戦${played}試合を消化し、${rankStr}（${wins}勝${draws}分${losses}敗、勝点${points}）。フロント陣は「${state.manager.name}監督の卓越した${state.manager.specialty}と${state.manager.style}の手腕による早期の立て直しと目標達成」に期待を寄せています。`;
+  }
+
   const appointNews: NewsItem = {
     id: `news_appoint_${Date.now()}`,
     date: state.currentDate,
-    headline: `【新体制発足】${chosenClub.name}、新指揮官に${state.manager.name}氏の就任を発表！`,
-    body: `${chosenClub.name}は本日、チームの新たな舵取り役として${state.manager.name}監督（${state.manager.age}歳、${state.manager.nationality}）の招聘を正式に発表しました。会見でフロント陣は「${state.manager.name}監督の卓越した${state.manager.specialty}と${state.manager.style}の手腕がクラブを次なる高みへ導いてくれると確信している」とコメント。ファンからも新時代の幕開けに大きな期待が寄せられています。`,
+    headline: isMidSeason
+      ? `【緊急就任】${chosenClub.name}、シーズン途中での再建を託し${state.manager.name}監督を招聘！`
+      : `【新体制発足】${chosenClub.name}、新指揮官に${state.manager.name}氏の就任を発表！`,
+    body: isMidSeason
+      ? `${chosenClub.name}は本日、新指揮官として${state.manager.name}監督（${state.manager.age}歳、${state.manager.nationality}）の就任を電撃発表しました。${midSeasonText}`
+      : `${chosenClub.name}は本日、チームの新たな舵取り役として${state.manager.name}監督（${state.manager.age}歳、${state.manager.nationality}）の招聘を正式に発表しました。会見でフロント陣は「${state.manager.name}監督の卓越した${state.manager.specialty}と${state.manager.style}の手腕がクラブを次なる高みへ導いてくれると確信している」とコメント。ファンからも新時代の幕開けに大きな期待が寄せられています。`,
     category: 'press',
     relatedClubId: chosenClub.id,
     importance: 'high'
@@ -301,14 +474,23 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
 
   const clubVision = generateClubVisionRoadmap(chosenClub, state.season);
 
+  const updatedManagerProfile: ManagerProfile = {
+    ...state.manager,
+    managerAppointmentDate: state.currentDate,
+    careerStartDate: state.manager.careerStartDate || (isMidSeason ? state.currentDate : '2026-07-01')
+  };
+
   const nextState: GameWorldState = {
     ...state,
+    manager: updatedManagerProfile,
+    managerAppointmentDate: state.currentDate,
+    isMidSeasonAppointment: isMidSeason,
     userClubId: chosenClubId,
     clubs: updatedClubs,
     players: updatedPlayers,
     tactics: userTactics,
     fixtures,
-    news: [appointNews, psNews, ...state.news],
+    news: [appointNews, ...(psNews ? [psNews] : []), ...state.news],
     youthAcademy: customYouth,
     boardConfidence: 85,
     fanApproval: 80,
@@ -503,7 +685,8 @@ export function migrateJLeagueIntoExistingState(state: GameWorldState): GameWorl
   const allClubsList = [
     ...ALL_CLUBS,
     ...J2_20_CLUBS,
-    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS
+    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {
     initialClubsMap[c.id] = state.clubs[c.id] ? { ...state.clubs[c.id] } : { ...c, playerIds: [] };
@@ -511,6 +694,16 @@ export function migrateJLeagueIntoExistingState(state: GameWorldState): GameWorl
 
   const registry = buildCompletePlayersRegistry();
   const { clubs, players } = populateClubsWithDefaultSquads(initialClubsMap, { ...state.players, ...registry });
+
+  // Ensure FREE_AGENT_SUPERSTARS are registered in players and free_agent club
+  FREE_AGENT_SUPERSTARS.forEach(fa => {
+    if (!players[fa.id]) {
+      players[fa.id] = { ...fa };
+      if (clubs['free_agent'] && !clubs['free_agent'].playerIds.includes(fa.id)) {
+        clubs['free_agent'].playerIds.push(fa.id);
+      }
+    }
+  });
 
   // Ensure all 12 league standings exist
   const updatedStandings = { ...state.standings };

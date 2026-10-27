@@ -484,18 +484,26 @@ export function getPositionFitOvr(player: Player, targetPosition: Position): {
   fitSymbol: '◎' | '○' | '△' | '✕';
   description: string;
 } {
-  // 1. Natural match
-  if (player.position === targetPosition) {
-    return { effectiveOvr: player.ovr, penalty: 0, fitGrade: 'S', fitSymbol: '◎', description: '本職・最適正' };
+  // 1. Natural match (100% capacity)
+  if (player.position === targetPosition || player.preferredPositions?.includes(targetPosition)) {
+    return { effectiveOvr: player.ovr, penalty: 0, fitGrade: 'S', fitSymbol: '◎', description: '本職・最適正 (100%)' };
   }
 
-  // 2. Listed in alternative positions
-  if (player.altPositions && player.altPositions.includes(targetPosition)) {
+  // 2. Secondary / Alternative positions (98% capacity - minor penalty only)
+  const isSecondary = (player.secondaryPositions && player.secondaryPositions.includes(targetPosition)) ||
+                      (player.altPositions && player.altPositions.includes(targetPosition));
+  if (isSecondary) {
+    const penalty = 1;
+    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'A', fitSymbol: '◎', description: '副ポジション・高い適応力 (98%)' };
+  }
+
+  // 3. Historical positions (95% capacity)
+  if (player.historicalPositions && player.historicalPositions.includes(targetPosition)) {
     const penalty = 2;
-    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'A', fitSymbol: '◎', description: 'サブ適性・高い適応力' };
+    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'A', fitSymbol: '○', description: '過去の経験ポジション・適性あり (95%)' };
   }
 
-  // 3. Closely related tactical roles
+  // 4. Closely related tactical roles (92% capacity)
   const relatedGroups: Record<Position, Position[]> = {
     GK: [],
     CB: ['LB', 'RB', 'CDM'],
@@ -515,11 +523,11 @@ export function getPositionFitOvr(player: Player, targetPosition: Position): {
   };
 
   if (relatedGroups[player.position]?.includes(targetPosition)) {
-    const penalty = 4;
-    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'B', fitSymbol: '○', description: '類似ポジション・起用可能' };
+    const penalty = 3;
+    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'B', fitSymbol: '○', description: '類似ポジション・戦術的起用可 (92%)' };
   }
 
-  // 4. Same field category (Defenders, Midfielders, Forwards)
+  // 5. Outfield general category (Defenders, Midfielders, Forwards) (88% capacity)
   const isDef = (pos: Position) => ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(pos);
   const isMid = (pos: Position) => ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(pos);
   const isFwd = (pos: Position) => ['LW', 'RW', 'CF', 'ST'].includes(pos);
@@ -527,13 +535,19 @@ export function getPositionFitOvr(player: Player, targetPosition: Position): {
   if ((isDef(player.position) && isDef(targetPosition)) ||
       (isMid(player.position) && isMid(targetPosition)) ||
       (isFwd(player.position) && isFwd(targetPosition))) {
-    const penalty = 8;
-    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'C', fitSymbol: '△', description: '適性外・能力低下あり' };
+    const penalty = 6;
+    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'C', fitSymbol: '△', description: '同系統・柔軟起用可能 (88%)' };
   }
 
-  // 5. Severe positional mismatch (e.g. ST at CB, or outfield at GK)
-  const penalty = targetPosition === 'GK' || player.position === 'GK' ? 32 : 18;
-  return { effectiveOvr: Math.max(35, player.ovr - penalty), penalty, fitGrade: 'D', fitSymbol: '✕', description: '著しい不適性・大幅減衰' };
+  // 6. Emergency Outfield Cross-Sector (e.g. Defender placed at Forward) (82% capacity)
+  if (player.position !== 'GK' && targetPosition !== 'GK') {
+    const penalty = 10;
+    return { effectiveOvr: Math.max(38, player.ovr - penalty), penalty, fitGrade: 'C', fitSymbol: '△', description: '不慣れなポジション・緊急起用 (82%)' };
+  }
+
+  // 7. GK vs Outfield mismatch (Strict separation between GK and Field players)
+  const penalty = 28;
+  return { effectiveOvr: Math.max(30, player.ovr - penalty), penalty, fitGrade: 'D', fitSymbol: '✕', description: '専門外ポジション・適性なし (大幅減衰)' };
 }
 
 // Generate updated tactics when changing formation with intelligent slot matching

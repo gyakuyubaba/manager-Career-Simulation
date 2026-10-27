@@ -13,6 +13,7 @@ interface Props {
   onToggleTransferList?: (playerId: string) => void;
   onToggleLoanList?: (playerId: string) => void;
   onExerciseBuyOption?: (player: Player) => void;
+  onUpdateShirtNumber?: (playerId: string, newNumber: number, forceSwap: boolean) => { success: boolean; message: string; conflictPlayer?: Player };
   onClose: () => void;
 }
 
@@ -23,11 +24,30 @@ export const PlayerDetailModal: React.FC<Props> = ({
   onToggleTransferList,
   onToggleLoanList,
   onExerciseBuyOption,
+  onUpdateShirtNumber,
   onClose 
 }) => {
   const { t } = useI18n();
   const [modalTab, setModalTab] = useState<'positions' | 'growth'>('positions');
+  const [isEditingNumber, setIsEditingNumber] = useState(false);
+  const [shirtNumInput, setShirtNumInput] = useState(player?.shirtNumber || 1);
+  const [shirtMsg, setShirtMsg] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<Player | null>(null);
+
   if (!player) return null;
+
+  const handleSaveNumber = (forceSwap: boolean = false) => {
+    if (!onUpdateShirtNumber) return;
+    const res = onUpdateShirtNumber(player.id, shirtNumInput, forceSwap);
+    if (!res.success && res.conflictPlayer) {
+      setConflict(res.conflictPlayer);
+      return;
+    }
+    setShirtMsg(res.message);
+    setConflict(null);
+    setIsEditingNumber(false);
+    setTimeout(() => setShirtMsg(null), 3000);
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md">
@@ -47,8 +67,82 @@ export const PlayerDetailModal: React.FC<Props> = ({
                 <span className="px-2 py-0.5 rounded bg-blue-950 text-blue-300 text-xs font-mono font-bold border border-blue-800">
                   {player.position}
                 </span>
-                <span className="text-xs text-slate-400 font-mono">#{player.shirtNumber}</span>
+                
+                {isUserPlayer && onUpdateShirtNumber ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-yellow-300 font-mono font-bold">#{player.shirtNumber}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingNumber(!isEditingNumber);
+                        setShirtNumInput(player.shirtNumber);
+                        setConflict(null);
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 cursor-pointer"
+                    >
+                      背番号変更
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-slate-400 font-mono">#{player.shirtNumber}</span>
+                )}
               </div>
+
+              {isEditingNumber && (
+                <div className="mt-2 p-2.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                  {conflict ? (
+                    <div className="text-[11px] text-amber-300">
+                      背番号 #{shirtNumInput} は既に {conflict.name} が着用しています。
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveNumber(true)}
+                          className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px]"
+                        >
+                          スワップして変更
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConflict(null)}
+                          className="px-2 py-1 rounded bg-slate-800 text-slate-300 text-[10px]"
+                        >
+                          別の番号にする
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={shirtNumInput}
+                        onChange={e => setShirtNumInput(Math.max(1, Math.min(99, Number(e.target.value) || 1)))}
+                        className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono font-bold text-white text-center"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveNumber(false)}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[10px]"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingNumber(false)}
+                        className="px-2 py-1 rounded-lg bg-slate-800 text-slate-400 text-[10px]"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {shirtMsg && (
+                <div className="text-[11px] text-emerald-400 mt-1 font-semibold">{shirtMsg}</div>
+              )}
+
               <div className="text-xs text-slate-400 mt-1">
                 {player.age}歳 · {player.nationality} · 利き足: {player.preferredFoot} · 所属: <strong className="text-slate-200">{club?.name || 'フリー'}</strong>
               </div>

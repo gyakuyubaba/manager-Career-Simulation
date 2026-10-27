@@ -111,7 +111,7 @@ export const CURATED_REAL_SQUADS: Record<string, Player[]> = {
     makeRealPlayer('rma_courtois', 'Thibaut Courtois', 'real_madrid', 'GK', 33, 'ベルギー', 90, 90, 35000000, 280000, 1, '左', 'ショットストッパー'),
     makeRealPlayer('rma_militao', 'Éder Militão', 'real_madrid', 'CB', 27, 'ブラジル', 87, 89, 70000000, 220000, 3, '右', 'ボール運べるCB'),
     makeRealPlayer('rma_rudiger', 'Antonio Rüdiger', 'real_madrid', 'CB', 32, 'ドイツ', 88, 88, 38000000, 260000, 22, '右', 'ボール運べるCB'),
-    makeRealPlayer('rma_carvajal', 'Dani Carvajal', 'real_madrid', 'RB', 33, 'スペイン', 86, 86, 18000000, 210000, 2, '右', '攻撃的SB'),
+    makeRealPlayer('rma_lucas_vazquez', 'Lucas Vázquez', 'real_madrid', 'RB', 35, 'スペイン', 81, 81, 6000000, 110000, 17, '右', '攻撃的SB', ['RW', 'RM']),
     makeRealPlayer('rma_mendy', 'Ferland Mendy', 'real_madrid', 'LB', 30, 'フランス', 83, 83, 25000000, 180000, 23, '左', '守備的SB'),
     makeRealPlayer('rma_valverde', 'Federico Valverde', 'real_madrid', 'CM', 27, 'ウルグアイ', 89, 91, 130000000, 320000, 8, '右', 'ボックストゥボックス', ['RW']),
     makeRealPlayer('rma_tchouameni', 'Aurélien Tchouaméni', 'real_madrid', 'CDM', 25, 'フランス', 87, 90, 95000000, 240000, 14, '右', 'アンカー', ['CB']),

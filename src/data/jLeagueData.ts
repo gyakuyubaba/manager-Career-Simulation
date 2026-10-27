@@ -631,6 +631,7 @@ import { AUTHENTIC_J1_PLAYERS_PART4 } from './j1PlayersData4';
 import { AUTHENTIC_J1_PLAYERS_PART5 } from './j1PlayersData5';
 import { AUTHENTIC_J1_PLAYERS_PART6 } from './j1PlayersData6';
 import { J1_EXPANSION_AND_J2_PLAYERS } from './jLeagueFullRosters';
+import { J_LEAGUE_OFFICIAL_FULL_2026_PLAYERS } from './jLeagueOfficialFull2026Rosters';
 
 export const ALL_AUTHENTIC_J1_PLAYERS: RawJPlayer[] = [
   ...AUTHENTIC_J_PLAYERS,
@@ -640,7 +641,8 @@ export const ALL_AUTHENTIC_J1_PLAYERS: RawJPlayer[] = [
   ...AUTHENTIC_J1_PLAYERS_PART4,
   ...AUTHENTIC_J1_PLAYERS_PART5,
   ...AUTHENTIC_J1_PLAYERS_PART6,
-  ...J1_EXPANSION_AND_J2_PLAYERS
+  ...J1_EXPANSION_AND_J2_PLAYERS,
+  ...J_LEAGUE_OFFICIAL_FULL_2026_PLAYERS
 ];
 
 // Helper to expand squad rosters for all 20 J1 clubs (pure authentic, zero fake players)

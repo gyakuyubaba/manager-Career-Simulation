@@ -29,6 +29,7 @@ export type PlayStyle =
   | 'ターゲットマン'
   | 'ボックストゥボックス'
   | 'アンカー'
+  | 'ハードタックラー'
   | 'ボール運べるCB'
   | '攻撃的SB'
   | '守備的SB'
@@ -49,6 +50,7 @@ export type TacticalType =
   | 'ティキタカ（ポゼッション）' 
   | 'ポゼッション主導'
   | '堅守速攻（カウンター）' 
+  | 'ダイレクト・カウンター'
   | 'ハイブリッドプレッシング' 
   | '5バック低重心守備' 
   | 'トータルフットボール';
@@ -75,6 +77,8 @@ export interface ManagerProfile {
   draws: number;
   losses: number;
   nationalTeamOfferAvailable?: boolean;
+  careerStartDate?: string;
+  managerAppointmentDate?: string;
 }
 
 export interface PlayerRelationship {
@@ -117,6 +121,10 @@ export interface Player {
   nationality: string;
   position: Position;
   altPositions: Position[];
+  preferredPositions?: Position[];
+  secondaryPositions?: Position[];
+  historicalPositions?: Position[];
+  positionProficiency?: Partial<Record<Position, number>>;
   preferredFoot: '右' | '左' | '両足';
   ovr: number;
   initialOvr?: number; // Starting OVR to track season net growth (+1, +2, etc.)
@@ -178,7 +186,10 @@ export interface Player {
   stats: PlayerStats;
   shirtNumber: number;
   isTransferListed?: boolean;
+  transferListed?: boolean;
   isLoanListed?: boolean;
+  loanListed?: boolean;
+  contractYearsRemaining?: number;
   accumulatedYellowCards?: Record<string, number>; // competition -> count
   accumulatedRedCards?: Record<string, number>;
 }
@@ -579,6 +590,8 @@ export interface GameWorldState {
   isTransferWindowOpen: boolean;
   transferWindowClosingDays: number;
   manager: ManagerProfile;
+  managerAppointmentDate?: string;
+  isMidSeasonAppointment?: boolean;
   userClubId: string | null;
   boardConfidence: number; // 0 - 100
   fanApproval: number; // 0 - 100

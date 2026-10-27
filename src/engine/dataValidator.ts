@@ -72,6 +72,9 @@ export function CLUB_MEMBERSHIP_CHECK(
 
   // Check players' clubId vs club.playerIds
   for (const [pId, p] of Object.entries(players)) {
+    if (p.clubId === 'free_agent') {
+      continue; // Free agents are valid without fixed club squad registration
+    }
     if (!clubs[p.clubId]) {
       mismatches.push(pId);
       logs.push(`[INVALID_CLUB] 選手 "${p.name}" (${pId}) が存在しないクラブ "${p.clubId}" に所属しています。`);
@@ -134,6 +137,9 @@ export function PLAYER_DATABASE_INTEGRITY_CHECK(
     seenIds.add(pId);
 
     // 2. Non-existent club
+    if (p.clubId === 'free_agent') {
+      continue; // Free agents are valid
+    }
     if (!p.clubId || !clubs[p.clubId]) {
       errors.push(`[存在しないクラブ] 選手 "${p.name}" (${pId}) の所属先 "${p.clubId}" が存在しません。`);
     } else {
@@ -327,7 +333,9 @@ export function checkPlayerDataIntegrity(
     }
 
     const targetClubId = player.clubId || 'arsenal';
-    const validClubId = clubs[targetClubId] ? targetClubId : 'arsenal';
+    const validClubId = targetClubId === 'free_agent' 
+      ? 'free_agent' 
+      : (clubs[targetClubId] ? targetClubId : 'arsenal');
 
     const resolvedAltPositions = (player.altPositions && player.altPositions.length > 0)
       ? player.altPositions
@@ -729,6 +737,121 @@ export function ensureYouthAcademyProspects(currentAcademy?: YouthProspect[], cl
     }
   }
   return list;
+}
+
+/**
+ * Realistically determines non-uniform potential based on age, current OVR, position, and growth trajectory.
+ * Completely abolishes the uniform OVR+1 bug.
+ */
+export function deriveRealisticPlayerPotential(
+  id: string,
+  name: string,
+  age: number,
+  ovr: number,
+  position: Position
+): number {
+  const hash = (id + name + position).split('').reduce((acc, c, idx) => acc + c.charCodeAt(0) * (idx + 1), 0);
+
+  if (age <= 19) {
+    // Top young prospects: large growth headroom (+8 to +17)
+    const baseGap = 8 + (hash % 10);
+    return Math.min(96, Math.max(ovr + 6, ovr + baseGap));
+  } else if (age <= 22) {
+    // Emerging young stars (+4 to +11)
+    const baseGap = 4 + (hash % 8);
+    return Math.min(94, Math.max(ovr + 3, ovr + baseGap));
+  } else if (age <= 25) {
+    // Developing talents (+2 to +7)
+    const baseGap = 2 + (hash % 6);
+    return Math.min(92, Math.max(ovr + 1, ovr + baseGap));
+  } else if (age <= 29) {
+    // Prime players (+0 to +3)
+    const baseGap = (hash % 4);
+    return Math.min(94, ovr + baseGap);
+  } else if (age <= 33) {
+    // Mature veterans: ceiling equals OVR or slightly lower (-2 to +1)
+    const diff = (hash % 4) - 2;
+    return Math.min(93, Math.max(ovr - 2, ovr + diff));
+  } else if (age <= 36) {
+    // Experienced veterans: physical decline begins (-1 to -4)
+    const decline = 1 + (hash % 4);
+    return Math.max(50, ovr - decline);
+  } else {
+    // Late veterans (37+): gradual decline (-2 to -6)
+    const decline = 2 + (hash % 5);
+    return Math.max(50, ovr - decline);
+  }
+}
+
+/**
+ * Updates a player's shirt number with duplication verification and confirmation logic.
+ */
+export function updatePlayerShirtNumber(
+  players: Record<string, Player>,
+  clubs: Record<string, Club>,
+  clubId: string,
+  playerId: string,
+  newShirtNumber: number,
+  forceSwap: boolean = false
+): {
+  updatedPlayers: Record<string, Player>;
+  conflictPlayer?: Player;
+  success: boolean;
+  message: string;
+} {
+  const targetPlayer = players[playerId];
+  if (!targetPlayer) {
+    return { updatedPlayers: players, success: false, message: '選手が見つかりませんでした。' };
+  }
+
+  const validNum = Math.max(1, Math.min(99, Math.floor(newShirtNumber)));
+  const club = clubs[clubId];
+  const clubPlayerIds = club?.playerIds || [];
+
+  // Check if someone else in the same club currently wears this number
+  const conflictPlayer = clubPlayerIds
+    .map(pId => players[pId])
+    .find(p => p && p.id !== playerId && p.shirtNumber === validNum);
+
+  if (conflictPlayer && !forceSwap) {
+    return {
+      updatedPlayers: players,
+      conflictPlayer,
+      success: false,
+      message: `背番号 #${validNum} は既に ${conflictPlayer.name} が着用しています。`
+    };
+  }
+
+  const updated = { ...players };
+
+  if (conflictPlayer && forceSwap) {
+    // Swap numbers between the two players
+    const oldNum = targetPlayer.shirtNumber;
+    updated[conflictPlayer.id] = {
+      ...conflictPlayer,
+      shirtNumber: oldNum
+    };
+    updated[targetPlayer.id] = {
+      ...targetPlayer,
+      shirtNumber: validNum
+    };
+    return {
+      updatedPlayers: updated,
+      success: true,
+      message: `${targetPlayer.name} に #${validNum}、${conflictPlayer.name} に #${oldNum} を割り当てました。`
+    };
+  }
+
+  updated[targetPlayer.id] = {
+    ...targetPlayer,
+    shirtNumber: validNum
+  };
+
+  return {
+    updatedPlayers: updated,
+    success: true,
+    message: `${targetPlayer.name} の背番号を #${validNum} に変更しました。`
+  };
 }
 
 

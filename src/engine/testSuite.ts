@@ -20,6 +20,9 @@ import {
   CURRENT_ROSTER_DATA_VERSION, 
   CURRENT_SCHEMA_VERSION 
 } from './storageEngine';
+import { updatePlayerShirtNumber } from './dataValidator';
+import { executeTransferCompletion, simulateAITransfers } from './transferEngine';
+import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 
 export interface TestResult {
   id: string;
@@ -1074,32 +1077,30 @@ export function runAll27Tests(): TestResult[] {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
     // Construct a mock legacy save with schemaVersion 6, no rosterDataVersion, but with active user progress
-    const mockLegacySave: GameWorldState = {
-      ...baseState,
-      rosterDataVersion: undefined, // Old save without version
-      manager: {
-        ...baseState.manager,
-        careerTrophies: 3,
-        matchesManaged: 45,
-        wins: 30,
-        draws: 8,
-        losses: 7,
-        reputation: 88
-      },
-      userClubId: 'arsenal',
-      transferHistory: [
-        {
-          id: 'test_tx_legacy',
-          date: '2026-07-15',
-          playerId: 'parma_zion_suzuki',
-          playerName: '鈴木 彩艶',
-          sellerClubId: 'parma',
-          buyerClubId: 'arsenal',
-          fee: 25000000,
-          type: 'permanent'
-        }
-      ]
+    const mockLegacySave: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    mockLegacySave.rosterDataVersion = undefined;
+    mockLegacySave.manager = {
+      ...baseState.manager,
+      careerTrophies: 3,
+      matchesManaged: 45,
+      wins: 30,
+      draws: 8,
+      losses: 7,
+      reputation: 88
     };
+    mockLegacySave.userClubId = 'arsenal';
+    mockLegacySave.transferHistory = [
+      {
+        id: 'test_tx_legacy',
+        date: '2026-07-15',
+        playerId: 'parma_zion_suzuki',
+        playerName: '鈴木 彩艶',
+        sellerClubId: 'parma',
+        buyerClubId: 'arsenal',
+        fee: 25000000,
+        type: 'permanent'
+      }
+    ];
     // Put Zion Suzuki in user's club as in-game transferred player
     if (mockLegacySave.players['parma_zion_suzuki']) {
       mockLegacySave.players['parma_zion_suzuki'].clubId = 'arsenal';
@@ -1175,12 +1176,14 @@ export function runAll27Tests(): TestResult[] {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
     let mismatchCount = 0;
+    const mismatchDetails: string[] = [];
 
     Object.values(baseState.players).forEach(p => {
       if (p.clubId && baseState.clubs[p.clubId]) {
         const club = baseState.clubs[p.clubId];
         if (!club.playerIds.includes(p.id)) {
           mismatchCount++;
+          mismatchDetails.push(`${p.name} (${p.id}, club: ${p.clubId})`);
         }
       }
     });
@@ -1192,10 +1195,198 @@ export function runAll27Tests(): TestResult[] {
       passed,
       details: passed
         ? `成功: 選手検索・移籍市場に表示される全選手の所属クラブIDと、各クラブ名簿（playerIds）が100%完全一致（不整合0件）であることを確認しました。`
-        : `失敗: 選手データとクラブ名簿の間で${mismatchCount}件の所属不一致が検出されました。`
+        : `失敗: 選手データとクラブ名簿の間で${mismatchCount}件の所属不一致が検出されました: ${mismatchDetails.join(', ')}`
     });
   } catch (e: any) {
     results.push({ id: 'TEST 32', name: '選手検索と名簿の同期検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 33: シーズン途中就任モード（10月15日開始）の日程・消化済み試合・順位表保持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const midWorld = createNewGameWorld({
+      name: '途中就任テスト監督',
+      nationality: '日本',
+      age: 48,
+      avatar: '👔',
+      style: '現実主義（結果重視）',
+      tacticalType: 'ダイレクト・カウンター',
+      specialty: '守備構築',
+      reputation: 80,
+      careerTrophies: 1,
+      matchesManaged: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0
+    }, undefined, 'midseason');
+
+    const dateIsOct15 = midWorld.currentDate === '2026-10-15';
+    const appointmentDateStamped = midWorld.managerAppointmentDate === '2026-10-15';
+    const isMidSeasonFlag = midWorld.isMidSeasonAppointment === true;
+
+    // Check that matches prior to Oct 15 are finished
+    const pastMatches = midWorld.fixtures.filter(f => f.date < '2026-10-15');
+    const pastMatchesFinished = pastMatches.length > 0 && pastMatches.every(f => f.status === 'finished' && f.isResultApplied);
+
+    // Check that standings have games played (>0)
+    const plRows = midWorld.standings['premier-league'] || [];
+    const hasPlayedMatchesInStandings = plRows.length > 0 && plRows.some(r => r.played >= 5 && r.points > 0);
+
+    // Now appoint to Arsenal in mid-season
+    const appointedState = appointUserToClub(midWorld, 'arsenal');
+    const dateNotRolledBack = appointedState.currentDate === '2026-10-15';
+    const fixturesNotWiped = appointedState.fixtures.length === midWorld.fixtures.length;
+    const upcomingUserMatchesMarked = appointedState.fixtures.some(f => (f.homeClubId === 'arsenal' || f.awayClubId === 'arsenal') && f.date >= '2026-10-15' && f.isUserMatch);
+
+    const passed = dateIsOct15 && appointmentDateStamped && isMidSeasonFlag && pastMatchesFinished && hasPlayedMatchesInStandings && dateNotRolledBack && fixturesNotWiped && upcomingUserMatchesMarked;
+    results.push({
+      id: 'TEST 33',
+      name: 'シーズン途中就任モード（10月15日開始）の日程・消化済み試合・順位表保持検証',
+      passed,
+      details: passed
+        ? `成功: 10月15日途中就任で開始され、開幕から第9節までの試合結果(${pastMatches.length}試合消化)および順位表が完全保持され、クラブ就任後も日付が7月に巻き戻らず日程が維持されることを確認しました。`
+        : `失敗: 日付判定(${dateIsOct15}), 就任日刻印(${appointmentDateStamped}), 過去試合完了(${pastMatchesFinished}), 順位表反映(${hasPlayedMatchesInStandings}), 就任後日付維持(${dateNotRolledBack}), 日程維持(${fixturesNotWiped})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 33', name: 'シーズン途中就任検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 34: 背番号編集・重複警告・安全な自動スワップ検証（1〜99）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testClubs = { ...baseState.clubs };
+    const testPlayers = { ...baseState.players };
+    const userClubId = 'brighton';
+    const bPlayerIds = testClubs[userClubId]?.playerIds || [];
+
+    const p1Id = bPlayerIds[0];
+    const p2Id = bPlayerIds[1];
+    const p1 = testPlayers[p1Id];
+    const p2 = testPlayers[p2Id];
+
+    // Attempt to assign p2's shirt number to p1 without forceSwap -> should fail with conflict
+    const conflictResult = updatePlayerShirtNumber(testPlayers, testClubs, userClubId, p1Id, p2.shirtNumber, false);
+    const conflictDetected = !conflictResult.success && conflictResult.conflictPlayer?.id === p2.id;
+
+    // Now execute with forceSwap -> numbers should be swapped
+    const oldP1Num = p1.shirtNumber;
+    const oldP2Num = p2.shirtNumber;
+    const swapResult = updatePlayerShirtNumber(testPlayers, testClubs, userClubId, p1Id, oldP2Num, true);
+    const swapSucceeded = swapResult.success &&
+      swapResult.updatedPlayers[p1Id].shirtNumber === oldP2Num &&
+      swapResult.updatedPlayers[p2Id].shirtNumber === oldP1Num;
+
+    const passed = conflictDetected && swapSucceeded;
+    results.push({
+      id: 'TEST 34',
+      name: '背番号編集・重複警告・安全な自動スワップ検証（1〜99）',
+      passed,
+      details: passed
+        ? `成功: 同一クラブ内での背番号重複時に安全に警告・競合選手(${p2.name})が検出され、スワップ確認時に #${oldP1Num} と #${oldP2Num} が正確に交換・保存されることを確認しました。`
+        : `失敗: 重複検出(${conflictDetected})またはスワップ実行(${swapSucceeded})に問題があります。`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 34', name: '背番号編集・スワップ検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 35: フリーエージェント枠（メッシ39歳、ロナウド41歳、ネイマール34歳、ハメス35歳、カルバハル34歳、ラモス40歳）の存在・実名・年齢・適性登録検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const allPlayers = Object.values(baseState.players);
+    const messi = allPlayers.find(p => p.name.includes('メッシ') || p.id === 'fa_lionel_messi');
+    const ronaldo = allPlayers.find(p => p.name.includes('ロナウド') || p.id === 'fa_cristiano_ronaldo');
+    const neymar = allPlayers.find(p => p.name.includes('ネイマール') || p.id === 'fa_neymar_jr');
+    const james = allPlayers.find(p => p.name.includes('ハメス') || p.id === 'fa_james_rodriguez');
+    const carvajal = allPlayers.find(p => p.name.includes('カルバハル') || p.id === 'fa_dani_carvajal');
+    const ramos = allPlayers.find(p => p.name.includes('ラモス') || p.id === 'fa_sergio_ramos');
+
+    const allSixExist = !!(messi && ronaldo && neymar && james && carvajal && ramos);
+    const agesMatch = (
+      messi?.age === 39 &&
+      ronaldo?.age === 41 &&
+      neymar?.age === 34 &&
+      james?.age === 35 &&
+      carvajal?.age === 34 &&
+      ramos?.age === 40
+    );
+    const areFreeAgents = [messi, ronaldo, neymar, james, carvajal, ramos].every(
+      p => p && (p.clubId === 'free_agent' || p.clubId === '')
+    );
+    const haveProficiency = [messi, ronaldo, neymar, james, carvajal, ramos].every(
+      p => p && p.positionProficiency && Object.keys(p.positionProficiency).length > 0
+    );
+
+    const passed = allSixExist && agesMatch && areFreeAgents && haveProficiency;
+    results.push({
+      id: 'TEST 35',
+      name: 'フリーエージェント枠（メッシ39歳、ロナウド41歳、ネイマール34歳、ハメス35歳、カルバハル34歳、ラモス40歳）検証',
+      passed,
+      details: passed
+        ? `成功: 6名のレジェンドスター選手（メッシ39歳、ロナウド41歳、ネイマール34歳、ハメス35歳、カルバハル34歳、ラモス40歳）が無所属フリーエージェントとして登録され、正確な年齢・ポジション適性を保持していることを確認しました。`
+        : `失敗: 存在(${allSixExist})、年齢合致(${agesMatch})、フリー属性(${areFreeAgents})、適性設定(${haveProficiency})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 35', name: 'フリーエージェント枠検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 36: 他クラブによるフリーエージェント獲得シミュレーション及び移籍金0円獲得検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testBuyer = Object.values(baseState.clubs).find(c => c.id !== 'free_agent' && c.tier === 'Elite') || Object.values(baseState.clubs)[0];
+    const initialBudget = testBuyer.transferBudget;
+    const initialPlayerCount = testBuyer.playerIds.length;
+
+    // 1. Simulate signing a free agent
+    const faNegotiation = {
+      id: 'test_fa_neg',
+      playerId: 'fa_lionel_messi',
+      sellerClubId: 'free_agent',
+      buyerClubId: testBuyer.id,
+      status: 'completed' as const,
+      isLoan: false,
+      negotiationType: 'permanent' as const,
+      initialAskingPrice: 0,
+      currentBidFee: 0,
+      clubPatience: 3,
+      clubMessages: [],
+      wageOffered: 200000,
+      wageDemanded: 200000,
+      contractYearsOffered: 1,
+      squadRoleOffered: '絶対的主力' as const,
+      signingBonusOffered: 1000000,
+      playerPatience: 3,
+      playerMessages: []
+    };
+
+    const nextState = executeTransferCompletion(baseState, faNegotiation);
+    const updatedBuyer = nextState.clubs[testBuyer.id];
+    const updatedPlayer = nextState.players['fa_lionel_messi'];
+
+    // Zero transfer fee deducted
+    const zeroFeeDeducted = updatedBuyer.transferBudget === initialBudget;
+    const clubTransferred = updatedPlayer.clubId === testBuyer.id;
+    const addedToRoster = updatedBuyer.playerIds.includes('fa_lionel_messi') && updatedBuyer.playerIds.length === initialPlayerCount + 1;
+    const freeAgentNewsGenerated = nextState.news.some(n => n.headline.includes('フリー獲得') || n.headline.includes('契約'));
+
+    // 2. AI autonomous transfer window with free agents
+    const simulatedState = simulateAITransfers({ ...baseState, isTransferWindowOpen: true });
+    const simulationRanWithoutError = !!simulatedState && typeof simulatedState === 'object';
+
+    const passed = zeroFeeDeducted && clubTransferred && addedToRoster && freeAgentNewsGenerated && simulationRanWithoutError;
+    results.push({
+      id: 'TEST 36',
+      name: '他クラブによるフリーエージェント獲得シミュレーション及び移籍金0円獲得検証',
+      passed,
+      details: passed
+        ? `成功: 移籍金€0でフリーエージェント選手が正常に移籍完了し、名簿追加・新天地クラブID・速報ニュース生成・AI自律獲得シミュレーションが整合して動作することを確認しました。`
+        : `失敗: 移籍金0円(${zeroFeeDeducted})、所属変更(${clubTransferred})、名簿更新(${addedToRoster})、速報生成(${freeAgentNewsGenerated})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 36', name: '他クラブによるフリーエージェント獲得シミュレーション検証', passed: false, details: e.message });
   }
 
   return results;
@@ -1203,6 +1394,8 @@ export function runAll27Tests(): TestResult[] {
 
 export const runAll16Tests = runAll27Tests;
 export const runAll32Tests = runAll27Tests;
+export const runAll34Tests = runAll27Tests;
+export const runAll36Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

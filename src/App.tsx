@@ -23,6 +23,7 @@ import {
 } from './engine/gameState';
 import { advanceOneDay, fastForwardUntil, applyMatchResultToWorld, simulatePendingAIFixturesForDate } from './engine/dateEngine';
 import { exerciseLoanBuyOption } from './engine/transferEngine';
+import { updatePlayerShirtNumber } from './engine/dataValidator';
 import { generatePreSeasonTourOptions, generatePreSeasonFixtures, createPreSeasonScheduleNews } from './engine/preSeasonEngine';
 import { HeaderNav } from './components/HeaderNav';
 import { BottomTabBar, MainTab } from './components/BottomTabBar';
@@ -99,8 +100,8 @@ export default function App() {
   }, [gameState, isStorageReady]);
 
   // Step 1: Manager Creation
-  const handleManagerCreated = (profile: ManagerProfile) => {
-    const newWorld = createNewGameWorld(profile);
+  const handleManagerCreated = (profile: ManagerProfile, startMode: 'preseason' | 'midseason' = 'preseason') => {
+    const newWorld = createNewGameWorld(profile, undefined, startMode);
     setGameState(newWorld);
   };
 
@@ -591,6 +592,20 @@ export default function App() {
           onToggleTransferList={handleToggleTransferList}
           onToggleLoanList={handleToggleLoanList}
           onExerciseBuyOption={handleExerciseBuyOption}
+          onUpdateShirtNumber={(playerId, newNumber, forceSwap) => {
+            if (!gameState || !gameState.userClubId) return { success: false, message: 'クラブ未所属です' };
+            const res = updatePlayerShirtNumber(gameState.players, gameState.clubs, gameState.userClubId, playerId, newNumber, forceSwap);
+            if (res.success) {
+              setGameState({
+                ...gameState,
+                players: res.updatedPlayers
+              });
+              if (inspectingPlayer.id === playerId) {
+                setInspectingPlayer(res.updatedPlayers[playerId]);
+              }
+            }
+            return res;
+          }}
           onClose={() => setInspectingPlayer(null)}
         />
       )}

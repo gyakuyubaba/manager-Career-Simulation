@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { GameWorldState, Player, Position, TransferNegotiation, IncomingAIOffer } from '../../types/game';
+import React, { useState, useMemo } from 'react';
+import { GameWorldState, Player, Position, TransferNegotiation, IncomingAIOffer, LeagueKey, Club } from '../../types/game';
 import { 
   handleClubNegotiationStep, 
   handlePlayerNegotiationStep, 
@@ -15,7 +15,12 @@ import {
   AlertTriangle, 
   ArrowRight, 
   Building,
-  UserCheck
+  UserCheck,
+  SlidersHorizontal,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  Sparkles
 } from 'lucide-react';
 
 interface Props {
@@ -24,9 +29,75 @@ interface Props {
   onSelectPlayer: (player: Player) => void;
 }
 
+const ALL_POSITIONS: Position[] = ['ST', 'CF', 'RW', 'LW', 'CAM', 'CM', 'CDM', 'RM', 'LM', 'CB', 'LB', 'RB', 'LWB', 'RWB', 'GK'];
+
 export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSelectPlayer }) => {
+  // 1. Text Search
   const [searchTerm, setSearchTerm] = useState('');
-  const [positionFilter, setPositionFilter] = useState<string>('ALL');
+  
+  // 2. Positions (multi-select)
+  const [selectedPositions, setSelectedPositions] = useState<Position[]>([]);
+  
+  // 3. Include Secondary/Historical positions
+  const [includeSecondary, setIncludeSecondary] = useState(true);
+
+  // 4. Playstyle
+  const [playstyleFilter, setPlaystyleFilter] = useState<string>('ALL');
+
+  // 5. Age range
+  const [minAge, setMinAge] = useState<number>(15);
+  const [maxAge, setMaxAge] = useState<number>(42);
+
+  // 6. OVR range
+  const [minOvr, setMinOvr] = useState<number>(50);
+  const [maxOvr, setMaxOvr] = useState<number>(99);
+
+  // 7. Potential range
+  const [minPotential, setMinPotential] = useState<number>(50);
+  const [maxPotential, setMaxPotential] = useState<number>(99);
+
+  // 8. Max Market Value (in Millions)
+  const [maxMarketValueM, setMaxMarketValueM] = useState<number>(200);
+
+  // 9. Max Wage (in Thousands)
+  const [maxWageK, setMaxWageK] = useState<number>(600);
+
+  // 10. League
+  const [leagueFilter, setLeagueFilter] = useState<string>('ALL');
+
+  // 11. Club
+  const [clubFilter, setClubFilter] = useState<string>('ALL');
+
+  // 12. Nationality
+  const [nationalityFilter, setNationalityFilter] = useState<string>('ALL');
+
+  // 13. Free Agent Only
+  const [freeAgentOnly, setFreeAgentOnly] = useState<boolean>(false);
+
+  // 14. Transfer Listed Only
+  const [transferListedOnly, setTransferListedOnly] = useState<boolean>(false);
+
+  // 15. Loan Listed Only
+  const [loanListedOnly, setLoanListedOnly] = useState<boolean>(false);
+
+  // 16. Contract Expiring
+  const [expiringFilter, setExpiringFilter] = useState<'ALL' | '1year' | '6months'>('ALL');
+
+  // 17. Affordable transfer fee
+  const [affordableOnly, setAffordableOnly] = useState<boolean>(false);
+
+  // 18. Affordable wage
+  const [affordableWageOnly, setAffordableWageOnly] = useState<boolean>(false);
+
+  // 19. Negotiation ready (cooldown 0)
+  const [negotiationReadyOnly, setNegotiationReadyOnly] = useState<boolean>(false);
+
+  // 20. Sort Order
+  const [sortBy, setSortBy] = useState<'ovr_desc' | 'ovr_asc' | 'pot_desc' | 'age_asc' | 'age_desc' | 'val_desc' | 'val_asc' | 'wage_desc'>('ovr_desc');
+
+  // UI state
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
+  const [displayLimit, setDisplayLimit] = useState<number>(60);
   const [activeNegotiation, setActiveNegotiation] = useState<TransferNegotiation | null>(null);
 
   // Negotiation input states
@@ -42,22 +113,222 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
 
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
 
-  // Filter players not already in user's club
-  const allTargetPlayers = Object.values(state.players).filter(p => {
-    if (p.clubId === state.userClubId) return false;
-    if (positionFilter !== 'ALL' && p.position !== positionFilter) return false;
-    if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
-  });
-
-  // Sort by OVR descending
-  allTargetPlayers.sort((a, b) => b.ovr - a.ovr);
-
   const getCooldownDays = (playerId: string): number => {
     const neg = state.negotiations[playerId];
     if (!neg || !neg.cooldownUntil) return 0;
     const diff = Math.ceil((new Date(neg.cooldownUntil).getTime() - new Date(state.currentDate).getTime()) / (1000 * 3600 * 24));
     return Math.max(0, diff);
+  };
+
+  // Dynamic dropdown options derived from live database
+  const availablePlaystyles = useMemo(() => {
+    return Array.from(new Set(Object.values(state.players).map(p => p.playstyle).filter(Boolean))).sort();
+  }, [state.players]);
+
+  const availableNationalities = useMemo(() => {
+    return Array.from(new Set(Object.values(state.players).map(p => p.nationality).filter(Boolean))).sort();
+  }, [state.players]);
+
+  const availableClubs = useMemo(() => {
+    return Object.values(state.clubs)
+      .filter(c => leagueFilter === 'ALL' || c.league === leagueFilter)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [state.clubs, leagueFilter]);
+
+  // Comprehensive 20-Criteria Filter & Sort
+  const allTargetPlayers = useMemo(() => {
+    const filtered = Object.values(state.players).filter(p => {
+      // 1. Exclude own club
+      if (p.clubId === state.userClubId) return false;
+
+      // 2. Search term (name or club name)
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        const clubName = state.clubs[p.clubId]?.name?.toLowerCase() || '';
+        if (!p.name.toLowerCase().includes(term) && !clubName.includes(term)) {
+          return false;
+        }
+      }
+
+      // 3. Position filter (multi-select + secondary support)
+      if (selectedPositions.length > 0) {
+        if (includeSecondary) {
+          const playable = [
+            p.position,
+            ...(p.preferredPositions || []),
+            ...(p.secondaryPositions || []),
+            ...(p.historicalPositions || []),
+            ...(p.altPositions || [])
+          ];
+          if (!selectedPositions.some(pos => playable.includes(pos))) {
+            return false;
+          }
+        } else {
+          if (!selectedPositions.includes(p.position)) {
+            return false;
+          }
+        }
+      }
+
+      // 4. Playstyle
+      if (playstyleFilter !== 'ALL' && p.playstyle !== playstyleFilter) {
+        return false;
+      }
+
+      // 5. Age range
+      if (p.age < minAge || p.age > maxAge) {
+        return false;
+      }
+
+      // 6. OVR range
+      if (p.ovr < minOvr || p.ovr > maxOvr) {
+        return false;
+      }
+
+      // 7. Potential range
+      const pot = p.potential ?? (p.ovr + 3);
+      if (pot < minPotential || pot > maxPotential) {
+        return false;
+      }
+
+      // 8. Market Value Max
+      if (maxMarketValueM < 200 && p.marketValue > maxMarketValueM * 1000000) {
+        return false;
+      }
+
+      // 9. Wage Max
+      if (maxWageK < 600 && p.wage > maxWageK * 1000) {
+        return false;
+      }
+
+      // 10. League
+      if (leagueFilter !== 'ALL') {
+        const club = state.clubs[p.clubId];
+        if (!club || club.league !== leagueFilter) return false;
+      }
+
+      // 11. Club
+      if (clubFilter !== 'ALL' && p.clubId !== clubFilter) {
+        return false;
+      }
+
+      // 12. Nationality
+      if (nationalityFilter !== 'ALL' && p.nationality !== nationalityFilter) {
+        return false;
+      }
+
+      // 13. Free agent only
+      if (freeAgentOnly && p.clubId !== 'free_agent' && p.clubId !== '') {
+        return false;
+      }
+
+      // 14. Transfer listed only
+      if (transferListedOnly && !p.transferListed) {
+        return false;
+      }
+
+      // 15. Loan listed only
+      if (loanListedOnly && !p.loanListed) {
+        return false;
+      }
+
+      // 16. Expiring contract
+      if (expiringFilter === '1year' && (p.contractYearsRemaining || 3) > 1) {
+        return false;
+      }
+      if (expiringFilter === '6months' && (p.contractYearsRemaining || 3) > 0.5) {
+        return false;
+      }
+
+      // 17. Affordable transfer budget
+      if (affordableOnly && userClub && p.marketValue > userClub.transferBudget) {
+        return false;
+      }
+
+      // 18. Affordable wage budget
+      if (affordableWageOnly && userClub && p.wage > userClub.wageBudget) {
+        return false;
+      }
+
+      // 19. Negotiation ready (cooldown === 0)
+      if (negotiationReadyOnly) {
+        const cooldown = getCooldownDays(p.id);
+        if (cooldown > 0) return false;
+      }
+
+      return true;
+    });
+
+    // 20. Sort
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'ovr_desc': return b.ovr - a.ovr;
+        case 'ovr_asc': return a.ovr - b.ovr;
+        case 'pot_desc': return (b.potential ?? b.ovr) - (a.potential ?? a.ovr);
+        case 'age_asc': return a.age - b.age;
+        case 'age_desc': return b.age - a.age;
+        case 'val_desc': return b.marketValue - a.marketValue;
+        case 'val_asc': return a.marketValue - b.marketValue;
+        case 'wage_desc': return b.wage - a.wage;
+        default: return b.ovr - a.ovr;
+      }
+    });
+
+    return filtered;
+  }, [
+    state.players, 
+    state.clubs, 
+    state.userClubId, 
+    userClub,
+    searchTerm, 
+    selectedPositions, 
+    includeSecondary, 
+    playstyleFilter, 
+    minAge, 
+    maxAge, 
+    minOvr, 
+    maxOvr, 
+    minPotential, 
+    maxPotential, 
+    maxMarketValueM, 
+    maxWageK, 
+    leagueFilter, 
+    clubFilter, 
+    nationalityFilter, 
+    freeAgentOnly, 
+    transferListedOnly, 
+    loanListedOnly, 
+    expiringFilter, 
+    affordableOnly, 
+    affordableWageOnly, 
+    negotiationReadyOnly, 
+    sortBy
+  ]);
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedPositions([]);
+    setIncludeSecondary(true);
+    setPlaystyleFilter('ALL');
+    setMinAge(15);
+    setMaxAge(42);
+    setMinOvr(50);
+    setMaxOvr(99);
+    setMinPotential(50);
+    setMaxPotential(99);
+    setMaxMarketValueM(200);
+    setMaxWageK(600);
+    setLeagueFilter('ALL');
+    setClubFilter('ALL');
+    setNationalityFilter('ALL');
+    setFreeAgentOnly(false);
+    setTransferListedOnly(false);
+    setLoanListedOnly(false);
+    setExpiringFilter('ALL');
+    setAffordableOnly(false);
+    setAffordableWageOnly(false);
+    setNegotiationReadyOnly(false);
+    setSortBy('ovr_desc');
   };
 
   const startNegotiation = (targetPlayer: Player) => {
@@ -67,12 +338,55 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
       return;
     }
 
-    const sellerClub = state.clubs[targetPlayer.clubId];
-    if (!sellerClub || !userClub) return;
+    const isFreeAgent = targetPlayer.clubId === 'free_agent' || targetPlayer.clubId === '';
+    const sellerClub = state.clubs[targetPlayer.clubId] || state.clubs['free_agent'];
+    if (!userClub) return;
+    if (!sellerClub && !isFreeAgent) return;
 
     setNegotiationType('permanent');
     setBuyOptionFee(Math.round(targetPlayer.marketValue * 1.3));
     setBudgetError(null);
+
+    // Free Agent special immediate personal terms flow (Zero transfer fee)
+    if (isFreeAgent) {
+      const initialNegotiation: TransferNegotiation = {
+        id: `neg_fa_${Date.now()}`,
+        playerId: targetPlayer.id,
+        sellerClubId: 'free_agent',
+        buyerClubId: userClub.id,
+        status: 'player_negotiating',
+        isLoan: false,
+        negotiationType: 'permanent',
+        initialAskingPrice: 0,
+        currentBidFee: 0,
+        clubPatience: 3,
+        clubMessages: [
+          {
+            sender: 'ai',
+            text: `【フリーエージェント】${targetPlayer.name}は現在無所属のため、移籍金ゼロ（€0）で獲得可能です。選手代理人と直接個人条件（年俸・契約年数・起用役割）を交渉してください。`,
+            date: '今日'
+          }
+        ],
+        wageOffered: Math.round(targetPlayer.wage * 1.05),
+        wageDemanded: Math.round(targetPlayer.wage * 1.05),
+        contractYearsOffered: targetPlayer.age >= 38 ? 1 : 2,
+        squadRoleOffered: targetPlayer.ovr >= 84 ? '絶対的主力' : '重要選手',
+        signingBonusOffered: 1000000,
+        playerPatience: 3,
+        playerMessages: [
+          {
+            sender: 'agent',
+            text: `「${targetPlayer.name}（${targetPlayer.age}歳）の代理人です。当選手は現在無所属（フリーエージェント）のため、移籍金ゼロでの即時加入が可能です。提示週給や起用役割、契約年数をご提示ください。」`,
+            date: '今日'
+          }
+        ]
+      };
+
+      setBidFee(0);
+      setWageOffer(Math.round(targetPlayer.wage * 1.05));
+      setActiveNegotiation(initialNegotiation);
+      return;
+    }
 
     const initialBid = targetPlayer.marketValue;
     const initialNegotiation: TransferNegotiation = {
@@ -335,7 +649,9 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
   };
 
   const targetPlayerInNeg = activeNegotiation ? state.players[activeNegotiation.playerId] : null;
-  const sellerClubInNeg = activeNegotiation ? state.clubs[activeNegotiation.sellerClubId] : null;
+  const sellerClubInNeg = activeNegotiation 
+    ? (state.clubs[activeNegotiation.sellerClubId] || { id: 'free_agent', name: 'フリーエージェント (無所属)' } as Club) 
+    : null;
 
   return (
     <div className="space-y-5 pb-20">
@@ -653,139 +969,538 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
         );
       })()}
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            placeholder="選手名で検索 (例: 久保, Saka, Haaland, 三笘...)"
-            className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500"
-          />
-        </div>
+      {/* Filter and Search Bar with 20-Criteria Capabilities */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-4">
+        {/* Top Row: Search Term, Sort, Toggle Advanced, Reset */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="選手名またはクラブ名で検索 (例: 久保, Saka, Haaland, 三笘, Brighton...)"
+              className="w-full bg-slate-950 border border-slate-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+            />
+          </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-          {['ALL', 'ST', 'CF', 'RW', 'LW', 'CAM', 'CM', 'CDM', 'CB', 'LB', 'RB', 'GK'].map(pos => (
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            {/* Sort Dropdown */}
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as any)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+            >
+              <option value="ovr_desc">総合値 OVR (高い順)</option>
+              <option value="ovr_asc">総合値 OVR (低い順)</option>
+              <option value="pot_desc">ポテンシャル (高い順)</option>
+              <option value="val_desc">市場価値 (高い順)</option>
+              <option value="val_asc">市場価値 (安い順)</option>
+              <option value="wage_desc">週給 (高い順)</option>
+              <option value="age_asc">年齢 (若い順)</option>
+              <option value="age_desc">年齢 (ベテラン順)</option>
+            </select>
+
+            {/* Toggle Detailed Filter Drawer */}
             <button
-              key={pos}
               type="button"
-              onClick={() => setPositionFilter(pos)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 font-mono ${
-                positionFilter === pos
-                  ? 'bg-emerald-500 text-slate-950'
-                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                showAdvancedFilters
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
               }`}
             >
-              {pos}
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>詳細フィルタ (20項目)</span>
+              {showAdvancedFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
-          ))}
+
+            {/* Reset Button */}
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+              title="全条件をリセット"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">リセット</span>
+            </button>
+          </div>
         </div>
+
+        {/* Position Filter Multi-Select Pills */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="text-[11px] font-semibold text-slate-400">ポジション選択 (複数選択可):</span>
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={includeSecondary}
+                onChange={e => setIncludeSecondary(e.target.checked)}
+                className="w-3.5 h-3.5 rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0"
+              />
+              <span className="text-[11px] text-emerald-300 font-semibold">適性・副ポジションを含める</span>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+            <button
+              type="button"
+              onClick={() => setSelectedPositions([])}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 font-mono ${
+                selectedPositions.length === 0
+                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                  : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700/60'
+              }`}
+            >
+              ALL (全位置)
+            </button>
+
+            {ALL_POSITIONS.map(pos => {
+              const isSelected = selectedPositions.includes(pos);
+              return (
+                <button
+                  key={pos}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedPositions(selectedPositions.filter(p => p !== pos));
+                    } else {
+                      setSelectedPositions([...selectedPositions, pos]);
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 font-mono ${
+                    isSelected
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm ring-1 ring-emerald-400'
+                      : 'bg-slate-800/80 text-slate-400 hover:text-white border border-slate-700/60'
+                  }`}
+                >
+                  {pos}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Advanced Filters Expandable Drawer (20 Criteria) */}
+        {showAdvancedFilters && (
+          <div className="pt-3 border-t border-slate-800 space-y-4 animate-in fade-in duration-200">
+            {/* Row 1: League, Club, Nationality, Playstyle */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">所属リーグ</label>
+                <select
+                  value={leagueFilter}
+                  onChange={e => { setLeagueFilter(e.target.value); setClubFilter('ALL'); }}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="ALL">全リーグ (世界中)</option>
+                  <option value="premier-league">🏴󠁧󠁢󠁥󠁮󠁧󠁿 プレミアリーグ (英1部)</option>
+                  <option value="championship">🏴󠁧󠁢󠁥󠁮󠁧󠁿 チャンピオンシップ (英2部)</option>
+                  <option value="laliga">🇪🇸 ラ・リーガ (西1部)</option>
+                  <option value="segunda-division">🇪🇸 セグンダ (西2部)</option>
+                  <option value="bundesliga">🇩🇪 ブンデスリーガ (独1部)</option>
+                  <option value="2-bundesliga">🇩🇪 2.ブンデスリーガ (独2部)</option>
+                  <option value="serie-a">🇮🇹 セリエA (伊1部)</option>
+                  <option value="serie-b">🇮🇹 セリエB (伊2部)</option>
+                  <option value="ligue-1">🇫🇷 リーグ・アン (仏1部)</option>
+                  <option value="ligue-2">🇫🇷 リーグ・ドゥ (仏2部)</option>
+                  <option value="j1-league">🇯🇵 明治安田J1百年構想リーグ</option>
+                  <option value="j2-league">🇯🇵 明治安田J2リーグ</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">所属クラブ</label>
+                <select
+                  value={clubFilter}
+                  onChange={e => setClubFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="ALL">全クラブ</option>
+                  {availableClubs.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">国籍</label>
+                <select
+                  value={nationalityFilter}
+                  onChange={e => setNationalityFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="ALL">全国籍</option>
+                  {availableNationalities.map(nat => (
+                    <option key={nat} value={nat}>{nat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">プレイスタイル</label>
+                <select
+                  value={playstyleFilter}
+                  onChange={e => setPlaystyleFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="ALL">全スタイル</option>
+                  {availablePlaystyles.map(ps => (
+                    <option key={ps} value={ps}>{ps}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Row 2: Age, OVR, Potential ranges */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300 mb-1">
+                  <span>年齢範囲</span>
+                  <span className="font-mono text-emerald-400">{minAge}歳 〜 {maxAge}歳</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={15}
+                    max={42}
+                    value={minAge}
+                    onChange={e => setMinAge(Math.min(Number(e.target.value), maxAge))}
+                    className="w-full accent-emerald-500 cursor-pointer"
+                  />
+                  <input
+                    type="range"
+                    min={15}
+                    max={42}
+                    value={maxAge}
+                    onChange={e => setMaxAge(Math.max(Number(e.target.value), minAge))}
+                    className="w-full accent-emerald-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300 mb-1">
+                  <span>能力値 (OVR) 範囲</span>
+                  <span className="font-mono text-emerald-400">{minOvr} 〜 {maxOvr}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={50}
+                    max={99}
+                    value={minOvr}
+                    onChange={e => setMinOvr(Math.min(Number(e.target.value), maxOvr))}
+                    className="w-full accent-emerald-500 cursor-pointer"
+                  />
+                  <input
+                    type="range"
+                    min={50}
+                    max={99}
+                    value={maxOvr}
+                    onChange={e => setMaxOvr(Math.max(Number(e.target.value), minOvr))}
+                    className="w-full accent-emerald-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300 mb-1">
+                  <span>将来性 (潜在ポテンシャル)</span>
+                  <span className="font-mono text-cyan-400">{minPotential} 〜 {maxPotential}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={50}
+                    max={99}
+                    value={minPotential}
+                    onChange={e => setMinPotential(Math.min(Number(e.target.value), maxPotential))}
+                    className="w-full accent-cyan-500 cursor-pointer"
+                  />
+                  <input
+                    type="range"
+                    min={50}
+                    max={99}
+                    value={maxPotential}
+                    onChange={e => setMaxPotential(Math.max(Number(e.target.value), minPotential))}
+                    className="w-full accent-cyan-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 3: Financial Limits & Contract Expiry */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300 mb-1">
+                  <span>上限移籍金 (推定市場価値)</span>
+                  <span className="font-mono text-emerald-400">{maxMarketValueM >= 200 ? '無制限' : `〜€${maxMarketValueM}M`}</span>
+                </div>
+                <input
+                  type="range"
+                  min={5}
+                  max={200}
+                  step={5}
+                  value={maxMarketValueM}
+                  onChange={e => setMaxMarketValueM(Number(e.target.value))}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300 mb-1">
+                  <span>上限週給</span>
+                  <span className="font-mono text-emerald-400">{maxWageK >= 600 ? '無制限' : `〜€${maxWageK}k/週`}</span>
+                </div>
+                <input
+                  type="range"
+                  min={10}
+                  max={600}
+                  step={10}
+                  value={maxWageK}
+                  onChange={e => setMaxWageK(Number(e.target.value))}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">契約残り期間</label>
+                <select
+                  value={expiringFilter}
+                  onChange={e => setExpiringFilter(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="ALL">全選手 (契約期間問わず)</option>
+                  <option value="1year">契約残り1年以内 (お買い得/移籍金低下)</option>
+                  <option value="6months">契約残り半年以内 (フリー獲得視野)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 4: Status Toggles */}
+            <div className="flex items-center flex-wrap gap-2 pt-1 text-xs">
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={freeAgentOnly}
+                  onChange={e => setFreeAgentOnly(e.target.checked)}
+                  className="rounded text-emerald-500 focus:ring-0"
+                />
+                <span className="text-slate-300 font-semibold">フリーエージェントのみ</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={transferListedOnly}
+                  onChange={e => setTransferListedOnly(e.target.checked)}
+                  className="rounded text-emerald-500 focus:ring-0"
+                />
+                <span className="text-slate-300 font-semibold">移籍リスト掲載中</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={loanListedOnly}
+                  onChange={e => setLoanListedOnly(e.target.checked)}
+                  className="rounded text-emerald-500 focus:ring-0"
+                />
+                <span className="text-slate-300 font-semibold">レンタルリスト掲載中</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={affordableOnly}
+                  onChange={e => setAffordableOnly(e.target.checked)}
+                  className="rounded text-emerald-500 focus:ring-0"
+                />
+                <span className="text-emerald-300 font-semibold">クラブ移籍予算内</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={affordableWageOnly}
+                  onChange={e => setAffordableWageOnly(e.target.checked)}
+                  className="rounded text-emerald-500 focus:ring-0"
+                />
+                <span className="text-emerald-300 font-semibold">給与予算内</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={negotiationReadyOnly}
+                  onChange={e => setNegotiationReadyOnly(e.target.checked)}
+                  className="rounded text-emerald-500 focus:ring-0"
+                />
+                <span className="text-slate-300 font-semibold">即交渉可能 (冷却期間外)</span>
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Players List Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl">
-        <div className="text-xs text-slate-400 mb-3 flex items-center justify-between">
-          <span>検索結果: {allTargetPlayers.length} 名</span>
-          <span>市場価値は推定評価額です。獲得交渉額とは異なります。</span>
+        <div className="text-xs text-slate-400 mb-3 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-white font-mono text-sm">
+              検索該当: {allTargetPlayers.length} 名
+            </span>
+            <span className="text-[11px] text-slate-500">
+              (表示中: {Math.min(allTargetPlayers.length, displayLimit)} 名)
+            </span>
+          </div>
+          <span className="text-[11px]">市場価値は推定評価額です。獲得交渉額とは異なります。</span>
         </div>
 
-        <div className="divide-y divide-slate-800/80">
-          {allTargetPlayers.map(p => {
-            const club = state.clubs[p.clubId];
-            return (
-              <div 
-                key={p.id} 
-                className="py-3 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/40 px-2 rounded-xl transition-colors"
-              >
-                {/* Left: Player identity */}
+        {allTargetPlayers.length === 0 ? (
+          <div className="text-center py-12 text-slate-500 text-xs">
+            <div className="text-base mb-1">🔍 該当する選手が見つかりませんでした</div>
+            <p>フィルター条件を緩めるか、「リセット」を押して検索条件を初期化してください。</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800/80">
+            {allTargetPlayers.slice(0, displayLimit).map(p => {
+              const club = state.clubs[p.clubId];
+              const potentialVal = p.potential ?? (p.ovr + (p.age <= 21 ? 6 : p.age <= 26 ? 3 : 0));
+              return (
                 <div 
-                  onClick={() => onSelectPlayer(p)}
-                  className="flex items-center gap-3 cursor-pointer"
+                  key={p.id} 
+                  className="py-3 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/40 px-2 rounded-xl transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-white text-xs shrink-0 font-mono">
-                    {p.ovr}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-white hover:text-emerald-300 transition-colors">
-                        {p.name}
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 font-mono text-[10px] font-bold border border-blue-800/60">
-                        {p.position}
+                  {/* Left: Player identity */}
+                  <div 
+                    onClick={() => onSelectPlayer(p)}
+                    className="flex items-center gap-3 cursor-pointer"
+                  >
+                    <div className="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex flex-col items-center justify-center font-bold text-white shrink-0 font-mono shadow">
+                      <span className="text-sm font-black text-white">{p.ovr}</span>
+                      <span className="text-[9px] text-cyan-400 font-semibold" title={`潜在ポテンシャル: ${potentialVal}`}>
+                        P{potentialVal}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">
-                      {p.age}歳 · {p.nationality} · 所属: <strong className="text-slate-300">{club?.name || 'フリー'}</strong>
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-white hover:text-emerald-300 transition-colors">
+                          {p.name}
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded bg-blue-950/80 text-blue-300 font-mono text-[10px] font-bold border border-blue-800/60">
+                          {p.position}
+                        </span>
+                        {p.shirtNumber && (
+                          <span className="text-[10px] text-slate-500 font-mono font-bold">#{p.shirtNumber}</span>
+                        )}
+                        {p.transferListed && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 text-[9px] font-bold border border-amber-800">
+                            移籍リスト
+                          </span>
+                        )}
+                        {p.loanListed && (
+                          <span className="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 text-[9px] font-bold border border-purple-800">
+                            レンタル可
+                          </span>
+                        )}
+                        {(p.clubId === 'free_agent' || !p.clubId) && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-950/90 text-amber-300 text-[9px] font-bold border border-amber-600/70 shadow-sm">
+                            ★ 無所属 (FREE)
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {p.age}歳 · {p.nationality} · {p.playstyle} · 所属: <strong className={p.clubId === 'free_agent' || !p.clubId ? 'text-amber-400 font-bold' : 'text-slate-300'}>{p.clubId === 'free_agent' || !p.clubId ? 'フリー (無所属)' : (club?.name || 'フリー')}</strong>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Center: Attributes snapshot */}
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-center text-[10px] font-mono">
-                  <div className="bg-slate-950 px-2 py-1 rounded-lg">
-                    <span className="text-slate-500 block">PAC</span>
-                    <span className="font-bold text-white">{p.pace}</span>
-                  </div>
-                  <div className="bg-slate-950 px-2 py-1 rounded-lg">
-                    <span className="text-slate-500 block">SHO</span>
-                    <span className="font-bold text-white">{p.shooting}</span>
-                  </div>
-                  <div className="bg-slate-950 px-2 py-1 rounded-lg">
-                    <span className="text-slate-500 block">PAS</span>
-                    <span className="font-bold text-white">{p.passing}</span>
-                  </div>
-                  <div className="bg-slate-950 px-2 py-1 rounded-lg">
-                    <span className="text-slate-500 block">DRI</span>
-                    <span className="font-bold text-white">{p.dribbling}</span>
-                  </div>
-                  <div className="hidden sm:block bg-slate-950 px-2 py-1 rounded-lg">
-                    <span className="text-slate-500 block">DEF</span>
-                    <span className="font-bold text-white">{p.defending}</span>
-                  </div>
-                  <div className="hidden sm:block bg-slate-950 px-2 py-1 rounded-lg">
-                    <span className="text-slate-500 block">PHY</span>
-                    <span className="font-bold text-white">{p.physical}</span>
-                  </div>
-                </div>
-
-                {/* Right: Valuation & Make Bid Button */}
-                <div className="flex items-center justify-between sm:justify-end gap-4">
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-emerald-400 font-mono">
-                      €{(p.marketValue / 1000000).toFixed(1)}M
+                  {/* Center: Attributes snapshot */}
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-center text-[10px] font-mono">
+                    <div className="bg-slate-950 px-2 py-1 rounded-lg">
+                      <span className="text-slate-500 block">PAC</span>
+                      <span className="font-bold text-white">{p.pace}</span>
                     </div>
-                    <div className="text-[10px] text-slate-500">週給 €{(p.wage / 1000).toFixed(0)}k · 契{p.contractYears}年</div>
+                    <div className="bg-slate-950 px-2 py-1 rounded-lg">
+                      <span className="text-slate-500 block">SHO</span>
+                      <span className="font-bold text-white">{p.shooting}</span>
+                    </div>
+                    <div className="bg-slate-950 px-2 py-1 rounded-lg">
+                      <span className="text-slate-500 block">PAS</span>
+                      <span className="font-bold text-white">{p.passing}</span>
+                    </div>
+                    <div className="bg-slate-950 px-2 py-1 rounded-lg">
+                      <span className="text-slate-500 block">DRI</span>
+                      <span className="font-bold text-white">{p.dribbling}</span>
+                    </div>
+                    <div className="hidden sm:block bg-slate-950 px-2 py-1 rounded-lg">
+                      <span className="text-slate-500 block">DEF</span>
+                      <span className="font-bold text-white">{p.defending}</span>
+                    </div>
+                    <div className="hidden sm:block bg-slate-950 px-2 py-1 rounded-lg">
+                      <span className="text-slate-500 block">PHY</span>
+                      <span className="font-bold text-white">{p.physical}</span>
+                    </div>
                   </div>
 
-                  {getCooldownDays(p.id) > 0 ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[10px] text-amber-400 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 font-mono">
-                        再交渉可能まであと {getCooldownDays(p.id)} 日
-                      </span>
+                  {/* Right: Valuation & Make Bid Button */}
+                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-emerald-400 font-mono">
+                        €{(p.marketValue / 1000000).toFixed(1)}M
+                      </div>
+                      <div className="text-[10px] text-slate-500">週給 €{(p.wage / 1000).toFixed(0)}k · 契{p.contractYears}年</div>
+                    </div>
+
+                    {getCooldownDays(p.id) > 0 ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[10px] text-amber-400 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 font-mono">
+                          あと {getCooldownDays(p.id)} 日
+                        </span>
+                        <button
+                          type="button"
+                          disabled
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed opacity-60"
+                        >
+                          冷却期間中
+                        </button>
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        disabled
-                        className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed opacity-60"
+                        onClick={() => startNegotiation(p)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer ${
+                          p.clubId === 'free_agent' || !p.clubId
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 shadow-amber-500/20'
+                            : 'bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 shadow-emerald-500/10'
+                        }`}
                       >
-                        交渉凍結中 (10日ルール)
+                        {p.clubId === 'free_agent' || !p.clubId ? 'フリー獲得交渉' : '獲得交渉を開始'}
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startNegotiation(p)}
-                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/10 cursor-pointer"
-                    >
-                      獲得交渉を開始
-                    </button>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Load more button if results exceed displayLimit */}
+        {allTargetPlayers.length > displayLimit && (
+          <div className="pt-4 text-center border-t border-slate-800/80 mt-4">
+            <button
+              type="button"
+              onClick={() => setDisplayLimit(prev => prev + 60)}
+              className="px-6 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 shadow cursor-pointer"
+            >
+              さらに60名を表示する (残り {allTargetPlayers.length - displayLimit} 名)
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 2-STAGE TRANSFER NEGOTIATION MODAL */}
@@ -798,7 +1513,9 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
             <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
               <div>
                 <span className="text-xs text-emerald-400 uppercase tracking-wider font-semibold font-mono">
-                  {activeNegotiation.status === 'club_negotiating' ? 'STAGE 1: クラブ間移籍金・契約形態交渉' : activeNegotiation.status === 'player_negotiating' ? 'STAGE 2: 選手・代理人契約交渉' : 'TRANSFER NEGOTIATION'}
+                  {activeNegotiation.sellerClubId === 'free_agent' || (activeNegotiation.status === 'player_negotiating' && activeNegotiation.currentBidFee === 0)
+                    ? '★ フリー獲得交渉（移籍金 €0）: 選手・代理人との個人条件交渉'
+                    : (activeNegotiation.status === 'club_negotiating' ? 'STAGE 1: クラブ間移籍金・契約形態交渉' : activeNegotiation.status === 'player_negotiating' ? 'STAGE 2: 選手・代理人契約交渉' : 'TRANSFER NEGOTIATION')}
                 </span>
                 <h3 className="text-xl font-bold text-white mt-0.5">
                   {targetPlayerInNeg.name} ({targetPlayerInNeg.position}, {targetPlayerInNeg.age}歳)

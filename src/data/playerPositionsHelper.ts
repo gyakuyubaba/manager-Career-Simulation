@@ -242,12 +242,159 @@ export function deriveRealisticAltPositions(
   return Array.from(new Set(alts)).filter(p => p !== position);
 }
 
+/**
+ * Derives historical positions a player has played earlier in their career
+ */
+export function deriveRealisticHistoricalPositions(
+  position: Position,
+  altPositions: Position[] = [],
+  age: number = 25,
+  name?: string
+): Position[] {
+  if (position === 'GK') return [];
+
+  const historical: Position[] = [];
+
+  // 1. Check known historical stars transitions
+  if (name) {
+    if (name.includes('久保') || name.includes('Kubo')) historical.push('CAM', 'ST');
+    if (name.includes('三笘') || name.includes('Mitoma')) historical.push('LWB', 'ST');
+    if (name.includes('遠藤') || name.includes('Endo')) historical.push('CB', 'RB');
+    if (name.includes('冨安') || name.includes('Tomiyasu')) historical.push('CB', 'CDM');
+    if (name.includes('菅原') || name.includes('Sugawara')) historical.push('CB', 'RM');
+    if (name.includes('堂安') || name.includes('Doan')) historical.push('CAM', 'ST');
+    if (name.includes('南野') || name.includes('Minamino')) historical.push('ST', 'LW');
+    if (name.includes('Haaland')) historical.push('LW');
+    if (name.includes('Mbappé') || name.includes('Mbappe')) historical.push('RW', 'ST');
+    if (name.includes('Rice')) historical.push('CB');
+    if (name.includes('Bellingham')) historical.push('CDM', 'ST');
+    if (name.includes('Alexander-Arnold')) historical.push('CM');
+    if (name.includes('Saka')) historical.push('LB', 'LWB');
+    if (name.includes('Davies')) historical.push('LW', 'LM');
+  }
+
+  // 2. Realistic football career progression archetypes for experienced players
+  if (age >= 23) {
+    switch (position) {
+      case 'CB':
+        historical.push('CDM');
+        break;
+      case 'LB':
+      case 'RB':
+        historical.push('LM', 'RM');
+        break;
+      case 'CDM':
+        historical.push('CM', 'CB');
+        break;
+      case 'CM':
+        historical.push('CAM', 'CDM');
+        break;
+      case 'CAM':
+        historical.push('CM', 'CF', 'LW', 'RW');
+        break;
+      case 'LW':
+      case 'RW':
+        historical.push('LM', 'RM', 'CAM');
+        break;
+      case 'ST':
+      case 'CF':
+        historical.push('LW', 'RW', 'CAM');
+        break;
+      case 'LM':
+      case 'RM':
+        historical.push('LW', 'RW', 'LB', 'RB');
+        break;
+    }
+  }
+
+  // Filter out primary and existing alternative positions
+  const excludeSet = new Set([position, ...altPositions]);
+  return Array.from(new Set(historical)).filter(p => !excludeSet.has(p));
+}
+
+/**
+ * Calculates continuous position proficiency ratio (0.0 to 1.0)
+ */
+export function calculatePlayerPositionProficiency(player: {
+  position: Position;
+  altPositions?: Position[];
+  historicalPositions?: Position[];
+}): Partial<Record<Position, number>> {
+  const map: Partial<Record<Position, number>> = {};
+  
+  // 1. Primary position (100% capacity)
+  map[player.position] = 1.0;
+
+  if (player.position === 'GK') {
+    return map;
+  }
+
+  // 2. Alternative positions (98% capacity - minimal penalty)
+  const alts = player.altPositions || [];
+  alts.forEach(pos => {
+    if (pos !== 'GK') map[pos] = 0.98;
+  });
+
+  // 3. Historical positions (95% capacity)
+  const historical = player.historicalPositions || [];
+  historical.forEach(pos => {
+    if (pos !== 'GK' && !map[pos]) map[pos] = 0.95;
+  });
+
+  // 4. Closely related compatible positions (92% capacity)
+  const relatedRoles: Record<Position, Position[]> = {
+    GK: [],
+    CB: ['LB', 'RB', 'CDM'],
+    LB: ['LWB', 'LM', 'CB'],
+    RB: ['RWB', 'RM', 'CB'],
+    LWB: ['LB', 'LM', 'LW'],
+    RWB: ['RB', 'RM', 'RW'],
+    CDM: ['CM', 'CB'],
+    CM: ['CDM', 'CAM', 'LM', 'RM'],
+    CAM: ['CM', 'ST', 'CF', 'LW', 'RW'],
+    LM: ['LW', 'LWB', 'CM'],
+    RM: ['RW', 'RWB', 'CM'],
+    LW: ['LM', 'RW', 'ST', 'CAM'],
+    RW: ['RM', 'LW', 'ST', 'CAM'],
+    CF: ['ST', 'CAM', 'LW', 'RW'],
+    ST: ['CF', 'CAM', 'LW', 'RW']
+  };
+
+  const related = relatedRoles[player.position] || [];
+  related.forEach(pos => {
+    if (pos !== 'GK' && !map[pos]) map[pos] = 0.92;
+  });
+
+  // 5. Same field sector (Defenders, Midfielders, Forwards) (88% capacity)
+  const isDef = ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(player.position);
+  const isMid = ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(player.position);
+  const isFwd = ['LW', 'RW', 'CF', 'ST'].includes(player.position);
+
+  const ALL_POSITIONS: Position[] = ['GK', 'CB', 'LB', 'RB', 'LWB', 'RWB', 'CDM', 'CM', 'CAM', 'LM', 'RM', 'LW', 'RW', 'CF', 'ST'];
+  ALL_POSITIONS.forEach(pos => {
+    if (pos === 'GK' || map[pos]) return;
+    if (isDef && ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(pos)) {
+      map[pos] = 0.88;
+    } else if (isMid && ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(pos)) {
+      map[pos] = 0.88;
+    } else if (isFwd && ['LW', 'RW', 'CF', 'ST'].includes(pos)) {
+      map[pos] = 0.88;
+    } else {
+      // Cross-sector outfield (e.g. Defender placed at Forward in emergency) (82% capacity)
+      map[pos] = 0.82;
+    }
+  });
+
+  return map;
+}
+
 export interface PlayablePositionGrade {
   position: Position;
-  grade: 'S' | 'A' | 'B';
+  grade: 'S' | 'A' | 'B' | 'C';
   symbol: '◎' | '○' | '△';
   label: string;
-  category: '本職' | 'サブ適性' | '類似・起用可能';
+  category: '本職' | 'サブ適性' | '過去の経験ポジション' | '類似・起用可能';
+  proficiencyPercent: number;
 }
 
 /**
@@ -262,27 +409,49 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
     grade: 'S',
     symbol: '◎',
     label: '本職・最高適性 (100%)',
-    category: '本職'
+    category: '本職',
+    proficiencyPercent: 100
   });
 
-  // 2. Alternative positions (○ サブ適性 - Grade A)
-  const alts = (player.altPositions && player.altPositions.length > 0)
-    ? player.altPositions
-    : deriveRealisticAltPositions(player.position, player.preferredFoot, player.playstyle, player.name);
+  // 2. Alternative positions (◎ サブ適性 - Grade A)
+  const alts = (player.secondaryPositions && player.secondaryPositions.length > 0)
+    ? player.secondaryPositions
+    : (player.altPositions && player.altPositions.length > 0)
+      ? player.altPositions
+      : deriveRealisticAltPositions(player.position, player.preferredFoot, player.playstyle, player.name);
 
   alts.forEach(pos => {
     if (pos !== player.position && !result.some(r => r.position === pos)) {
       result.push({
         position: pos,
         grade: 'A',
-        symbol: '○',
-        label: 'サブ適性・高い適応力 (96~98%)',
-        category: 'サブ適性'
+        symbol: '◎',
+        label: 'サブ適性・高い適応力 (98%)',
+        category: 'サブ適性',
+        proficiencyPercent: 98
       });
     }
   });
 
-  // 3. Closely related compatible roles (△ 類似・起用可能 - Grade B)
+  // 3. Historical positions (○ 過去の経験ポジション)
+  const historical = (player.historicalPositions && player.historicalPositions.length > 0)
+    ? player.historicalPositions
+    : deriveRealisticHistoricalPositions(player.position, alts, player.age, player.name);
+
+  historical.forEach(pos => {
+    if (pos !== player.position && !result.some(r => r.position === pos)) {
+      result.push({
+        position: pos,
+        grade: 'A',
+        symbol: '○',
+        label: '過去の起用実績・経験ポジション (95%)',
+        category: '過去の経験ポジション',
+        proficiencyPercent: 95
+      });
+    }
+  });
+
+  // 4. Closely related compatible roles (△ 類似・起用可能 - Grade B)
   const relatedRoles: Record<Position, Position[]> = {
     GK: [],
     CB: ['LB', 'RB', 'CDM'],
@@ -308,8 +477,9 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
         position: pos,
         grade: 'B',
         symbol: '△',
-        label: '類似ポジション・戦術的起用可 (90~94%)',
-        category: '類似・起用可能'
+        label: '類似ポジション・戦術的起用可 (92%)',
+        category: '類似・起用可能',
+        proficiencyPercent: 92
       });
     }
   });
@@ -318,15 +488,30 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
 }
 
 /**
- * Ensures player object has realistic altPositions array
+ * Ensures player object has complete position flexibility fields populated
  */
 export function ensurePlayerRealisticAltPositions(player: Player): Player {
-  if (player.altPositions && player.altPositions.length > 0) {
-    return player;
-  }
-  const derived = deriveRealisticAltPositions(player.position, player.preferredFoot, player.playstyle, player.name);
+  const alts = (player.altPositions && player.altPositions.length > 0)
+    ? player.altPositions
+    : deriveRealisticAltPositions(player.position, player.preferredFoot, player.playstyle, player.name);
+
+  const historical = (player.historicalPositions && player.historicalPositions.length > 0)
+    ? player.historicalPositions
+    : deriveRealisticHistoricalPositions(player.position, alts, player.age, player.name);
+
+  const profMap = calculatePlayerPositionProficiency({
+    position: player.position,
+    altPositions: alts,
+    historicalPositions: historical
+  });
+
   return {
     ...player,
-    altPositions: derived
+    preferredPositions: player.preferredPositions || [player.position],
+    secondaryPositions: player.secondaryPositions || alts,
+    historicalPositions: historical,
+    positionProficiency: profMap,
+    altPositions: alts
   };
 }
+

@@ -292,24 +292,29 @@ export function executeTransferCompletion(
 ): GameWorldState {
   const player = state.players[negotiation.playerId];
   const buyerClub = state.clubs[negotiation.buyerClubId];
-  const sellerClub = state.clubs[negotiation.sellerClubId];
-  if (!player || !buyerClub || !sellerClub) return state;
+  const sellerClub = state.clubs[negotiation.sellerClubId] || state.clubs['free_agent'];
+  if (!player || !buyerClub) return state;
 
-  const isRival = isRivalClub(sellerClub.id, buyerClub.id);
-  const transferFee = negotiation.currentBidFee;
+  const isFreeAgent = !sellerClub || sellerClub.id === 'free_agent' || negotiation.sellerClubId === 'free_agent';
+  const isRival = isFreeAgent ? false : (sellerClub ? isRivalClub(sellerClub.id, buyerClub.id) : false);
+  const transferFee = isFreeAgent ? 0 : negotiation.currentBidFee;
   const weeklyWage = negotiation.wageOffered;
   const isLoan = !!negotiation.isLoan;
 
   // 1. Financial Movement
   buyerClub.transferBudget -= transferFee;
-  sellerClub.transferBudget += Math.round(transferFee * 0.95);
+  if (!isFreeAgent && sellerClub) {
+    sellerClub.transferBudget += Math.round(transferFee * 0.95);
+    sellerClub.currentWageSpend = Math.max(0, sellerClub.currentWageSpend - player.wage);
+  }
   buyerClub.currentWageSpend += weeklyWage;
-  sellerClub.currentWageSpend = Math.max(0, sellerClub.currentWageSpend - player.wage);
 
   // 2. Transfer Squad registration atomically
-  const oldClubPlayerIds = sellerClub.playerIds.filter(id => id !== player.id);
+  if (sellerClub) {
+    const oldClubPlayerIds = (sellerClub.playerIds || []).filter(id => id !== player.id);
+    sellerClub.playerIds = oldClubPlayerIds;
+  }
   const newClubPlayerIds = buyerClub.playerIds.includes(player.id) ? buyerClub.playerIds : [...buyerClub.playerIds, player.id];
-  sellerClub.playerIds = oldClubPlayerIds;
   buyerClub.playerIds = newClubPlayerIds;
 
   // 3. Update player data
@@ -515,12 +520,15 @@ export function executeTransferCompletion(
       ? `【買取OP付きレンタル】${player.name}が${buyerClub.name}へ加入！買取OP €${(negotiation.buyOptionFee / 1000000).toFixed(1)}M`
       : `【期限付き移籍】${player.name}が${buyerClub.name}へ1年間のレンタル移籍で合意`;
     newsBody = `${sellerClub.name}から${buyerClub.name}へ、${player.name}の期限付き移籍が正式成立。即戦力としての活躍が期待されます。`;
+  } else if (isFreeAgent) {
+    newsTitle = `【電撃フリー獲得】${buyerClub.name}が世界的名手${player.name}と契約！移籍金ゼロの超大型補強`;
+    newsBody = `移籍市場に激震！無所属（フリーエージェント）となっていた世界的スーパースター${player.name}（${player.age}歳）に対し、${buyerClub.name}が熱烈なオファーを提示。移籍金ゼロでの電撃契約が正式発表されました。新天地での背番号や活躍に世界中のフットボールファンから熱い視線が注がれています。`;
   } else if (isRival) {
     newsTitle = `【禁断のライバル移籍】${player.name}が宿敵${buyerClub.name}へ電撃加入！移籍金€${(transferFee / 1000000).toFixed(1)}Mの衝撃`;
-    newsBody = `サッカー界に激震。${sellerClub.name}の主力である${player.name}が長年の宿敵${buyerClub.name}への完全移籍を正式発表しました。`;
+    newsBody = `サッカー界に激震。${sellerClub?.name || '前所属クラブ'}の主力である${player.name}が長年の宿敵${buyerClub.name}への完全移籍を正式発表しました。`;
   } else {
     newsTitle = `【大型移籍決定】${player.name}が${buyerClub.name}へ完全移籍！移籍金€${(transferFee / 1000000).toFixed(1)}Mでサイン`;
-    newsBody = `移籍市場にビッグニュース。${player.name}が${sellerClub.name}から${buyerClub.name}への移籍を完了しました。新天地での背番号やデビュー戦に早くも大きな注目が集まっています。`;
+    newsBody = `移籍市場にビッグニュース。${player.name}が${sellerClub?.name || '前所属クラブ'}から${buyerClub.name}への移籍を完了しました。新天地での背番号やデビュー戦に早くも大きな注目が集まっています。`;
   }
 
   const transferNews: NewsItem = {
@@ -546,7 +554,7 @@ export function executeTransferCompletion(
     clubs: {
       ...state.clubs,
       [buyerClub.id]: buyerClub,
-      [sellerClub.id]: sellerClub
+      ...(sellerClub ? { [sellerClub.id]: sellerClub } : {})
     },
     players: {
       ...state.players,
@@ -828,6 +836,59 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
           updatedState = executeTransferCompletion(updatedState, mockNegotiation);
         }
       }
+    }
+  }
+
+  // 3. AI Clubs Autonomous Free Agent Signing (User Requirement: 他クラブがフリーエージェント選手を獲得する可能性)
+  // Check available free agents (clubId === 'free_agent' or '')
+  const availableFreeAgents = Object.values(updatedState.players).filter(p => 
+    p.clubId === 'free_agent' || p.clubId === ''
+  );
+
+  if (availableFreeAgents.length > 0 && Math.random() < 0.22) {
+    const sortedCandidates = [...availableFreeAgents].sort((a, b) => b.ovr - a.ovr);
+    // High chance to target top superstars (Messi, Ronaldo, Neymar, etc.)
+    const targetFA = (sortedCandidates.length >= 3 && Math.random() < 0.70)
+      ? sortedCandidates[Math.floor(Math.random() * Math.min(3, sortedCandidates.length))]
+      : sortedCandidates[Math.floor(Math.random() * sortedCandidates.length)];
+
+    // Find AI clubs that can afford this free agent's wage and have squad space
+    const eligibleClubs = Object.values(updatedState.clubs).filter(c => 
+      c.id !== updatedState.userClubId && 
+      c.id !== 'free_agent' &&
+      (c.playerIds?.length || 0) < 32 &&
+      (c.tier === 'Elite' || c.tier === 'Upper' || c.wageBudget > targetFA.wage * 4)
+    );
+
+    if (eligibleClubs.length > 0) {
+      // For superstars (OVR >= 84), prefer Elite or Upper tier clubs
+      const topClubs = eligibleClubs.filter(c => c.tier === 'Elite' || c.tier === 'Upper');
+      const buyerClub = (targetFA.ovr >= 84 && topClubs.length > 0)
+        ? topClubs[Math.floor(Math.random() * topClubs.length)]
+        : eligibleClubs[Math.floor(Math.random() * eligibleClubs.length)];
+
+      const freeAgentNegotiation: TransferNegotiation = {
+        id: `ai_fa_neg_${Date.now()}_${targetFA.id}`,
+        playerId: targetFA.id,
+        sellerClubId: 'free_agent',
+        buyerClubId: buyerClub.id,
+        status: 'completed',
+        isLoan: false,
+        negotiationType: 'permanent',
+        initialAskingPrice: 0,
+        currentBidFee: 0,
+        clubPatience: 3,
+        clubMessages: [],
+        wageOffered: targetFA.wage,
+        wageDemanded: targetFA.wage,
+        contractYearsOffered: targetFA.age >= 38 ? 1 : 2,
+        squadRoleOffered: targetFA.ovr >= 84 ? '絶対的主力' : '重要選手',
+        signingBonusOffered: 1500000,
+        playerPatience: 3,
+        playerMessages: []
+      };
+
+      updatedState = executeTransferCompletion(updatedState, freeAgentNegotiation);
     }
   }
 

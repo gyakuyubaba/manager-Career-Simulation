@@ -9,6 +9,7 @@ import { updateTacticsFormation } from '../engine/tacticsEngine';
 import { generateFullJLeaguePlayers, J2_20_CLUBS } from './jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from './europeanSecondDivisionClubs';
 import { MUST_CHECK_AND_OVERSEAS_SEEDS } from './europeanSecondDivisionPlayers';
+import { FREE_AGENT_SUPERSTARS, FREE_AGENT_CLUB } from './freeAgentsData';
 
 // Standard 25 squad positions template (3 GKs, 4 CBs, 2 LBs, 2 RBs, 2 CDMs, 2 CMs, 2 CAMs, 1 LM, 1 RM, 1 LW, 1 RW, 3 STs, 1 CF)
 const SQUAD_POSITIONS_TEMPLATE: Position[] = [
@@ -433,6 +434,11 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     baseRegistry = generateFullJLeaguePlayers(baseRegistry);
   }
 
+  // 3b. Register Free Agent Superstars (Messi, Ronaldo, Neymar, James Rodriguez, Carvajal, Sergio Ramos)
+  FREE_AGENT_SUPERSTARS.forEach(fa => {
+    addPlayerIfUnique(fa);
+  });
+
   // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs) have at least 25 players across positions
   // AND CRITICAL REQUIREMENT: 全チーム最低2人以上（スタメン・ベンチ・ベンチ外用の3人体制推奨）のGKを必ず確保
   const allClubsToEnsure: Club[] = [
@@ -642,9 +648,79 @@ export function populateClubsWithDefaultSquads(
     }
   });
 
+  // CRITICAL REQUIREMENT: Ensure every club across all 12 leagues strictly has at least 25 players and at least 2 GKs
+  Object.values(cleanClubs).forEach((club, clubIdx) => {
+    if (club.id === 'free_agent') return;
+    let clubPlayers = club.playerIds.map(id => cleanPlayers[id]).filter(Boolean);
+    const existingGks = clubPlayers.filter(p => p.position === 'GK');
+    const neededGks = Math.max(0, 2 - existingGks.length);
+    const isJapan = club.country === '日本';
+    const depthData = DEPTH_NAMES_BY_COUNTRY[club.country] || DEPTH_NAMES_BY_COUNTRY['イングランド'];
+    const tierBaseOvr = isJapan
+      ? (club.league === 'j1-league' ? 73 : 69)
+      : (club.tier === 'Elite' ? 80 : club.tier === 'Upper' ? 76 : club.tier === 'Mid' ? 72 : 68);
+
+    for (let g = 0; g < neededGks; g++) {
+      const gkOrder = existingGks.length + g + 1;
+      const pId = `p_${club.id}_gk_supp_${club.playerIds.length + 1}`;
+      const fIdx = (clubIdx * 7 + g * 3) % depthData.firstNames.length;
+      const lIdx = (clubIdx * 11 + g * 5) % depthData.lastNames.length;
+      const name = isJapan ? `${depthData.lastNames[lIdx]} ${depthData.firstNames[fIdx]}` : `${depthData.firstNames[fIdx]} ${depthData.lastNames[lIdx]}`;
+      const gkPlayer = makeRealPlayer(
+        pId,
+        name,
+        club.id,
+        'GK',
+        20 + (g % 4),
+        club.country,
+        tierBaseOvr - 2,
+        tierBaseOvr + 4,
+        isJapan ? 600000 : 3000000,
+        isJapan ? 10000 : 15000,
+        gkOrder === 1 ? 1 : gkOrder === 2 ? 12 : 23,
+        '右',
+        'ショットストッパー'
+      );
+      gkPlayer.gk = tierBaseOvr - 2;
+      gkPlayer.defending = Math.floor(gkPlayer.gk * 0.45);
+      cleanPlayers[pId] = gkPlayer;
+      club.playerIds.push(pId);
+    }
+
+    // Refresh clubPlayers and fill outfield if < 25
+    clubPlayers = club.playerIds.map(id => cleanPlayers[id]).filter(Boolean);
+    const neededOutfield = Math.max(0, 25 - clubPlayers.length);
+    const OUTFIELD_POS: Position[] = ['CB', 'LB', 'RB', 'CDM', 'CM', 'CAM', 'LW', 'RW', 'ST'];
+    for (let i = 0; i < neededOutfield; i++) {
+      const pId = `p_${club.id}_supp_${club.playerIds.length + 1}`;
+      const pos = OUTFIELD_POS[i % OUTFIELD_POS.length];
+      const fIdx = (clubIdx * 9 + i * 4) % depthData.firstNames.length;
+      const lIdx = (clubIdx * 13 + i * 6) % depthData.lastNames.length;
+      const name = isJapan ? `${depthData.lastNames[lIdx]} ${depthData.firstNames[fIdx]}` : `${depthData.firstNames[fIdx]} ${depthData.lastNames[lIdx]}`;
+      const outfieldPlayer = makeRealPlayer(
+        pId,
+        name,
+        club.id,
+        pos,
+        18 + (i % 6),
+        club.country,
+        tierBaseOvr - (i % 3),
+        tierBaseOvr + 5,
+        isJapan ? 650000 : 4000000,
+        isJapan ? 11000 : 20000,
+        28 + (i % 60),
+        i % 3 === 0 ? '左' : '右',
+        'チャンスメイカー'
+      );
+      cleanPlayers[pId] = outfieldPlayer;
+      club.playerIds.push(pId);
+    }
+  });
+
   // Update squad status defaults for each club
   // CRITICAL: Ensure 1 GK in STARTING, 1 GK on BENCH, and reserve GKs in OUT_OF_SQUAD (スタメン・ベンチ・ベンチ外)
   Object.values(cleanClubs).forEach(club => {
+    if (club.id === 'free_agent') return;
     const clubPlayers = club.playerIds.map(id => cleanPlayers[id]).filter(Boolean);
     const clubGks = clubPlayers.filter(p => p.position === 'GK').sort((a, b) => b.ovr - a.ovr);
     const clubOutfield = clubPlayers.filter(p => p.position !== 'GK').sort((a, b) => b.ovr - a.ovr);
