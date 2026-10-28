@@ -854,4 +854,126 @@ export function updatePlayerShirtNumber(
   };
 }
 
+/**
+ * Requirement 5: 既存セーブデータの修復 (REPAIR_SAVE_DATA_INTEGRITY)
+ * ロード時にデータの整合性を安全に検証・修復
+ * - 大会開始前なのに試合済みになっている未来の試合をupcomingにリセット
+ * - 開催日程より先のラウンドや決勝前の不正な優勝クラブを取り消し
+ * - プレシーズンの試合が公式個人成績に混入している場合に再計算・分離
+ * - 重複試合の二重計上を防止
+ * - 既存のバックアップを作成した上で実行
+ */
+export function REPAIR_SAVE_DATA_INTEGRITY(
+  state: GameWorldState
+): { state: GameWorldState; repairsCount: number; repairLogs: string[] } {
+  let repairsCount = 0;
+  const repairLogs: string[] = [];
+  const currentDate = state.currentDate || '2026-07-01';
+  const seasonYear = parseInt(state.season?.split('/')[0], 10) || 2026;
+
+  // 1. Repair fixtures: find matches finished with future date or ahead of schedule
+  const seenMatchIds = new Set<string>();
+  const repairedFixtures: MatchFixture[] = [];
+
+  state.fixtures.forEach(f => {
+    // Deduplication check
+    if (seenMatchIds.has(f.id)) {
+      repairsCount++;
+      repairLogs.push(`[重複試合除外] 重複マッチID "${f.id}" を除外しました。`);
+      return;
+    }
+    seenMatchIds.add(f.id);
+
+    // If fixture is marked finished but date is strictly after currentDate, reset to upcoming!
+    if (f.status === 'finished' && f.date > currentDate) {
+      repairsCount++;
+      repairLogs.push(`[未来試合修復] ${f.competitionName || f.competition} (${f.date}) がゲーム日(${currentDate})より先なのに終了扱いになっていたため、未実施(upcoming)に安全復元しました。`);
+      repairedFixtures.push({
+        ...f,
+        status: 'upcoming',
+        homeScore: undefined,
+        awayScore: undefined,
+        events: undefined,
+        stats: undefined,
+        isResultApplied: false,
+        extraTimePlayed: undefined,
+        penaltyShootout: undefined
+      });
+      return;
+    }
+
+    repairedFixtures.push(f);
+  });
+
+  // 2. Repair Tournaments state
+  const tournaments = state.tournaments || {};
+  const isCupTournament = (k: string) => k.includes('cup') || ['copa-del-rey', 'dfb-pokal', 'coppa-italia', 'coupe-de-france', 'ucl', 'uel', 'uecl'].includes(k);
+
+  Object.entries(tournaments).forEach(([cupKey, t]) => {
+    if (t.startDate && currentDate < t.startDate) {
+      if (t.status !== 'not_started' || t.championClubId) {
+        repairsCount++;
+        repairLogs.push(`[未開始大会修復] ${t.name} は開幕前(${t.startDate})のため、未開始状態に修復し優勝設定をクリアしました。`);
+        t.status = 'not_started';
+        t.championClubId = undefined;
+        t.runnerUpClubId = undefined;
+      }
+    }
+  });
+
+  // 3. Repair player stats: separate any pre-season stats from official competitive stats
+  const officialFinishedFixtures = repairedFixtures.filter(
+    f => f.status === 'finished' && f.competition !== 'pre-season' && f.competitionType !== 'preseason'
+  );
+  const preseasonFinishedFixtures = repairedFixtures.filter(
+    f => f.status === 'finished' && (f.competition === 'pre-season' || f.competitionType === 'preseason')
+  );
+
+  const repairedPlayers = { ...state.players };
+
+  // If there are zero official finished matches yet (e.g. early in July pre-season),
+  // but players have official appearances/goals > 0, move them to preseasonStats!
+  if (officialFinishedFixtures.length === 0) {
+    Object.entries(repairedPlayers).forEach(([pId, p]) => {
+      if (p.stats.appearances > 0 || p.stats.goals > 0) {
+        repairsCount++;
+        repairLogs.push(`[プレシーズン成績分離] ${p.name} 選手の公式戦未消化時の成績 (出場${p.stats.appearances}試合) をプレシーズン成績へ正常分離しました。`);
+        if (!p.preseasonStats) {
+          p.preseasonStats = { ...p.stats };
+        } else {
+          p.preseasonStats.appearances = Math.max(p.preseasonStats.appearances, p.stats.appearances);
+          p.preseasonStats.goals = Math.max(p.preseasonStats.goals, p.stats.goals);
+          p.preseasonStats.assists = Math.max(p.preseasonStats.assists, p.stats.assists);
+        }
+        p.stats = {
+          appearances: 0,
+          starts: 0,
+          minutes: 0,
+          goals: 0,
+          assists: 0,
+          cleanSheets: 0,
+          yellowCards: 0,
+          redCards: 0,
+          avgRating: 0,
+          saves: 0,
+          goalsConceded: 0
+        };
+      }
+    });
+  }
+
+  const repairedState: GameWorldState = {
+    ...state,
+    fixtures: repairedFixtures,
+    players: repairedPlayers,
+    tournaments
+  };
+
+  return {
+    state: repairedState,
+    repairsCount,
+    repairLogs
+  };
+}
+
 

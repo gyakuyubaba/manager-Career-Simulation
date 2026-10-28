@@ -683,21 +683,19 @@ export const MatchSimulationView: React.FC<Props> = ({
             ? 'bg-gradient-to-r from-blue-700 via-sky-600 to-blue-700 text-white'
             : 'bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 text-slate-950'
         }`}>
-          {activeHighlightEvent.type === 'goal' ? (
-            <div className="flex items-center gap-3.5 text-center sm:text-left">
-              <span className="text-4xl animate-bounce">⚽</span>
+          {activeHighlightEvent.type === 'goal' || activeHighlightEvent.type === 'penalty' ? (
+            <div className="flex items-center gap-3.5 text-center sm:text-left max-w-2xl">
+              <span className="text-4xl animate-bounce shrink-0">⚽</span>
               <div>
                 <div className="text-xs sm:text-sm font-black tracking-widest uppercase opacity-90">
                   【GOAL!! GOAL!! GOAL!!】 {activeHighlightEvent.minute}&apos; ({String(activeHighlightEvent.minute).padStart(2, '0')}:00)
                 </div>
-                <div className="text-lg sm:text-2xl font-black">
-                  得点者: {activeHighlightEvent.playerName}
+                <div className="text-lg sm:text-xl font-black">
+                  得点者: {activeHighlightEvent.playerName} {activeHighlightEvent.assistPlayerName ? `(アシスト: ${activeHighlightEvent.assistPlayerName})` : ''}
                 </div>
-                {activeHighlightEvent.assistPlayerName && (
-                  <div className="text-xs sm:text-sm font-bold opacity-90 mt-0.5">
-                    アシスト: {activeHighlightEvent.assistPlayerName}
-                  </div>
-                )}
+                <p className="text-xs sm:text-sm font-bold text-slate-950 mt-1 leading-snug line-clamp-2">
+                  {activeHighlightEvent.description}
+                </p>
               </div>
             </div>
           ) : activeHighlightEvent.type === 'red_card' ? (
@@ -1070,18 +1068,19 @@ export const MatchSimulationView: React.FC<Props> = ({
 
                         {/* Player & Scorer info */}
                         <div className="mt-1 font-semibold text-slate-200">
-                          {e.type === 'goal' ? (
-                            <div>
-                              <span className="text-emerald-300 font-bold text-sm">{e.playerName}</span>
-                              {e.assistPlayerName ? (
-                                <span className="text-slate-400 text-[11px] ml-2 font-normal">
-                                  ({t.assist}: {e.assistPlayerName})
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[11px] ml-2 font-normal">
-                                  (個人技 / PK)
-                                </span>
-                              )}
+                          {e.type === 'goal' || e.type === 'penalty' ? (
+                            <div className="space-y-1.5">
+                              <div>
+                                <span className="text-emerald-300 font-bold text-sm">{e.playerName}</span>
+                                {e.assistPlayerName && (
+                                  <span className="text-slate-400 text-[11px] ml-2 font-normal">
+                                    ({t.assist}: {e.assistPlayerName})
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-300 leading-relaxed bg-black/40 p-2.5 rounded-xl border border-emerald-900/40">
+                                {e.description}
+                              </p>
                             </div>
                           ) : (
                             <div>{e.description}</div>
@@ -1281,9 +1280,14 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="text-slate-500">得点なし</div>
                 ) : (
                   homeGoals.map((g, i) => (
-                    <div key={i} className="text-slate-300 font-mono py-0.5">
-                      <span className="font-bold text-emerald-400">{g.playerName}</span> ({g.minute}&apos;)
-                      {g.assistPlayerName && <span className="text-slate-500 text-[11px] ml-1.5">アシスト: {g.assistPlayerName}</span>}
+                    <div key={i} className="text-slate-300 py-1 border-b border-slate-800/40 last:border-0">
+                      <div className="flex items-center gap-1 font-mono">
+                        <span className="font-bold text-emerald-400">{g.playerName}</span> ({g.minute}&apos;)
+                        {g.assistPlayerName && <span className="text-slate-500 text-[11px] ml-1.5 font-sans">アシスト: {g.assistPlayerName}</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-sans mt-0.5 leading-snug">
+                        {g.description}
+                      </p>
                     </div>
                   ))
                 )}
@@ -1297,9 +1301,14 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="text-slate-500">得点なし</div>
                 ) : (
                   awayGoals.map((g, i) => (
-                    <div key={i} className="text-slate-300 font-mono py-0.5">
-                      <span className="font-bold text-emerald-400">{g.playerName}</span> ({g.minute}&apos;)
-                      {g.assistPlayerName && <span className="text-slate-500 text-[11px] ml-1.5">アシスト: {g.assistPlayerName}</span>}
+                    <div key={i} className="text-slate-300 py-1 border-b border-slate-800/40 last:border-0">
+                      <div className="flex items-center gap-1 font-mono">
+                        <span className="font-bold text-emerald-400">{g.playerName}</span> ({g.minute}&apos;)
+                        {g.assistPlayerName && <span className="text-slate-500 text-[11px] ml-1.5 font-sans">アシスト: {g.assistPlayerName}</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-sans mt-0.5 leading-snug">
+                        {g.description}
+                      </p>
                     </div>
                   ))
                 )}

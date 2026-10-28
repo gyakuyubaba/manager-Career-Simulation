@@ -23,6 +23,10 @@ import {
 import { updatePlayerShirtNumber } from './dataValidator';
 import { executeTransferCompletion, simulateAITransfers } from './transferEngine';
 import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
+import { SUPPORTED_CUPS, getEuropeanLeaguePhaseStandings, getTournamentBracket } from './cupEngine';
+import { generateBallonDorCandidates, checkAndAdvanceBallonDor } from './ballonDorEngine';
+import { SCOUT_REGIONS, canScoutThisMonth, dispatchMonthlyScout, signScoutedProspect, isType2PlayerUnavailableOnDate } from './scoutEngine';
+import { getBoardConfidenceStage } from './boardConfidenceEngine';
 
 export interface TestResult {
   id: string;
@@ -282,10 +286,10 @@ export function runAll27Tests(): TestResult[] {
       }
     };
 
-    let testStateWithInj = {
-      ...baseState,
+    let testStateWithInj: GameWorldState = {
+      ...JSON.parse(JSON.stringify(baseState)),
       currentDate: '2026-08-10',
-      players: { ...baseState.players, [injuredPlayer.id]: injuredPlayer }
+      players: { ...JSON.parse(JSON.stringify(baseState.players)), [injuredPlayer.id]: injuredPlayer }
     };
 
     // Advance 5 days (to 2026-08-15) - still before 2026-08-30
@@ -349,10 +353,10 @@ export function runAll27Tests(): TestResult[] {
       injury: { isInjured: true, type: '軽度の打撲', returnDate: '2026-08-12', daysRemaining: 1 }
     };
 
-    let s = {
-      ...baseState,
+    let s: GameWorldState = {
+      ...JSON.parse(JSON.stringify(baseState)),
       currentDate: '2026-08-11',
-      players: { ...baseState.players, [injuredPlayer.id]: injuredPlayer }
+      players: { ...JSON.parse(JSON.stringify(baseState.players)), [injuredPlayer.id]: injuredPlayer }
     };
 
     // Advance 2 days to 2026-08-13 (past 2026-08-12)
@@ -927,7 +931,7 @@ export function runAll27Tests(): TestResult[] {
   // TEST 26: 2年目・3年目・4年目以降もリーグ日程とカップ戦日程が正常に生成される
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
-    let s = { ...baseState };
+    let s = JSON.parse(JSON.stringify(baseState)) as GameWorldState;
     // Trigger season 1 rollover to Year 2 (2027/28)
     s = processSeasonEndPromotionsAndRelegations(s, 2027).state;
     const season2Valid = s.season === '2027/28' && s.fixtures.length > 500;
@@ -1139,7 +1143,7 @@ export function runAll27Tests(): TestResult[] {
   // TEST 31: 全12リーグ・全238クラブの登録人数および最低2人以上のGK配置
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
-    const clubsList = Object.values(baseState.clubs);
+    const clubsList = Object.values(baseState.clubs).filter(c => c.id !== 'free_agent');
     const totalClubs = clubsList.length; // 238 clubs
     const totalPlayers = Object.keys(baseState.players).length; // 5900+ players
 
@@ -1389,6 +1393,181 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 36', name: '他クラブによるフリーエージェント獲得シミュレーション検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 37: 監督信頼度4段階評価（通常/警告/解任危機/解任）及びJ1対J1保護
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const sNormal = getBoardConfidenceStage(75, false);
+    const sWarning = getBoardConfidenceStage(48, false);
+    const sCrisis = getBoardConfidenceStage(25, false);
+    const sSacked = getBoardConfidenceStage(15, true);
+
+    const stagesValid = sNormal === '通常' && sWarning === '警告' && sCrisis === '解任危機' && sSacked === '解任';
+
+    // Verify J-League match does NOT trigger giant-killing penalty (-18%)
+    const j1ClubState: GameWorldState = {
+      ...JSON.parse(JSON.stringify(baseState)),
+      userClubId: 'urawa-reds',
+      boardConfidence: 80,
+      fanApproval: 75,
+      consecutiveLosses: 0,
+      consecutiveWinless: 0
+    };
+    const j1Fixture: MatchFixture = {
+      id: 'j1_fixture_test_normal',
+      homeClubId: 'urawa-reds',
+      awayClubId: 'kashiwa-reysol',
+      date: '2026-08-20',
+      competition: 'j1-league',
+      competitionName: '明治安田J1リーグ',
+      status: 'upcoming',
+      isUserMatch: true
+    };
+    const j1Eval = evaluateMatchBoardConfidence(j1ClubState, j1Fixture, 1, 2); // 1-2 loss
+    const isJ1LossReasonable = j1Eval.delta >= -6 && j1Eval.delta <= -2; // NOT -18!
+
+    const passed = stagesValid && isJ1LossReasonable && !!j1Eval.auditEntry;
+    results.push({
+      id: 'TEST 37',
+      name: '監督信頼度4段階評価（通常/警告/解任危機/解任）及びJ1対J1敗戦ペナルティ適正化',
+      passed,
+      details: passed
+        ? `成功: 4段階(${sNormal}, ${sWarning}, ${sCrisis}, ${sSacked})の判定が正常に動作し、J1同士の敗戦で格下番狂わせペナルティ(-18%)が防止され適正範囲(${j1Eval.delta}%)で処理されました。`
+        : `失敗: 4段階評価またはJ1敗戦判定に不備があります (delta: ${j1Eval.delta})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 37', name: '監督信頼度4段階評価・J1保護検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 38: 全11カップ戦と欧州新リーグフェーズ順位表（ACL完全排除）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const hasUCL = SUPPORTED_CUPS.some(c => c.id === 'ucl');
+    const hasFA = SUPPORTED_CUPS.some(c => c.id === 'fa-cup');
+    const hasEmperor = SUPPORTED_CUPS.some(c => c.id === 'emperors-cup');
+    const hasLevain = SUPPORTED_CUPS.some(c => c.id === 'levain-cup');
+    const hasNoACL = !SUPPORTED_CUPS.some(c => c.id.toLowerCase().includes('acl') || c.name.includes('ACL') || c.name.includes('AFC'));
+
+    // Check European League Phase 36 teams
+    const uclStandings = getEuropeanLeaguePhaseStandings('ucl', baseState.clubs, baseState.fixtures);
+    const ucl36Teams = uclStandings.length === 36;
+
+    // Check Bracket generator
+    const bracket = getTournamentBracket('ucl', baseState);
+    const hasRounds = bracket.length > 0 && bracket[0].matches.length > 0;
+
+    const passed = hasUCL && hasFA && hasEmperor && hasLevain && hasNoACL && ucl36Teams && hasRounds;
+    results.push({
+      id: 'TEST 38',
+      name: '全11カップ戦・欧州36チーム新リーグフェーズ順位表・トーナメント表（ACL完全排除）',
+      passed,
+      details: passed
+        ? `成功: 全11カップ戦の定義、欧州CL新リーグフェーズ36クラブ順位表、トーナメントツリーが整合し、ACLは完全排除(0件)されていることを確認しました。`
+        : `失敗: 大会定義(${hasUCL && hasFA && hasEmperor})、36クラブ表(${ucl36Teams})、ACL排除(${hasNoACL})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 38', name: 'カップ戦・欧州リーグフェーズ検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 39: バロンドール11月表彰（候補30名・Jリーグ除外・受賞者ピンク調子付与）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const candidates = generateBallonDorCandidates(baseState);
+    const count30 = candidates.length === 30;
+    const noJLeague = candidates.every(c => !c.clubName.includes('FC東京') && !c.clubName.includes('浦和') && !c.clubName.includes('鹿島'));
+
+    // Test early November nominees trigger
+    const bdorPhase1 = checkAndAdvanceBallonDor(baseState, '2026-11-05');
+    const phase1Triggered = bdorPhase1.updatedState.ballonDorNomineesAnnounced === true;
+
+    // Test late November winner gala trigger
+    const stateWithNominees: GameWorldState = {
+      ...JSON.parse(JSON.stringify(baseState)),
+      ballonDorNomineesAnnounced: true,
+      ballonDorRankings: candidates
+    };
+    const bdorPhase2 = checkAndAdvanceBallonDor(stateWithNominees, '2026-11-26');
+    const phase2Triggered = bdorPhase2.updatedState.ballonDorWinnerAnnounced === true;
+    const winnerPlayer = bdorPhase2.winnerPlayer;
+    const pinkCondition = winnerPlayer?.condition === 'pink';
+
+    const passed = count30 && noJLeague && phase1Triggered && phase2Triggered && pinkCondition;
+    results.push({
+      id: 'TEST 39',
+      name: 'バロンドール11月表彰イベント（30名ノミネート・Jリーグ完全除外・受賞者ピンク調子）',
+      passed,
+      details: passed
+        ? `成功: 候補30名選出、Jリーグ選手完全除外、11月上旬ノミネート発表、11月下旬受賞決定、受賞選手への絶好調(pink)付与を確認しました。`
+        : `失敗: 30名(${count30})、Jリーグ除外(${noJLeague})、11月上旬(${phase1Triggered})、11月下旬(${phase2Triggered})、ピンク調子(${pinkCondition})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 39', name: 'バロンドール表彰イベント検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 40: 月1回スカウト網（5名生成・最大1名獲得・超逸材95/99確率）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const canScoutInit = canScoutThisMonth(baseState);
+    const { prospects, updatedState } = dispatchMonthlyScout(baseState, 'jp_aomori');
+    const has5Prospects = prospects.length === 5;
+
+    const mergedState: GameWorldState = {
+      ...JSON.parse(JSON.stringify(baseState)),
+      ...updatedState
+    };
+    const cannotScoutAgainSameMonth = !canScoutThisMonth(mergedState);
+
+    // Sign one prospect
+    const signed = signScoutedProspect(mergedState, prospects[0].id, false);
+    const playerJoined = signed.updatedState.clubs[baseState.userClubId!].playerIds.includes(signed.signedPlayer.id);
+
+    const passed = canScoutInit && has5Prospects && cannotScoutAgainSameMonth && playerJoined;
+    results.push({
+      id: 'TEST 40',
+      name: '月1回スカウト網（5名生成・最大1名獲得・セーブデータ月管理）',
+      passed,
+      details: passed
+        ? `成功: 地域選択スカウトで5名の有望株が生成され、月1回制限が機能し、最大1名の契約・名簿合流が正常に完了しました。`
+        : `失敗: スカウト可否(${canScoutInit})、5名生成(${has5Prospects})、同月制限(${cannotScoutAgainSameMonth})、名簿合流(${playerJoined})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 40', name: '月1回スカウト網検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 41: 高校生2種登録制度（公式戦重複時の出場不可判定・事前通知）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testPlayer: Player = {
+      ...playerA,
+      id: 'test_type2_hs_player',
+      isType2Registered: true,
+      type2HighSchool: '青森山田高校',
+      type2UnavailableDates: ['2026-10-25']
+    };
+
+    const unavailableOnTournamentDay = isType2PlayerUnavailableOnDate(testPlayer, '2026-10-25');
+    const availableOnNormalDay = !isType2PlayerUnavailableOnDate(testPlayer, '2026-09-15');
+
+    const check = finalMatchEligibilityCheck([testPlayer.id], [], clubId, { [testPlayer.id]: testPlayer }, '2026-10-25');
+    const blockedFromStarters = !check.isEligible && check.ineligibleStarters.some(s => s.player.id === testPlayer.id);
+
+    const passed = unavailableOnTournamentDay && availableOnNormalDay && blockedFromStarters;
+    results.push({
+      id: 'TEST 41',
+      name: '高校生2種登録制度（高校公式戦日程重複時の試合出場不可判定・事前通知）',
+      passed,
+      details: passed
+        ? `成功: 2種登録選手の高校公式戦日程(10/25)でisType2PlayerUnavailableOnDate=trueが判定され、キックオフ前検査でスタメン登録が確実にブロックされました。`
+        : `失敗: 日程重複判定(${unavailableOnTournamentDay})、通常日出場可(${availableOnNormalDay})、スタメン阻止(${blockedFromStarters})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 41', name: '高校生2種登録制度検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -1396,6 +1575,7 @@ export const runAll16Tests = runAll27Tests;
 export const runAll32Tests = runAll27Tests;
 export const runAll34Tests = runAll27Tests;
 export const runAll36Tests = runAll27Tests;
+export const runAll41Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

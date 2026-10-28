@@ -33,6 +33,7 @@ import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { HomeDashboardTab } from './components/tabs/HomeDashboardTab';
 import { TacticsSquadTab } from './components/tabs/TacticsSquadTab';
 import { TransferMarketTab } from './components/tabs/TransferMarketTab';
+import { ScoutTab } from './components/tabs/ScoutTab';
 import { CompetitionsTab } from './components/tabs/CompetitionsTab';
 import { ManagerCareerTab } from './components/tabs/ManagerCareerTab';
 import { MatchSimulationView } from './components/tabs/MatchSimulationView';
@@ -529,6 +530,13 @@ export default function App() {
             state={gameState}
             onUpdateState={(ns) => setGameState(ns)}
             onSelectPlayer={(p) => setInspectingPlayer(p)}
+          />
+        )}
+
+        {activeTab === 'scout' && (
+          <ScoutTab
+            state={gameState}
+            onUpdateState={(ns) => setGameState(ns)}
           />
         )}
 

@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { GameWorldState, LeagueKey, MatchFixture } from '../../types/game';
+import { GameWorldState, LeagueKey, MatchFixture, CupKey } from '../../types/game';
 import { ENABLE_J_LEAGUE } from '../../data/clubsData';
 import { formatDateJP } from '../../engine/dateEngine';
-import { Trophy, Calendar, CheckCircle2, Clock } from 'lucide-react';
+import { SUPPORTED_CUPS, getEuropeanLeaguePhaseStandings, getTournamentBracket, getTournamentStatus } from '../../engine/cupEngine';
+import { Trophy, Calendar, CheckCircle2, Clock, Shield, Swords } from 'lucide-react';
+
+import { PlayerStatsTab } from './PlayerStatsTab';
 
 interface Props {
   state: GameWorldState;
@@ -40,17 +43,27 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
   const initialLeague = userClub?.league || 'premier-league';
 
   const [selectedLeague, setSelectedLeague] = useState<LeagueKey>(initialLeague);
-  const [viewMode, setViewMode] = useState<'standings' | 'fixtures'>('standings');
+  const [selectedCup, setSelectedCup] = useState<CupKey>('ucl');
+  const [viewMode, setViewMode] = useState<'standings' | 'player_stats' | 'cups' | 'fixtures'>('standings');
+  const [euroSubMode, setEuroSubMode] = useState<'league_phase' | 'bracket'>('league_phase');
 
   const standings = state.standings[selectedLeague] || [];
 
   // Filter fixtures for selected league
   const leagueFixtures = state.fixtures.filter(f => f.competition === selectedLeague || f.competition === 'pre-season');
 
+  // Cup data
+  const currentCupMeta = SUPPORTED_CUPS.find(c => c.id === selectedCup) || SUPPORTED_CUPS[0];
+  const isEuroCup = currentCupMeta.format === 'european-league-phase';
+  const cupStatusInfo = getTournamentStatus(selectedCup, state.currentDate);
+  const euroStandings = isEuroCup ? getEuropeanLeaguePhaseStandings(selectedCup as 'ucl' | 'uel' | 'uecl', state.clubs, state.fixtures) : [];
+  const bracketRounds = getTournamentBracket(selectedCup, state);
+  const cupFixtures = state.fixtures.filter(f => f.competition === selectedCup);
+
   return (
     <div className="space-y-5 pb-20">
       
-      {/* Header & League Selector */}
+      {/* Header & View Mode Switcher */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -58,12 +71,12 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
             <h2 className="text-xl font-bold text-white font-display">大会・順位表・対戦日程</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            欧州5大リーグおよび明治安田Jリーグの順位表と対戦日程・試合結果です。
+            欧州5大リーグ・明治安田Jリーグ、およびUEFAチャンピオンズリーグ・各国カップ戦の公式記録です。
           </p>
         </div>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 self-start sm:self-auto">
+        <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 self-start sm:self-auto flex-wrap">
           <button
             type="button"
             onClick={() => setViewMode('standings')}
@@ -71,7 +84,25 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
               viewMode === 'standings' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
             }`}
           >
-            順位表 (Standings)
+            順位表
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('player_stats')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              viewMode === 'player_stats' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            個人成績 (Stats)
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('cups')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              viewMode === 'cups' ? 'bg-amber-400 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            カップ戦 (Cups)
           </button>
           <button
             type="button"
@@ -80,174 +111,453 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
               viewMode === 'fixtures' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
             }`}
           >
-            対戦日程・結果 (Fixtures)
+            日程・結果
           </button>
         </div>
       </div>
 
-      {/* League Selection Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        {(Object.keys(LEAGUE_NAMES) as LeagueKey[]).map(lKey => (
-          <button
-            key={lKey}
-            type="button"
-            onClick={() => setSelectedLeague(lKey)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-              selectedLeague === lKey
-                ? 'bg-slate-800 text-emerald-400 border border-emerald-500/40'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            {LEAGUE_NAMES[lKey]}
-          </button>
-        ))}
-      </div>
-
-      {/* STANDINGS TABLE VIEW */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* VIEW MODE 1: LEAGUE STANDINGS */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {viewMode === 'standings' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl">
-          <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-              {LEAGUE_NAMES[selectedLeague]} 順位表
-            </h3>
-            <span className="text-xs text-slate-500 font-mono">{state.season} SEASON</span>
+        <div className="space-y-4">
+          {/* League Selection Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {(Object.keys(LEAGUE_NAMES) as LeagueKey[]).map(lKey => (
+              <button
+                key={lKey}
+                type="button"
+                onClick={() => setSelectedLeague(lKey)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                  selectedLeague === lKey
+                    ? 'bg-slate-800 text-emerald-400 border border-emerald-500/40 shadow-sm'
+                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {LEAGUE_NAMES[lKey]}
+              </button>
+            ))}
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="text-slate-500 border-b border-slate-800 pb-2">
-                  <th className="py-2 px-2 text-center w-8">順位</th>
-                  <th className="py-2 px-3">クラブ名</th>
-                  <th className="py-2 px-2 text-right">試合</th>
-                  <th className="py-2 px-2 text-right">勝</th>
-                  <th className="py-2 px-2 text-right">分</th>
-                  <th className="py-2 px-2 text-right">敗</th>
-                  <th className="py-2 px-2 text-right">得点</th>
-                  <th className="py-2 px-2 text-right">失点</th>
-                  <th className="py-2 px-2 text-right">得失差</th>
-                  <th className="py-2 px-3 text-right font-bold text-white">勝点</th>
-                  <th className="py-2 px-3 text-center">直近</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {standings.map((row, idx) => {
-                  const club = state.clubs[row.clubId];
-                  const isUser = row.clubId === state.userClubId;
+          {/* Standings Table Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-200">
+                {ALL_LEAGUE_NAMES[selectedLeague]} 順位表
+              </span>
+              <span className="text-xs text-slate-400 font-mono">
+                クラブ数: {standings.length}
+              </span>
+            </div>
 
-                  return (
-                    <tr 
-                      key={row.clubId}
-                      className={`hover:bg-slate-800/50 transition-colors ${
-                        isUser ? 'bg-emerald-950/30 text-emerald-200' : 'text-slate-300'
-                      }`}
-                    >
-                      <td className="py-2.5 px-2 text-center font-mono font-bold">
-                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md ${
-                          idx === 0 ? 'bg-amber-500/20 text-amber-300 font-bold' : 
-                          idx < 4 ? 'bg-blue-500/20 text-blue-300 font-bold' : 
-                          idx < 6 ? 'bg-cyan-500/10 text-cyan-300' :
-                          idx >= standings.length - 3 ? 'bg-red-500/20 text-red-400 font-bold' :
-                          'text-slate-500'
-                        }`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-950/40 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-3 text-center w-12">順位</th>
+                    <th className="py-3 px-4">クラブ</th>
+                    <th className="py-3 px-3 text-center">試合</th>
+                    <th className="py-3 px-3 text-center text-emerald-400">勝</th>
+                    <th className="py-3 px-3 text-center text-slate-400">分</th>
+                    <th className="py-3 px-3 text-center text-rose-400">負</th>
+                    <th className="py-3 px-3 text-center">得点</th>
+                    <th className="py-3 px-3 text-center">失点</th>
+                    <th className="py-3 px-3 text-center">得失点差</th>
+                    <th className="py-3 px-4 text-center font-bold text-white">勝点</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {standings.map((row, idx) => {
+                    const isUserClub = row.clubId === state.userClubId;
+                    const clubObj = state.clubs[row.clubId];
+
+                    // Zone indicators
+                    let zoneBg = '';
+                    if (idx < 4 && ['premier-league', 'laliga', 'serie-a', 'bundesliga'].includes(selectedLeague)) {
+                      zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                    } else if (idx < 3 && selectedLeague === 'j1-league') {
+                      zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
+                    } else if (idx >= standings.length - 3) {
+                      zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
+                    }
+
+                    return (
+                      <tr
+                        key={row.clubId}
+                        className={`transition-colors ${zoneBg} ${
+                          isUserClub ? 'bg-emerald-950/30 text-emerald-300 font-semibold' : 'hover:bg-slate-800/30 text-slate-300'
+                        }`}
+                      >
+                        <td className="py-3 px-3 text-center font-mono font-bold">
                           {idx + 1}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-2">
-                          <div 
-                            className="w-3 h-3 rounded-full shrink-0" 
-                            style={{ backgroundColor: club?.primaryColor || '#94a3b8' }}
-                          />
-                          <span className="font-bold text-white">
-                            {row.clubName}
+                        </td>
+                        <td className="py-3 px-4 flex items-center gap-2">
+                          <span className="font-bold text-white truncate max-w-[220px]">
+                            {clubObj?.name || row.clubName}
                           </span>
-                          {isUser && (
-                            <span className="text-[10px] bg-emerald-500 text-slate-950 px-1 rounded font-bold">
-                              YOU
+                          {isUserClub && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                              自クラブ
                             </span>
                           )}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono text-slate-400">{row.played}</td>
-                      <td className="py-2.5 px-2 text-right font-mono">{row.won}</td>
-                      <td className="py-2.5 px-2 text-right font-mono text-slate-400">{row.drawn}</td>
-                      <td className="py-2.5 px-2 text-right font-mono text-slate-400">{row.lost}</td>
-                      <td className="py-2.5 px-2 text-right font-mono">{row.goalsFor}</td>
-                      <td className="py-2.5 px-2 text-right font-mono text-slate-400">{row.goalsAgainst}</td>
-                      <td className="py-2.5 px-2 text-right font-mono font-semibold">
-                        {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-mono font-black text-sm text-emerald-400">
-                        {row.points}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1 font-mono text-[10px]">
-                          {row.form.length === 0 ? (
-                            <span className="text-slate-600">-</span>
-                          ) : (
-                            row.form.map((f, i) => (
-                              <span 
-                                key={i}
-                                className={`w-4 h-4 rounded flex items-center justify-center font-bold ${
-                                  f === 'W' ? 'bg-emerald-500/20 text-emerald-400' : f === 'D' ? 'bg-slate-700 text-slate-300' : 'bg-red-500/20 text-red-400'
-                                }`}
-                              >
-                                {f}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Qualification & Relegation Legend */}
-          <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-amber-400" />
-              <span>優勝 / ACLまたはUCL本戦</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-blue-400" />
-              <span>上位進出 / 欧州CL・国際大会出場圏</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-cyan-400" />
-              <span>欧州EL圏</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-red-400" />
-              <span>下位降格圏（残留争い）</span>
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono">{row.played}</td>
+                        <td className="py-3 px-3 text-center font-mono text-emerald-400">{row.won}</td>
+                        <td className="py-3 px-3 text-center font-mono text-slate-400">{row.drawn}</td>
+                        <td className="py-3 px-3 text-center font-mono text-rose-400">{row.lost}</td>
+                        <td className="py-3 px-3 text-center font-mono">{row.goalsFor}</td>
+                        <td className="py-3 px-3 text-center font-mono">{row.goalsAgainst}</td>
+                        <td className="py-3 px-3 text-center font-mono font-semibold">
+                          {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-white text-sm">
+                          {row.points}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       )}
 
-      {/* FIXTURES LIST VIEW */}
-      {viewMode === 'fixtures' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl space-y-3">
-          <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-              {LEAGUE_NAMES[selectedLeague]} 試合スケジュール
-            </h3>
-            <span className="text-xs text-slate-500 font-mono">{leagueFixtures.length} 試合</span>
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* VIEW MODE: PLAYER STATS (個人成績・ランキング・バロンドール) */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {viewMode === 'player_stats' && (
+        <PlayerStatsTab state={state} />
+      )}
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* VIEW MODE 2: CUP COMPETITIONS & BRACKETS (カップ戦) */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {viewMode === 'cups' && (
+        <div className="space-y-4">
+          {/* Cup Selection Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {SUPPORTED_CUPS.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelectedCup(c.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  selectedCup === c.id
+                    ? 'bg-amber-400 text-slate-950 font-bold shadow-md'
+                    : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>{c.logo}</span>
+                <span>{c.shortName}</span>
+                <span className="text-[10px] opacity-75">({c.country})</span>
+              </button>
+            ))}
           </div>
 
-          <div className="divide-y divide-slate-800/80">
+          {/* Cup Header Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-2xl shrink-0">
+                {currentCupMeta.logo}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-white">{currentCupMeta.name}</h3>
+                  <span className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${
+                    cupStatusInfo.status === 'not_started' 
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' 
+                      : cupStatusInfo.status === 'in_progress'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                  }`}>
+                    {cupStatusInfo.statusLabel}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  形式: {currentCupMeta.format === 'european-league-phase' ? '36クラブ・新リーグフェーズ ＋ 決勝トーナメント' : 'ノックアウト・トーナメント方式 (一発勝負 / 準決勝2試合制)'} · 開催期間: {formatDateJP(cupStatusInfo.startDate)} 〜 {formatDateJP(cupStatusInfo.endDate)}
+                </p>
+              </div>
+            </div>
+
+            {/* Sub-mode for European Cups */}
+            {isEuroCup && (
+              <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEuroSubMode('league_phase')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    euroSubMode === 'league_phase' ? 'bg-amber-400 text-slate-950' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  リーグフェーズ順位表 (36チーム)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEuroSubMode('bracket')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    euroSubMode === 'bracket' ? 'bg-amber-400 text-slate-950' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  決勝トーナメント表
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* EUROPEAN LEAGUE PHASE STANDINGS */}
+          {isEuroCup && euroSubMode === 'league_phase' && (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-amber-300 flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-amber-400" />
+                  36クラブ単一リーグフェーズ（上位8クラブが直接ベスト16、9〜24位がプレーオフ進出）
+                </span>
+                <div className="flex items-center gap-3 text-[11px] font-mono">
+                  <span className="text-emerald-400 font-bold">■ 1-8位: 直接R16</span>
+                  <span className="text-blue-400 font-bold">■ 9-24位: プレーオフ</span>
+                  <span className="text-rose-400">■ 25-36位: 敗退</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto max-h-[560px]">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-950/80 sticky top-0 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800 z-10">
+                    <tr>
+                      <th className="py-3 px-3 text-center w-12">順位</th>
+                      <th className="py-3 px-4">クラブ</th>
+                      <th className="py-3 px-3 text-center">試合</th>
+                      <th className="py-3 px-3 text-center text-emerald-400">勝</th>
+                      <th className="py-3 px-3 text-center text-slate-400">分</th>
+                      <th className="py-3 px-3 text-center text-rose-400">負</th>
+                      <th className="py-3 px-3 text-center">得点</th>
+                      <th className="py-3 px-3 text-center">失点</th>
+                      <th className="py-3 px-3 text-center">得失点差</th>
+                      <th className="py-3 px-4 text-center font-bold text-white">勝点</th>
+                      <th className="py-3 px-3 text-center">進出区分</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {euroStandings.map((row, idx) => {
+                      const isUserClub = row.clubId === state.userClubId;
+                      const clubObj = state.clubs[row.clubId];
+
+                      let statusBadge = '';
+                      let borderClass = '';
+                      if (idx < 8) {
+                        statusBadge = 'ベスト16直接進出';
+                        borderClass = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
+                      } else if (idx < 24) {
+                        statusBadge = 'プレーオフ進出';
+                        borderClass = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                      } else {
+                        statusBadge = '敗退';
+                        borderClass = 'border-l-4 border-l-rose-500/40 bg-rose-950/5';
+                      }
+
+                      return (
+                        <tr
+                          key={row.clubId}
+                          className={`transition-colors ${borderClass} ${
+                            isUserClub ? 'bg-amber-950/30 text-amber-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
+                          }`}
+                        >
+                          <td className="py-2.5 px-3 text-center font-mono font-bold">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-4 flex items-center gap-2">
+                            <span className="font-bold text-white truncate max-w-[200px]">
+                              {clubObj?.name || row.clubName}
+                            </span>
+                            {isUserClub && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                自クラブ
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono">{row.played}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{row.won}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-slate-400">{row.drawn}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-rose-400">{row.lost}</td>
+                          <td className="py-2.5 px-3 text-center font-mono">{row.goalsFor}</td>
+                          <td className="py-2.5 px-3 text-center font-mono">{row.goalsAgainst}</td>
+                          <td className="py-2.5 px-3 text-center font-mono font-semibold">
+                            {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
+                          </td>
+                          <td className="py-2.5 px-4 text-center font-mono font-bold text-white text-sm">
+                            {row.points}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              idx < 8 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                              idx < 24 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40' :
+                              'bg-slate-800 text-slate-500'
+                            }`}>
+                              {statusBadge}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TOURNAMENT BRACKET TREE */}
+          {(!isEuroCup || euroSubMode === 'bracket') && (
+            <div className="space-y-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl">
+                <div className="flex items-center gap-2 mb-4">
+                  <Swords className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-sm font-bold text-white">決勝トーナメント表 (Tournament Bracket)</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 overflow-x-auto pb-4">
+                  {bracketRounds.map((round, rIdx) => (
+                    <div key={rIdx} className="space-y-3 min-w-[240px]">
+                      <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-center font-bold text-xs text-amber-300">
+                        {round.roundName}
+                      </div>
+
+                      <div className="space-y-3">
+                        {round.matches.map((match, mIdx) => {
+                          const isUserMatch = match.homeClubId === state.userClubId || match.awayClubId === state.userClubId;
+                          const isFinished = match.status === 'finished';
+
+                          return (
+                            <div
+                              key={mIdx}
+                              className={`p-3 rounded-2xl border transition-all text-xs ${
+                                isUserMatch
+                                  ? 'bg-emerald-950/30 border-emerald-500/60 shadow-md'
+                                  : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 mb-2 font-mono">
+                                <span>{match.date}</span>
+                                {match.isTwoLegged && (
+                                  <span className="text-amber-400 font-semibold">2試合制合計</span>
+                                )}
+                              </div>
+
+                              {/* Home Club */}
+                              <div className="flex items-center justify-between py-1">
+                                <span className={`truncate max-w-[140px] font-bold ${
+                                  match.winnerClubId === match.homeClubId ? 'text-white' : 'text-slate-400'
+                                }`}>
+                                  {match.homeClubName}
+                                </span>
+                                <span className="font-mono font-bold text-white text-sm">
+                                  {isFinished ? match.homeScore : '-'}
+                                </span>
+                              </div>
+
+                              {/* Away Club */}
+                              <div className="flex items-center justify-between py-1">
+                                <span className={`truncate max-w-[140px] font-bold ${
+                                  match.winnerClubId === match.awayClubId ? 'text-white' : 'text-slate-400'
+                                }`}>
+                                  {match.awayClubName}
+                                </span>
+                                <span className="font-mono font-bold text-white text-sm">
+                                  {isFinished ? match.awayScore : '-'}
+                                </span>
+                              </div>
+
+                              {/* Details (PK, Aggregate) */}
+                              {isFinished && (
+                                <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+                                  {match.penaltyShootout ? (
+                                    <span className="text-amber-400 font-bold">
+                                      PK戦: {match.penaltyShootout.homeScore} - {match.penaltyShootout.awayScore}
+                                    </span>
+                                  ) : match.aggregateScore ? (
+                                    <span className="text-slate-400 font-mono">
+                                      {match.aggregateScore}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500">90分決着</span>
+                                  )}
+
+                                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>決着</span>
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Fixtures list for this cup */}
+              {cupFixtures.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+                  <h4 className="text-xs font-bold text-slate-300">大会公式マッチスケジュール</h4>
+                  <div className="divide-y divide-slate-800">
+                    {cupFixtures.map(f => {
+                      const isUser = f.homeClubId === state.userClubId || f.awayClubId === state.userClubId;
+                      return (
+                        <div key={f.id} className="py-2.5 flex items-center justify-between text-xs">
+                          <span className="text-slate-400 font-mono">{formatDateJP(f.date)}</span>
+                          <span className="text-white font-semibold">{f.competitionName}</span>
+                          <span className="text-slate-300 font-mono">
+                            {state.clubs[f.homeClubId]?.name || 'TBD'} vs {state.clubs[f.awayClubId]?.name || 'TBD'}
+                          </span>
+                          {f.status === 'finished' ? (
+                            <span className="text-emerald-400 font-mono font-bold">{f.homeScore} - {f.awayScore}</span>
+                          ) : isUser ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenMatch(f)}
+                              className="px-2.5 py-1 bg-emerald-500 text-slate-950 font-bold rounded-lg cursor-pointer"
+                            >
+                              試合へ
+                            </button>
+                          ) : (
+                            <span className="text-slate-500 text-[11px]">未消化</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* VIEW MODE 3: LEAGUE FIXTURES & RESULTS */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {viewMode === 'fixtures' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+          <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
+            <span className="text-sm font-bold text-slate-200">
+              {ALL_LEAGUE_NAMES[selectedLeague]} 対戦カード・試合結果
+            </span>
+            <span className="text-xs text-slate-400 font-mono">
+              全{leagueFixtures.length}試合
+            </span>
+          </div>
+
+          <div className="divide-y divide-slate-800/60 max-h-[600px] overflow-y-auto">
             {leagueFixtures.map(f => {
               const home = state.clubs[f.homeClubId];
               const away = state.clubs[f.awayClubId];
               const isUserMatch = f.homeClubId === state.userClubId || f.awayClubId === state.userClubId;
 
               return (
-                <div 
+                <div
                   key={f.id}
-                  className={`py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-2 rounded-xl transition-colors ${
+                  className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
                     isUserMatch ? 'bg-slate-800/40' : 'hover:bg-slate-800/20'
                   }`}
                 >
@@ -263,7 +573,6 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                     <span className={`text-right w-36 truncate ${f.homeClubId === state.userClubId ? 'text-emerald-400 font-black' : 'text-white'}`}>
                       {home?.name}
                     </span>
-
                     <div className="bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 font-mono text-sm">
                       {f.status === 'finished' ? (
                         <span>{f.homeScore} - {f.awayScore}</span>
@@ -271,7 +580,6 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                         <span className="text-slate-500 text-xs">VS</span>
                       )}
                     </div>
-
                     <span className={`text-left w-36 truncate ${f.awayClubId === state.userClubId ? 'text-emerald-400 font-black' : 'text-white'}`}>
                       {away?.name}
                     </span>
@@ -305,7 +613,6 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
           </div>
         </div>
       )}
-
     </div>
   );
 };

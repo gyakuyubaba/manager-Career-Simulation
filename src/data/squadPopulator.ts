@@ -436,7 +436,14 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
 
   // 3b. Register Free Agent Superstars (Messi, Ronaldo, Neymar, James Rodriguez, Carvajal, Sergio Ramos)
   FREE_AGENT_SUPERSTARS.forEach(fa => {
-    addPlayerIfUnique(fa);
+    baseRegistry[fa.id] = {
+      ...fa,
+      currentClubId: fa.clubId,
+      squadStatus: 'OUT_OF_SQUAD',
+      injuryStatus: 'HEALTHY',
+      injury: { isInjured: false },
+      suspension: { isSuspended: false, matchesRemaining: 0 }
+    };
   });
 
   // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs) have at least 25 players across positions

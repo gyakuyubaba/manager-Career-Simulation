@@ -16,6 +16,7 @@ import { J1_20_CLUBS, J2_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateRandomYouthAcademy } from '../data/youthGenerator';
+import { REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
 
 export const CURRENT_SCHEMA_VERSION = 7;
 export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V2_OFFICIAL';
@@ -587,7 +588,8 @@ export async function loadGameFromStorage(): Promise<{
           migrated = true;
           await saveGameToStorage(state);
         }
-        return { state, source: 'indexeddb_primary', migrated };
+        const repaired = REPAIR_SAVE_DATA_INTEGRITY(state);
+        return { state: repaired.state, source: 'indexeddb_primary', migrated };
       } else {
         console.warn('Primary save failed integrity check, falling back to backup 1:', check.errors);
       }
@@ -604,7 +606,8 @@ export async function loadGameFromStorage(): Promise<{
           state = merge2026_27MasterRosterIntoSave(state).state;
           await saveGameToStorage(state);
         }
-        return { state, source: 'indexeddb_backup_1', migrated: true };
+        const repaired = REPAIR_SAVE_DATA_INTEGRITY(state);
+        return { state: repaired.state, source: 'indexeddb_backup_1', migrated: true };
       }
     }
 
@@ -619,7 +622,8 @@ export async function loadGameFromStorage(): Promise<{
           state = merge2026_27MasterRosterIntoSave(state).state;
           await saveGameToStorage(state);
         }
-        return { state, source: 'indexeddb_backup_2', migrated: true };
+        const repaired = REPAIR_SAVE_DATA_INTEGRITY(state);
+        return { state: repaired.state, source: 'indexeddb_backup_2', migrated: true };
       }
     }
 
@@ -628,6 +632,8 @@ export async function loadGameFromStorage(): Promise<{
     if (legacyState) {
       let migratedState = migrateGameState(legacyState, 1);
       migratedState = merge2026_27MasterRosterIntoSave(migratedState).state;
+      const repaired = REPAIR_SAVE_DATA_INTEGRITY(migratedState);
+      migratedState = repaired.state;
       // Migrate permanently into IndexedDB so it's immune to quota
       await saveGameToStorage(migratedState);
       return { state: migratedState, source: 'legacy_localstorage', migrated: true };

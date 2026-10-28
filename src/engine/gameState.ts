@@ -264,6 +264,18 @@ export function createNewGameWorld(
     initialStandings = rebuildStandingsFromMatchResults(fixtures, clubs, initialStandings);
   }
 
+  // Ensure 100% strict sync between player.clubId and club.playerIds
+  Object.values(clubs).forEach(c => {
+    c.playerIds = [];
+  });
+  Object.values(players).forEach(p => {
+    if (clubs[p.clubId]) {
+      if (!clubs[p.clubId].playerIds.includes(p.id)) {
+        clubs[p.clubId].playerIds.push(p.id);
+      }
+    }
+  });
+
   return {
     currentDate: initialDate,
     season: '2026/27',

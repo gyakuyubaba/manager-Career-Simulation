@@ -825,9 +825,22 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                 <div className="space-y-3.5 bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
                   {/* Fee proposal */}
                   <div>
-                    <div className="flex items-center justify-between text-xs mb-1">
+                    <div className="flex items-center justify-between text-xs mb-1.5 flex-wrap gap-2">
                       <span className="font-bold text-slate-300">① 基本移籍金（固定支払額）</span>
-                      <span className="font-mono font-bold text-emerald-400 text-sm">€{(proposedFee / 1000000).toFixed(1)}M</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-slate-400 font-mono">直接数値入力: €</span>
+                        <input
+                          type="number"
+                          step={500000}
+                          min={100000}
+                          value={proposedFee}
+                          onChange={e => setProposedFee(Math.max(100000, Number(e.target.value)))}
+                          className="w-36 bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-2.5 py-1 text-xs font-mono font-bold text-emerald-400 text-right"
+                        />
+                        <span className="font-mono font-bold text-emerald-400 text-xs">
+                          (€{(proposedFee / 1000000).toFixed(1)}M)
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {[-5000000, -2000000, 2000000, 5000000, 10000000].map(delta => (
@@ -835,7 +848,7 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                           key={delta}
                           type="button"
                           onClick={() => setProposedFee(prev => Math.max(1000000, prev + delta))}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono"
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono cursor-pointer"
                         >
                           {delta > 0 ? `+€${delta / 1000000}M` : `-€${Math.abs(delta) / 1000000}M`}
                         </button>
@@ -1629,28 +1642,49 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                   ))}
                 </div>
 
-                <div className="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/80">
-                  <div className="flex items-center justify-between text-xs text-slate-300 mb-2">
-                    <span>提示移籍金 (オファー額)</span>
-                    <span className="font-mono text-emerald-400 font-bold text-base">
-                      €{(bidFee / 1000000).toFixed(1)}M
-                    </span>
+                <div className="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/80 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-300">提示移籍金 (オファー額)</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400 font-mono">直接数値入力: €</span>
+                      <input
+                        type="number"
+                        step={500000}
+                        min={0}
+                        value={bidFee}
+                        onChange={e => setBidFee(Math.max(0, Number(e.target.value)))}
+                        className="w-36 bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl px-2.5 py-1 text-xs font-mono font-bold text-emerald-400 text-right"
+                      />
+                      <span className="font-mono text-emerald-400 font-bold text-sm">
+                        (€{(bidFee / 1000000).toFixed(1)}M)
+                      </span>
+                    </div>
                   </div>
 
                   <input
                     type="range"
                     min={Math.round(targetPlayerInNeg.marketValue * 0.4)}
-                    max={Math.round(targetPlayerInNeg.marketValue * 2.0)}
-                    step={1000000}
+                    max={Math.round(targetPlayerInNeg.marketValue * 2.5)}
+                    step={500000}
                     value={bidFee}
                     onChange={e => setBidFee(Number(e.target.value))}
-                    className="w-full accent-emerald-500"
+                    className="w-full accent-emerald-500 cursor-pointer"
                   />
 
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2">
-                    <span>最低下限: €{(targetPlayerInNeg.marketValue * 0.4 / 1000000).toFixed(1)}M</span>
-                    <span>相手クラブ残忍耐度: <strong className="text-amber-400">{activeNegotiation.clubPatience}回</strong></span>
-                    <span>上限: €{(targetPlayerInNeg.marketValue * 2 / 1000000).toFixed(1)}M</span>
+                  {/* Budget Overflow Alert Banner */}
+                  {bidFee > (userClub?.transferBudget || 0) && (
+                    <div className="p-3 bg-rose-950/60 border border-rose-500 rounded-xl text-xs text-rose-300 flex items-center gap-2 font-bold animate-pulse">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>
+                        ⚠️ 移籍予算オーバー警告: 提示額（€{bidFee.toLocaleString()}）が現在のクラブ移籍予算（€{(userClub?.transferBudget || 0).toLocaleString()}）を超過しています！資金ショートにご注意ください。
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>推定市場価値: €{(targetPlayerInNeg.marketValue * 0.4 / 1000000).toFixed(1)}M 〜 €{(targetPlayerInNeg.marketValue * 2 / 1000000).toFixed(1)}M</span>
+                    <span>相手残忍耐度: <strong className="text-amber-400">{activeNegotiation.clubPatience}回</strong></span>
+                    <span>クラブ予算: <strong className="text-emerald-400">€{((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M</strong></span>
                   </div>
                 </div>
 

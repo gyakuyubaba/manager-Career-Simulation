@@ -1,12 +1,15 @@
-import { GameWorldState, MatchFixture, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary } from '../types/game';
+import { GameWorldState, MatchFixture, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory } from '../types/game';
 import { ENABLE_J_LEAGUE } from '../data/clubsData';
 import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRandomWeightedInjury } from './matchEngine';
 import { simulateAITransfers } from './transferEngine';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateSeasonFixtures } from './fixtureGenerator';
 import { processPreSeasonMatchRewards } from './preSeasonEngine';
-import { evaluateMatchBoardConfidence } from './boardConfidenceEngine';
+import { evaluateMatchBoardConfidence, getBoardConfidenceStage } from './boardConfidenceEngine';
 import { updateClubVisionAfterSeason } from './clubVisionEngine';
+import { checkAndAdvanceBallonDor } from './ballonDorEngine';
+import { isType2PlayerUnavailableOnDate } from './scoutEngine';
+import { initializeTournamentCompetitions } from './cupEngine';
 
 // Format ISO date to display string YYYY年M月D日
 export function formatDateJP(dateStr: string): string {
@@ -103,15 +106,28 @@ export function applyMatchResultToWorld(
     updateStandingsAfterMatch(standings[leagueKey], finalFixture);
   }
 
-  // 3. Update player season stats from events
+  // 3. Update player season stats from events (Requirement 2: プレシーズン個人成績混入防止)
+  const isPreseasonMatch = finalFixture.competition === 'pre-season' || finalFixture.competitionType === 'preseason';
   const players = { ...(updatedPlayers || state.players) };
   if (finalFixture.events) {
     finalFixture.events.forEach(e => {
       if (e.playerId && players[e.playerId]) {
-        if (e.type === 'yellow_card') {
-          players[e.playerId].stats.yellowCards += 1;
-        } else if (e.type === 'red_card' || e.type === 'second_yellow') {
-          players[e.playerId].stats.redCards += 1;
+        const pObj = players[e.playerId];
+        if (isPreseasonMatch) {
+          if (!pObj.preseasonStats) {
+            pObj.preseasonStats = { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+          }
+          if (e.type === 'yellow_card') {
+            pObj.preseasonStats.yellowCards += 1;
+          } else if (e.type === 'red_card' || e.type === 'second_yellow') {
+            pObj.preseasonStats.redCards += 1;
+          }
+        } else {
+          if (e.type === 'yellow_card') {
+            pObj.stats.yellowCards += 1;
+          } else if (e.type === 'red_card' || e.type === 'second_yellow') {
+            pObj.stats.redCards += 1;
+          }
         }
       }
     });
@@ -207,29 +223,43 @@ export function applyMatchResultToWorld(
     });
   }
 
-  // 5. Board Confidence, Fan Approval, and Sacking Evaluation for User Matches
+  // 5. Board Confidence, Fan Approval, and Sacking Evaluation for User Matches (with Match Deduplication)
   let boardConfidence = state.boardConfidence;
   let fanApproval = state.fanApproval;
   let consecutiveLosses = state.consecutiveLosses;
   let consecutiveWinless = state.consecutiveWinless || 0;
   let isSacked = state.isSacked;
   let managerStats = { ...state.manager };
+  let auditLog = [...(state.boardConfidenceAuditLog || [])];
+  let processedMatchIds = [...(state.processedBoardConfidenceMatchIds || [])];
+  let boardConfidenceStage = state.boardConfidenceStage || getBoardConfidenceStage(state.boardConfidence, state.isSacked);
 
   if (finalFixture.isUserMatch && finalFixture.homeScore !== undefined && finalFixture.awayScore !== undefined) {
     const isUserHome = finalFixture.homeClubId === state.userClubId;
     const userScore = isUserHome ? finalFixture.homeScore : finalFixture.awayScore;
     const oppScore = isUserHome ? finalFixture.awayScore : finalFixture.homeScore;
 
-    const evalResult = evaluateMatchBoardConfidence(state, finalFixture, userScore, oppScore);
-    boardConfidence = evalResult.newConfidence;
-    fanApproval = evalResult.newFanApproval;
-    consecutiveLosses = evalResult.newConsecutiveLosses;
-    consecutiveWinless = evalResult.newConsecutiveWinless;
-    if (evalResult.sackTriggered) {
-      isSacked = true;
-    }
-    if (evalResult.newsItem) {
-      updatedNews.unshift(evalResult.newsItem);
+    const alreadyEvaluated = processedMatchIds.includes(finalFixture.id);
+    if (!alreadyEvaluated) {
+      const evalResult = evaluateMatchBoardConfidence(state, finalFixture, userScore, oppScore);
+      boardConfidence = evalResult.newConfidence;
+      fanApproval = evalResult.newFanApproval;
+      consecutiveLosses = evalResult.newConsecutiveLosses;
+      consecutiveWinless = evalResult.newConsecutiveWinless;
+      boardConfidenceStage = evalResult.stage;
+
+      if (evalResult.auditEntry) {
+        auditLog.unshift(evalResult.auditEntry);
+        if (auditLog.length > 50) auditLog.pop();
+      }
+      processedMatchIds.push(finalFixture.id);
+
+      if (evalResult.sackTriggered) {
+        isSacked = true;
+      }
+      if (evalResult.newsItem) {
+        updatedNews.unshift(evalResult.newsItem);
+      }
     }
 
     managerStats.matchesManaged += 1;
@@ -253,6 +283,9 @@ export function applyMatchResultToWorld(
     fanApproval,
     consecutiveLosses,
     consecutiveWinless,
+    boardConfidenceStage,
+    boardConfidenceAuditLog: auditLog,
+    processedBoardConfidenceMatchIds: processedMatchIds,
     isSacked,
     manager: managerStats
   };
@@ -479,6 +512,30 @@ export function advanceOneDay(
   // Autonomous AI Transfers
   state = simulateAITransfers(state);
 
+  // Ballon d'Or November Event Check (Nominees in early Nov, Winner in late Nov)
+  const bdorResult = checkAndAdvanceBallonDor(state, nextDate);
+  if (bdorResult.newsItem) {
+    state.news = [bdorResult.newsItem, ...state.news];
+  }
+  if (bdorResult.updatedState && Object.keys(bdorResult.updatedState).length > 0) {
+    state = { ...state, ...bdorResult.updatedState };
+  }
+
+  // Update tournament competition statuses based on date (Requirement 4)
+  if (state.tournaments) {
+    const updatedTournaments = { ...state.tournaments };
+    let tournamentUpdated = false;
+    Object.values(updatedTournaments).forEach(t => {
+      if (t.status === 'not_started' && nextDate >= t.startDate) {
+        t.status = 'in_progress';
+        tournamentUpdated = true;
+      }
+    });
+    if (tournamentUpdated) {
+      state.tournaments = updatedTournaments;
+    }
+  }
+
   // -------------------------------------------------------------
   // 【1 & 3. 試合シミュレーション：ユーザー戦・AI戦の完全処理】
   // -------------------------------------------------------------
@@ -490,9 +547,20 @@ export function advanceOneDay(
     if (!autoSimulateUserMatch) {
       // Manual match day stop
       const oppClubId = userFixture.homeClubId === state.userClubId ? userFixture.awayClubId : userFixture.homeClubId;
+      
+      // Type 2 High School player conflict check
+      let type2Notice = '';
+      if (state.userClubId) {
+        const userClubPlayers = Object.values(state.players).filter(p => p.clubId === state.userClubId);
+        const unavailableType2 = userClubPlayers.filter(p => p.isType2Registered && isType2PlayerUnavailableOnDate(p, nextDate));
+        if (unavailableType2.length > 0) {
+          type2Notice = ` (⚠️ 2種登録: ${unavailableType2.map(p => p.name).join('、')}選手は高校公式戦のため出場不可)`;
+        }
+      }
+
       return {
         updatedState: state,
-        stoppedReason: `【MATCH DAY】本日 ${state.clubs[oppClubId]?.shortName || state.clubs[oppClubId]?.name || '対戦相手'} 戦が予定されています！`,
+        stoppedReason: `【MATCH DAY】本日 ${state.clubs[oppClubId]?.shortName || state.clubs[oppClubId]?.name || '対戦相手'} 戦が予定されています！${type2Notice}`,
         hasUserMatchToday: true,
         userMatchFixture: userFixture
       };
@@ -753,8 +821,70 @@ export function processSeasonEndPromotionsAndRelegations(
   const nextSeason = `${nextYear}/${String(nextYear + 1).slice(2)}`;
   const nextDate = `${nextYear}-07-01`;
 
+  // Requirement 3: Reset current season stats while preserving past season history for every player
+  const updatedPlayers: Record<string, Player> = {};
+  const endingSeason = state.season;
+
+  Object.entries(state.players).forEach(([pId, p]) => {
+    const historyEntry: SeasonStatsHistory = {
+      seasonId: endingSeason,
+      seasonName: endingSeason,
+      clubId: p.clubId,
+      clubName: clubs[p.clubId]?.name || p.clubId,
+      appearances: p.stats.appearances,
+      starts: p.stats.starts,
+      minutes: p.stats.minutes,
+      goals: p.stats.goals,
+      assists: p.stats.assists,
+      avgRating: p.stats.avgRating,
+      yellowCards: p.stats.yellowCards,
+      redCards: p.stats.redCards,
+      cleanSheets: p.stats.cleanSheets,
+      saves: p.stats.saves || 0,
+      goalsConceded: p.stats.goalsConceded || 0,
+      competitionStats: p.competitionStats ? { ...p.competitionStats } : undefined,
+      awards: []
+    };
+
+    updatedPlayers[pId] = {
+      ...p,
+      age: p.age + 1,
+      seasonHistory: [...(p.seasonHistory || []), historyEntry],
+      stats: {
+        appearances: 0,
+        starts: 0,
+        minutes: 0,
+        goals: 0,
+        assists: 0,
+        cleanSheets: 0,
+        yellowCards: 0,
+        redCards: 0,
+        avgRating: 0,
+        saves: 0,
+        goalsConceded: 0
+      },
+      preseasonStats: {
+        appearances: 0,
+        starts: 0,
+        minutes: 0,
+        goals: 0,
+        assists: 0,
+        cleanSheets: 0,
+        yellowCards: 0,
+        redCards: 0,
+        avgRating: 0,
+        saves: 0,
+        goalsConceded: 0
+      },
+      competitionStats: {}
+    };
+  });
+
   // Regenerate season fixtures for the next season with updated league memberships and fresh randomized pre-season
   const nextFixtures = generateSeasonFixtures(clubs, state.userClubId, nextYear, state.manager);
+
+  // Initialize tournaments for the new season in 'not_started' state
+  const updatedTournaments = initializeTournamentCompetitions(nextYear, clubs, nextDate);
 
   // Update Club Vision Roadmap for the new season
   let updatedVision = state.clubVision;
@@ -771,8 +901,10 @@ export function processSeasonEndPromotionsAndRelegations(
       season: nextSeason,
       currentDate: nextDate,
       clubs,
+      players: updatedPlayers,
       standings: updatedStandings,
       fixtures: nextFixtures,
+      tournaments: updatedTournaments,
       selectedPreSeason: undefined, // Clears selection so pre-season invitations show in July!
       clubVision: updatedVision
     },

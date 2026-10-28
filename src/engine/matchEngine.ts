@@ -1,5 +1,6 @@
-import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition } from '../types/game';
+import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition, GoalDetail } from '../types/game';
 import { addDays } from './dateEngine';
+import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 
 // Condition multiplier for calculations
 export const CONDITION_MULTIPLIER: Record<PlayerCondition, number> = {
@@ -85,6 +86,18 @@ export function finalMatchEligibilityCheck(
       ineligibleStarters.push({ player: p, reason, badge });
       ineligibleAll.push({ player: p, reason, badge, role: 'STARTER' });
       ineligiblePlayerIds.push(pId);
+      return;
+    }
+
+    // Type 2 High School availability check
+    if (p.isType2Registered && isType2PlayerUnavailableOnDate(p, currentDate)) {
+      const reason = `高校公式戦・選手権出場のため出場不可 (${p.type2HighSchool || '提携高校'})`;
+      const badge = '【2種不出場】';
+      errors.push(`【2種登録選手日程重複】${p.name}選手は高校公式戦（全国選手権・総体等）のため本試合に出場できません。`);
+      ineligibleStarters.push({ player: p, reason, badge });
+      ineligibleAll.push({ player: p, reason, badge, role: 'STARTER' });
+      ineligiblePlayerIds.push(pId);
+      return;
     }
   });
 
@@ -128,6 +141,18 @@ export function finalMatchEligibilityCheck(
       ineligibleBench.push({ player: p, reason, badge });
       ineligibleAll.push({ player: p, reason, badge, role: 'BENCH' });
       ineligiblePlayerIds.push(pId);
+      return;
+    }
+
+    // Type 2 High School availability check for bench
+    if (p.isType2Registered && isType2PlayerUnavailableOnDate(p, currentDate)) {
+      const reason = `高校公式戦のためベンチ不可 (${p.type2HighSchool || '提携高校'})`;
+      const badge = '【2種不出場】';
+      errors.push(`【2種登録選手日程重複】ベンチの${p.name}選手は高校公式戦のため本試合にベンチ入りできません。`);
+      ineligibleBench.push({ player: p, reason, badge });
+      ineligibleAll.push({ player: p, reason, badge, role: 'BENCH' });
+      ineligiblePlayerIds.push(pId);
+      return;
     }
   });
 
@@ -307,19 +332,31 @@ const GOAL_COMMENTARIES = [
   (s: string, a?: string) => `【GOAL!!】混戦のペナルティエリアから${s}が電光石火の反転シュート！ネットを揺らす！${a ? ` (ラストパス: ${a})` : ''}`,
   (s: string) => `【GOAL!!】${s}がペナルティエリア外から放った強烈なミドルシュートがゴール左上隅へ突き刺さるゴラッソ！`,
   (s: string, a?: string) => `【GOAL!!】素早いカウンターが炸裂！${s}がダイレクトボレーでフィニッシュ！${a ? ` (${a}の絶妙クロス)` : ''}`,
-  (s: string, a?: string) => `【GOAL!!】CKから${s}がマークを外して打点の高いヘディングシュート！ゴールネットを揺らす！${a ? ` (キッカー: ${a})` : ''}`
+  (s: string, a?: string) => `【GOAL!!】CKから${s}がマークを外して打点の高いヘディングシュート！ゴールネットを揺らす！${a ? ` (キッカー: ${a})` : ''}`,
+  (s: string, a?: string) => `【GOAL!!】中央での流れるようなワンツーパスから${s}が抜け出し、落ち着いてゴール右隅へ流し込んだ！${a ? ` (お膳立て: ${a})` : ''}`,
+  (s: string) => `【GOAL!!】直接FKのチャンス！${s}が壁の上を巻く美しい弾道で直接ネットを揺らした！芸術的な一撃！`,
+  (s: string, a?: string) => `【GOAL!!】左サイド深く切れ込んだ${a || '味方'}のグラウンダーのマイナスクロスに、走り込んだ${s}が右足インサイドで確実に合わせた！`,
+  (s: string) => `【GOAL!!】相手GKの弾いたこぼれ球に電光石火で詰めた${s}が押し込みゴール！泥臭く貴重な1点！`,
+  (s: string, a?: string) => `【GOAL!!】ショートカウンター発動！相手DFの間を切り裂くスルーパスから${s}がGKとの1対1をループシュートで制した！${a ? ` (アシスト: ${a})` : ''}`,
+  (s: string) => `【GOAL!!】${s}が自らドリブルでバイタルエリアに侵入、鋭いフェイントでDFを剥がして右足を一閃！文句なしのスーパーゴール！`,
+  (s: string, a?: string) => `【GOAL!!】ファーサイドへの浮き球クロスを${s}が身体を投げ出すダイビングヘッドで叩き込んだ！スタジアム熱狂！${a ? ` (ピンポイントクロス: ${a})` : ''}`,
+  (s: string) => `【PK成功！】PA内でのファウルにより獲得したPK。キッカーの${s}がプレッシャーをものともせずGKの逆を突いて成功！`
 ];
 
 const WOODWORK_COMMENTARIES = [
   (p: string) => `【決定機逸】${p}がペナルティエリア中央から強烈なシュートを放つも、惜しくもクロスバー直撃！`,
   (p: string) => `【ポスト直撃！】${p}が左足を振り抜くが、ボールは左ポストを叩いて跳ね返る！スタジアムがどよめく！`,
-  (p: string) => `【惜しいシュート】${p}のミドルシュートが右ポストをかすめて枠外へ。決定的なチャンスでした。`
+  (p: string) => `【惜しいシュート】${p}のミドルシュートが右ポストをかすめて枠外へ。決定的なチャンスでした。`,
+  (p: string) => `【バー直撃！】${p}の放ったドライブシュートが鋭く落ちるが、惜しくもバーを叩いてグラウンドへ跳ね返る！`,
+  (p: string) => `【枠外の強襲！】角度のない位置から${p}が強引に狙った一撃は惜しくもサイドネットの外側を揺らす！`
 ];
 
 const SAVE_COMMENTARIES = [
   (gk: string, shooter: string) => `【ファインセーブ！】${shooter}の決定的なシュートを相手守護神${gk}が驚異的な反応で横っ飛びセーブ！`,
   (gk: string, shooter: string) => `【ビッグセーブ！】1対1の絶体絶命のピンチを${gk}が足一本で防ぎ切る！`,
-  (gk: string, shooter: string) => `【スーパーセーブ】至近距離からの${shooter}のヘディングシュートを${gk}が右手一本でバーの上へ弾き出す！`
+  (gk: string, shooter: string) => `【スーパーセーブ】至近距離からの${shooter}のヘディングシュートを${gk}が右手一本でバーの上へ弾き出す！`,
+  (gk: string, shooter: string) => `【神反応！】ディフレクションした不規則なシュートを${gk}が逆を突かれながらも驚異のリカバリーで右手で掻き出した！`,
+  (gk: string, shooter: string) => `【ゴールライン上の死守！】${shooter}の決定的なループシュートを${gk}がバックステップからの決死の指先タッチでCKへ逃れる！`
 ];
 
 export function hashStringToNumber(str: string): number {
@@ -471,6 +508,145 @@ export function processPlayerPerformanceGrowth(
     exactOvr: roundedExact,
     ovr: newIntOvr,
     matchRatingsHistory: history
+  };
+}
+
+/**
+ * Requirement 1: Generate comprehensive, concrete goal narrative and metadata
+ */
+export function generateGoalDetail(
+  scorer: Player,
+  assister: Player | undefined,
+  isFoulPenalty: boolean,
+  isOwnGoal: boolean,
+  rng: () => number,
+  minute: number
+): GoalDetail {
+  if (isFoulPenalty) {
+    const shotFoot = scorer.preferredFoot === '左' ? '左足' : '右足';
+    const corners = ['ゴール右隅', 'ゴール左隅', 'ゴールネット中央', 'ゴール右上', 'ゴール左上'];
+    const chosenCorner = corners[Math.floor(rng() * corners.length)];
+    const narrative = `【PK成功】${minute}分、ペナルティエリア内でのファウルにより獲得したPK。重圧がかかる場面でキッカーの${scorer.name}がGKの逆を突いて${shotFoot}で冷静に${chosenCorner}へ流し込んだ！`;
+    return {
+      minute,
+      scorerId: scorer.id,
+      scorerName: scorer.name,
+      attackOrigin: 'penalty',
+      passType: 'none',
+      dribbleType: 'none',
+      shotType: 'penalty_kick',
+      shotLocation: 'penalty_area_central',
+      shotFoot,
+      narrative
+    };
+  }
+
+  if (isOwnGoal) {
+    const narrative = `【オウンゴール】${minute}分、ゴール前への鋭いクロスが相手DFに当たってディフレクション。不運にもそのままゴールマウスへ吸い込まれた！`;
+    return {
+      minute,
+      scorerId: scorer.id,
+      scorerName: `${scorer.name} (OG)`,
+      attackOrigin: 'own_goal',
+      passType: 'cross',
+      dribbleType: 'none',
+      shotType: 'own_goal_deflection',
+      shotLocation: 'six_yard_box',
+      shotFoot: '胸・その他',
+      narrative
+    };
+  }
+
+  const foot = scorer.preferredFoot === '左' ? '左足' : (scorer.preferredFoot === '右' ? '右足' : (rng() < 0.5 ? '右足' : '左足'));
+  const isCB = ['CB', 'LB', 'RB'].includes(scorer.position);
+  const isWinger = ['LW', 'RW', 'LM', 'RM'].includes(scorer.position);
+
+  const roll = rng();
+  let attackOrigin: GoalDetail['attackOrigin'] = 'possession';
+  let passType: GoalDetail['passType'] = 'short_pass';
+  let dribbleType: GoalDetail['dribbleType'] = 'none';
+  let shotType: GoalDetail['shotType'] = 'placed_shot';
+  let shotLocation: GoalDetail['shotLocation'] = 'penalty_area_central';
+  let shotFoot: GoalDetail['shotFoot'] = foot;
+  let narrative = '';
+
+  if (isCB || roll < 0.18) {
+    // Set piece / Corner kick / Free kick
+    attackOrigin = 'set_piece';
+    passType = 'cross';
+    shotLocation = roll < 0.10 ? 'six_yard_box' : 'penalty_area_central';
+    shotType = 'header';
+    shotFoot = '頭';
+    const cornerSide = rng() < 0.5 ? 'ニアサイド' : 'ファーサイド';
+    const assistText = assister ? `${assister.name}の高精度なCK` : 'CKからの正確なクロス';
+    narrative = `${minute}分、${assistText}が${cornerSide}へ供給される。マークを外してフリーになった${scorer.name}が打点の高いヘディングで合わせ、豪快にゴールネットを揺らした！${scorer.name}のゴール！`;
+  } else if (roll < 0.40) {
+    // Counter Attack & Through ball
+    attackOrigin = 'counter';
+    passType = 'through_ball';
+    dribbleType = 'burst_speed';
+    shotLocation = 'penalty_area_central';
+    shotType = rng() < 0.3 ? 'chip' : 'placed_shot';
+    const finishDesc = shotType === 'chip' 
+      ? `飛び出してきたGKの頭上をふわりと越す鮮やかなループシュートを決めた！` 
+      : `GKとの1対1を制して冷静にゴール隅へ流し込んだ！`;
+    const assistText = assister ? `${assister.name}のディフェンスラインを切り裂く絶妙なスルーパス` : '素早いカウンターからのスルーパス';
+    narrative = `${minute}分、中盤でボールを奪取したチームが電光石火のカウンターを開始。${assistText}に完璧なタイミングで抜け出した${scorer.name}が、${finishDesc}${scorer.name}のゴール！`;
+  } else if (roll < 0.65) {
+    // Flank break & Cross / Cutback
+    attackOrigin = 'flank_break';
+    passType = rng() < 0.5 ? 'cross' : 'cutback';
+    const flank = rng() < 0.5 ? '右サイド' : '左サイド';
+    if (passType === 'cross') {
+      shotLocation = 'penalty_area_central';
+      shotType = rng() < 0.45 ? 'header' : 'volley';
+      shotFoot = shotType === 'header' ? '頭' : foot;
+      const shotAction = shotType === 'header' ? '頭で強烈に叩き込み' : `${shotFoot}の鮮烈なダイレクトボレーで捉え`;
+      const assistText = assister ? `${flank}を単独突破した${assister.name}がゴール前へピンポイントクロス。` : `${flank}を鮮やかに崩してゴール前へクロス。`;
+      narrative = `${minute}分、${assistText}中央に猛スピードで走り込んだ${scorer.name}が${shotAction}、GKの伸ばした手を弾いてネットを揺らした！${scorer.name}のゴール！`;
+    } else {
+      shotLocation = 'penalty_area_central';
+      shotType = 'placed_shot';
+      shotFoot = foot;
+      const assistText = assister ? `${flank}深くえぐった${assister.name}からの鋭いマイナスの折り返し。` : `${flank}深く切り込んだマイナスの折り返し。`;
+      narrative = `${minute}分、${assistText}ペナルティエリア内に走り込んだ${scorer.name}がダイレクトで${shotFoot}を合わせ、冷静にゴール右隅へ沈めた！${scorer.name}のゴール！`;
+    }
+  } else if (roll < 0.85) {
+    // Cut inside / Solo dribble / Vital area drive
+    attackOrigin = 'possession';
+    passType = assister ? 'short_pass' : 'none';
+    dribbleType = isWinger ? 'cut_inside' : 'feint';
+    shotLocation = rng() < 0.5 ? 'box_edge' : 'long_range';
+    shotType = rng() < 0.5 ? 'power_drive' : 'curler';
+    shotFoot = foot;
+    const shotDesc = shotType === 'curler' ? '美しい弧を描くコントロールカーブ' : '強烈なミドルシュート';
+    const assistText = assister ? `${assister.name}から横パスを受けた` : '';
+    narrative = `${minute}分、${assistText}${scorer.name}がバイタルエリアで前を向き、鋭いフェイントで相手DFを剥がして${shotFoot}を一閃。放たれた${shotDesc}がゴール枠右上隅へ突き刺さるゴラッソ！${scorer.name}のスーパーゴール！`;
+  } else {
+    // High press turnover / Quick tap in
+    attackOrigin = 'high_press';
+    passType = assister ? 'short_pass' : 'none';
+    dribbleType = 'none';
+    shotLocation = 'six_yard_box';
+    shotType = 'tap_in';
+    shotFoot = foot;
+    const assistText = assister ? `${assister.name}が相手GKとDFの連携ミスを見逃さず奪い、ラストパス。フリーの` : '相手陣内深くでの激しいハイプレスからボールを奪取。';
+    narrative = `${minute}分、${assistText}${scorer.name}がこぼれ球に電光石火の反応を見せて${shotFoot}で確実に押し込んだ！貴重な追加点！${scorer.name}のゴール！`;
+  }
+
+  return {
+    minute,
+    scorerId: scorer.id,
+    scorerName: scorer.name,
+    assistId: assister?.id,
+    assistName: assister?.name,
+    attackOrigin,
+    passType,
+    dribbleType,
+    shotType,
+    shotLocation,
+    shotFoot,
+    narrative
   };
 }
 
@@ -695,16 +871,18 @@ export function simulateFullMatch(
           const scorer = selectScorer(currentHomePitch.length > 0 ? currentHomePitch : homeStartersList, homeTactics);
           const assister = selectAssister(currentHomePitch.length > 0 ? currentHomePitch : homeStartersList, scorer.id);
 
-          const commentaryFn = GOAL_COMMENTARIES[Math.floor(rng() * GOAL_COMMENTARIES.length)];
+          const isFoulPenalty = rng() < 0.04;
+          const goalDetail = generateGoalDetail(scorer, isFoulPenalty ? undefined : assister, isFoulPenalty, false, rng, eventMin);
           events.push({
             minute: eventMin,
-            type: 'goal',
+            type: isFoulPenalty ? 'penalty' : 'goal',
             clubId: homeClub.id,
             playerId: scorer.id,
             playerName: scorer.name,
-            assistPlayerId: assister?.id,
-            assistPlayerName: assister?.name,
-            description: commentaryFn(scorer.name, assister?.name)
+            assistPlayerId: isFoulPenalty ? undefined : assister?.id,
+            assistPlayerName: isFoulPenalty ? undefined : assister?.name,
+            description: goalDetail.narrative,
+            goalDetail
           });
 
           playerRatings[scorer.id] = Math.min(9.9, (playerRatings[scorer.id] || 6.0) + 1.2);
@@ -725,6 +903,16 @@ export function simulateFullMatch(
             });
             homeCorners++;
             playerRatings[awayGK.id] = Math.min(9.2, (playerRatings[awayGK.id] || 6.0) + 0.4);
+            if (updatedPlayers[awayGK.id]) {
+              const gkObj = updatedPlayers[awayGK.id];
+              const isPre = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
+              if (isPre) {
+                if (!gkObj.preseasonStats) gkObj.preseasonStats = { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+                gkObj.preseasonStats.saves = (gkObj.preseasonStats.saves || 0) + 1;
+              } else {
+                gkObj.stats.saves = (gkObj.stats.saves || 0) + 1;
+              }
+            }
           }
         }
       } else {
@@ -765,16 +953,18 @@ export function simulateFullMatch(
           const scorer = selectScorer(currentAwayPitch.length > 0 ? currentAwayPitch : awayStartersList, awayTactics);
           const assister = selectAssister(currentAwayPitch.length > 0 ? currentAwayPitch : awayStartersList, scorer.id);
 
-          const commentaryFn = GOAL_COMMENTARIES[Math.floor(rng() * GOAL_COMMENTARIES.length)];
+          const isFoulPenalty = rng() < 0.04;
+          const goalDetail = generateGoalDetail(scorer, isFoulPenalty ? undefined : assister, isFoulPenalty, false, rng, eventMin);
           events.push({
             minute: eventMin,
-            type: 'goal',
+            type: isFoulPenalty ? 'penalty' : 'goal',
             clubId: awayClub.id,
             playerId: scorer.id,
             playerName: scorer.name,
-            assistPlayerId: assister?.id,
-            assistPlayerName: assister?.name,
-            description: commentaryFn(scorer.name, assister?.name)
+            assistPlayerId: isFoulPenalty ? undefined : assister?.id,
+            assistPlayerName: isFoulPenalty ? undefined : assister?.name,
+            description: goalDetail.narrative,
+            goalDetail
           });
 
           playerRatings[scorer.id] = Math.min(9.9, (playerRatings[scorer.id] || 6.0) + 1.2);
@@ -795,6 +985,16 @@ export function simulateFullMatch(
             });
             awayCorners++;
             playerRatings[homeGK.id] = Math.min(9.2, (playerRatings[homeGK.id] || 6.0) + 0.4);
+            if (updatedPlayers[homeGK.id]) {
+              const gkObj = updatedPlayers[homeGK.id];
+              const isPre = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
+              if (isPre) {
+                if (!gkObj.preseasonStats) gkObj.preseasonStats = { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+                gkObj.preseasonStats.saves = (gkObj.preseasonStats.saves || 0) + 1;
+              } else {
+                gkObj.stats.saves = (gkObj.stats.saves || 0) + 1;
+              }
+            }
           }
         }
       } else {
@@ -972,11 +1172,13 @@ export function simulateFullMatch(
     const etAwayGoals = rng() < 0.22 ? 1 : 0;
     homeScore += etHomeGoals;
     awayScore += etAwayGoals;
-    if (etHomeGoals > 0) {
-      events.push({ minute: 104, type: 'goal', clubId: homeClub.id, playerId: homeStartersList[0]?.id || '', playerName: homeStartersList[0]?.name || '', description: `【延長戦ゴール！】${homeStartersList[0]?.name}が劇的な勝ち越しゴール！` });
+    if (etHomeGoals > 0 && homeStartersList[0]) {
+      const etDetail = generateGoalDetail(homeStartersList[0], undefined, false, false, rng, 104);
+      events.push({ minute: 104, type: 'goal', clubId: homeClub.id, playerId: homeStartersList[0].id, playerName: homeStartersList[0].name, description: `【延長戦ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
     }
-    if (etAwayGoals > 0) {
-      events.push({ minute: 116, type: 'goal', clubId: awayClub.id, playerId: awayStartersList[0]?.id || '', playerName: awayStartersList[0]?.name || '', description: `【延長戦ゴール！】${awayStartersList[0]?.name}が土壇場で同点ゴール！` });
+    if (etAwayGoals > 0 && awayStartersList[0]) {
+      const etDetail = generateGoalDetail(awayStartersList[0], undefined, false, false, rng, 116);
+      events.push({ minute: 116, type: 'goal', clubId: awayClub.id, playerId: awayStartersList[0].id, playerName: awayStartersList[0].name, description: `【延長戦ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
     }
 
     if (homeScore === awayScore) {
@@ -1014,31 +1216,90 @@ export function simulateFullMatch(
     }
   });
 
-  // Fatigue accumulation, match stats, and OVR Growth updates for starters (Requirements 5, 6, 14)
+  // Fatigue accumulation, match stats, and OVR Growth updates for starters (Requirements 2: プレシーズン個人成績混入防止)
+  const isPreseason = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
+
   [...homeStartersList, ...awayStartersList].forEach(p => {
     const updated = updatedPlayers[p.id];
     if (updated) {
       // Natural fatigue accumulation (+14 to +20 depending on playing tempo)
       updated.fatigue = Math.min(100, updated.fatigue + 16);
-      updated.stats.appearances += 1;
-      updated.stats.starts += 1;
-      updated.stats.minutes += 90;
 
       const scored = events.filter(e => e.type === 'goal' && e.playerId === p.id).length;
       const assisted = events.filter(e => e.type === 'goal' && e.assistPlayerId === p.id).length;
-      updated.stats.goals += scored;
-      updated.stats.assists += assisted;
-
-      const currAvg = updated.stats.avgRating || 6.5;
-      const currApps = updated.stats.appearances;
       const matchRating = playerRatings[p.id] || 6.5;
-      updated.stats.avgRating = +( (currAvg * (currApps - 1) + matchRating) / currApps ).toFixed(2);
-
       const isCleanSheet = (p.position === 'GK' || ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position)) && 
         ((p.clubId === homeClub.id && awayScore === 0) || (p.clubId === awayClub.id && homeScore === 0));
 
-      if (isCleanSheet) {
-        updated.stats.cleanSheets += 1;
+      if (isPreseason) {
+        // PRESEASON: Only update preseasonStats, NEVER touch official stats!
+        if (!updated.preseasonStats) {
+          updated.preseasonStats = {
+            appearances: 0,
+            starts: 0,
+            minutes: 0,
+            goals: 0,
+            assists: 0,
+            cleanSheets: 0,
+            yellowCards: 0,
+            redCards: 0,
+            avgRating: 0,
+            saves: 0,
+            goalsConceded: 0
+          };
+        }
+        updated.preseasonStats.appearances += 1;
+        updated.preseasonStats.starts += 1;
+        updated.preseasonStats.minutes += 90;
+        updated.preseasonStats.goals += scored;
+        updated.preseasonStats.assists += assisted;
+        const psCurrAvg = updated.preseasonStats.avgRating || 6.5;
+        const psCurrApps = updated.preseasonStats.appearances;
+        updated.preseasonStats.avgRating = +( (psCurrAvg * (psCurrApps - 1) + matchRating) / psCurrApps ).toFixed(2);
+        if (isCleanSheet) {
+          updated.preseasonStats.cleanSheets += 1;
+        }
+        if (p.position === 'GK') {
+          updated.preseasonStats.goalsConceded = (updated.preseasonStats.goalsConceded || 0) + (p.clubId === homeClub.id ? awayScore : homeScore);
+        }
+      } else {
+        // OFFICIAL COMPETITIVE MATCH: Update official stats
+        updated.stats.appearances += 1;
+        updated.stats.starts += 1;
+        updated.stats.minutes += 90;
+        updated.stats.goals += scored;
+        updated.stats.assists += assisted;
+
+        const currAvg = updated.stats.avgRating || 6.5;
+        const currApps = updated.stats.appearances;
+        updated.stats.avgRating = +( (currAvg * (currApps - 1) + matchRating) / currApps ).toFixed(2);
+
+        if (isCleanSheet) {
+          updated.stats.cleanSheets += 1;
+        }
+        if (p.position === 'GK') {
+          updated.stats.goalsConceded = (updated.stats.goalsConceded || 0) + (p.clubId === homeClub.id ? awayScore : homeScore);
+        }
+
+        // Update competition specific stats
+        const compKey = fixture.competition;
+        if (!updated.competitionStats) updated.competitionStats = {};
+        if (!updated.competitionStats[compKey]) {
+          updated.competitionStats[compKey] = {
+            appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0
+          };
+        }
+        const cs = updated.competitionStats[compKey];
+        cs.appearances += 1;
+        cs.starts += 1;
+        cs.minutes += 90;
+        cs.goals += scored;
+        cs.assists += assisted;
+        cs.avgRating = +( ((cs.avgRating || 6.5) * (cs.appearances - 1) + matchRating) / cs.appearances ).toFixed(2);
+        if (isCleanSheet) cs.cleanSheets += 1;
+        if (p.position === 'GK') {
+          cs.goalsConceded = (cs.goalsConceded || 0) + (p.clubId === homeClub.id ? awayScore : homeScore);
+        }
       }
 
       // Requirements 5, 6, 14: Continuous long-term incremental performance growth

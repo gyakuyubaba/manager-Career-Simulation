@@ -96,6 +96,50 @@ export interface PlayerStats {
   yellowCards: number;
   redCards: number;
   avgRating: number;
+  saves?: number;
+  goalsConceded?: number;
+}
+
+export type MatchCompetitionType = 
+  | 'preseason' 
+  | 'league' 
+  | 'domestic_cup' 
+  | 'continental_competition' 
+  | 'international';
+
+export interface GoalDetail {
+  minute: number;
+  scorerId: string;
+  scorerName: string;
+  assistId?: string;
+  assistName?: string;
+  attackOrigin: 'counter' | 'possession' | 'flank_break' | 'set_piece' | 'high_press' | 'long_ball' | 'penalty' | 'own_goal';
+  passType: 'through_ball' | 'cross' | 'cutback' | 'short_pass' | 'lob' | 'direct' | 'none';
+  dribbleType: 'cut_inside' | 'burst_speed' | 'one_on_one' | 'feint' | 'none';
+  shotType: 'volley' | 'header' | 'placed_shot' | 'power_drive' | 'chip' | 'curler' | 'tap_in' | 'penalty_kick' | 'own_goal_deflection';
+  shotLocation: 'penalty_area_central' | 'penalty_area_left' | 'penalty_area_right' | 'box_edge' | 'six_yard_box' | 'long_range';
+  shotFoot?: '右足' | '左足' | '頭' | '胸・その他';
+  narrative: string;
+}
+
+export interface SeasonStatsHistory {
+  seasonId: string;
+  seasonName: string; // e.g. "2026/27"
+  clubId: string;
+  clubName: string;
+  appearances: number;
+  starts: number;
+  minutes: number;
+  goals: number;
+  assists: number;
+  avgRating: number;
+  yellowCards: number;
+  redCards: number;
+  cleanSheets: number;
+  saves: number;
+  goalsConceded: number;
+  competitionStats?: Record<string, PlayerStats>;
+  awards?: string[];
 }
 
 export interface PlayerInjury {
@@ -184,6 +228,8 @@ export interface Player {
   suspension: PlayerSuspension;
 
   stats: PlayerStats;
+  preseasonStats?: PlayerStats;
+  seasonHistory?: SeasonStatsHistory[];
   shirtNumber: number;
   isTransferListed?: boolean;
   transferListed?: boolean;
@@ -192,6 +238,11 @@ export interface Player {
   contractYearsRemaining?: number;
   accumulatedYellowCards?: Record<string, number>; // competition -> count
   accumulatedRedCards?: Record<string, number>;
+  // Type 2 High School Player Registration (2種登録選手)
+  isType2Registered?: boolean;
+  type2HighSchool?: string;
+  type2UnavailableDates?: string[];
+  competitionStats?: Record<string, PlayerStats>;
 }
 
 export type LeagueKey = 
@@ -341,6 +392,7 @@ export interface MatchEvent {
   subInPlayerId?: string;
   subInPlayerName?: string;
   description: string;
+  goalDetail?: GoalDetail;
 }
 
 export interface MatchStats {
@@ -361,9 +413,11 @@ export interface MatchFixture {
   id: string; // matchId
   date: string;
   competition: LeagueKey | CupKey | 'pre-season'; // competitionId
+  competitionType?: MatchCompetitionType;
   competitionName: string;
   seasonId?: string;
   round?: string; // e.g. Round of 32, Round of 16, Quarter-Final, Semi-Final, Final
+  roundId?: string; // Unique round identifier
   matchSeed?: number; // Deterministic simulation seed
   homeClubId: string;
   awayClubId: string;
@@ -377,6 +431,36 @@ export interface MatchFixture {
   extraTimePlayed?: boolean;
   penaltyShootout?: { homeScore: number; awayScore: number };
   isResultApplied?: boolean;
+}
+
+export type TournamentStatus = 'not_started' | 'in_progress' | 'completed';
+
+export interface TournamentRound {
+  roundId: string;
+  roundName: string;
+  roundOrder: number;
+  startDate: string;
+  endDate: string;
+  status: TournamentStatus;
+  fixtureIds: string[];
+}
+
+export interface TournamentCompetition {
+  id: CupKey;
+  name: string;
+  shortName: string;
+  country: string;
+  format: 'european-league-phase' | 'knockout-bracket';
+  seasonId: string;
+  startDate: string;
+  endDate: string;
+  status: TournamentStatus;
+  currentRoundId?: string;
+  currentRoundName?: string;
+  rounds: TournamentRound[];
+  championClubId?: string;
+  runnerUpClubId?: string;
+  leaguePhaseTable?: StandingsRow[];
 }
 
 export interface StandingsRow {
@@ -623,4 +707,82 @@ export interface GameWorldState {
     position: string;
     date: string;
   };
+
+  // Board Confidence 4 Stages & Audit Log
+  boardConfidenceStage?: '通常' | '警告' | '解任危機' | '解任';
+  boardConfidenceAuditLog?: {
+    date: string;
+    matchId?: string;
+    opponentName?: string;
+    delta: number;
+    newConfidence: number;
+    reason: string;
+    stage: '通常' | '警告' | '解任危機' | '解任';
+  }[];
+  processedBoardConfidenceMatchIds?: string[];
+
+  // Monthly Scout System (1/month)
+  scoutMonthlyState?: {
+    lastScoutedMonth?: string;
+    scoutedThisMonth?: boolean;
+    prospects?: ScoutProspect[];
+    signedPlayerId?: string;
+  };
+
+  // Ballon d'Or November Event & Predictions
+  ballonDorYear?: number;
+  ballonDorNomineesAnnounced?: boolean;
+  ballonDorWinnerAnnounced?: boolean;
+  ballonDorWinnerId?: string;
+  ballonDorRankings?: BallonDorCandidate[];
+
+  // Tournaments State (CL, Cups)
+  tournaments?: Record<CupKey, TournamentCompetition>;
+}
+
+export interface ScoutProspect {
+  id: string;
+  name: string;
+  age: number;
+  birthDate: string;
+  nationality: string;
+  originRegion: string;
+  schoolOrAcademy?: string;
+  position: Position;
+  altPositions: Position[];
+  preferredFoot: '右' | '左' | '両足';
+  ovr: number;
+  potential: number;
+  pace: number;
+  shooting: number;
+  passing: number;
+  dribbling: number;
+  defending: number;
+  physical: number;
+  gk: number;
+  marketValue: number;
+  wage: number;
+  playstyle: PlayStyle;
+  personality: PlayerPersonality;
+  scoutReport: string;
+  isGenerationalTalent?: boolean;
+  isType2Eligible?: boolean;
+}
+
+export interface BallonDorCandidate {
+  rank: number;
+  playerId: string;
+  playerName: string;
+  clubId: string;
+  clubName: string;
+  nationality: string;
+  position: Position;
+  age: number;
+  ovr: number;
+  goals: number;
+  assists: number;
+  avgRating: number;
+  trophiesCount: number;
+  winProbability: number;
+  summary: string;
 }

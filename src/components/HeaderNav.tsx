@@ -69,6 +69,14 @@ export const HeaderNav: React.FC<Props> = ({ state, onAdvanceDay, onFastForward,
                 <span className="font-bold text-emerald-400 font-mono">
                   {state.boardConfidence}%
                 </span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                  state.boardConfidence >= 60 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                  state.boardConfidence >= 40 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                  state.boardConfidence >= 20 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                  'bg-red-600 text-white font-black'
+                }`}>
+                  {state.boardConfidenceStage || (state.boardConfidence >= 60 ? '通常' : state.boardConfidence >= 40 ? '警告' : state.boardConfidence >= 20 ? '解任危機' : '解任')}
+                </span>
               </div>
               {state.isTransferWindowOpen && (
                 <div className="text-[11px] text-amber-300 font-mono">

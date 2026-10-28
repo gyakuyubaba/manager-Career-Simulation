@@ -231,7 +231,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
     id: 'fa_james_rodriguez',
     name: 'ハメス・ロドリゲス (James Rodríguez)',
     age: 35,
-    birthDate: '1991-07-12',
+    birthDate: '1991-06-12',
     nationality: 'コロンビア',
     position: 'CAM',
     altPositions: ['CM', 'RW'],
