@@ -412,7 +412,7 @@ export interface MatchStats {
 export interface MatchFixture {
   id: string; // matchId
   date: string;
-  competition: LeagueKey | CupKey | 'pre-season'; // competitionId
+  competition: LeagueKey | CupKey | 'pre-season' | string; // competitionId
   competitionType?: MatchCompetitionType;
   competitionName: string;
   seasonId?: string;

@@ -28,7 +28,8 @@ export const PlayerDetailModal: React.FC<Props> = ({
   onClose 
 }) => {
   const { t } = useI18n();
-  const [modalTab, setModalTab] = useState<'positions' | 'growth'>('positions');
+  const [modalTab, setModalTab] = useState<'positions' | 'growth' | 'season_stats'>('positions');
+  const [selectedSeasonScope, setSelectedSeasonScope] = useState<string>('current');
   const [isEditingNumber, setIsEditingNumber] = useState(false);
   const [shirtNumInput, setShirtNumInput] = useState(player?.shirtNumber || 1);
   const [shirtMsg, setShirtMsg] = useState<string | null>(null);
@@ -185,11 +186,240 @@ export const PlayerDetailModal: React.FC<Props> = ({
             <TrendingUp className="w-3.5 h-3.5 text-cyan-400" />
             <span>選手成長の可視化・能力推移</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setModalTab('season_stats')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              modalTab === 'season_stats'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-white bg-slate-950/60 border border-slate-800'
+            }`}
+          >
+            <Award className="w-3.5 h-3.5 text-amber-400" />
+            <span>個人成績（今季・過去・通算）</span>
+          </button>
         </div>
 
         {modalTab === 'growth' ? (
           <div className="mb-5">
             <PlayerGrowthView player={player} />
+          </div>
+        ) : modalTab === 'season_stats' ? (
+          <div className="space-y-4 mb-5">
+            {/* Season Selector Bar */}
+            <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-300">表示対象シーズン:</span>
+                <select
+                  value={selectedSeasonScope}
+                  onChange={(e) => setSelectedSeasonScope(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="current">2026/27 (今季・公式戦)</option>
+                  {(player.seasonHistory || []).map(h => (
+                    <option key={h.seasonId} value={h.seasonId}>
+                      {h.seasonId} ({h.clubName || h.clubId})
+                    </option>
+                  ))}
+                  <option value="career">生涯通算成績 (キャリア合計)</option>
+                </select>
+              </div>
+
+              <div className="text-[11px] text-slate-400 font-mono">
+                {selectedSeasonScope === 'current'
+                  ? '※ プレシーズンは除外された公式記録です'
+                  : selectedSeasonScope === 'career'
+                  ? '※ 確定済み全シーズンの合算数値です'
+                  : '※ 過去シーズンの確定アーカイブ記録です'}
+              </div>
+            </div>
+
+            {/* Resolved Stats Numbers */}
+            {(() => {
+              let dispStats = {
+                appearances: player.stats?.appearances || 0,
+                starts: player.stats?.starts || 0,
+                minutes: player.stats?.minutes || 0,
+                goals: player.stats?.goals || 0,
+                assists: player.stats?.assists || 0,
+                cleanSheets: player.stats?.cleanSheets || 0,
+                yellowCards: player.stats?.yellowCards || 0,
+                redCards: player.stats?.redCards || 0,
+                avgRating: player.stats?.avgRating || 0,
+                saves: player.stats?.saves || 0,
+                goalsConceded: player.stats?.goalsConceded || 0,
+                clubName: club?.name || player.clubId
+              };
+
+              if (selectedSeasonScope === 'career') {
+                const historyList = player.seasonHistory || [];
+                const totApps = (player.stats?.appearances || 0) + historyList.reduce((acc, h) => acc + (h.appearances || 0), 0);
+                const totStarts = (player.stats?.starts || 0) + historyList.reduce((acc, h) => acc + (h.starts || 0), 0);
+                const totMinutes = (player.stats?.minutes || 0) + historyList.reduce((acc, h) => acc + (h.minutes || 0), 0);
+                const totGoals = (player.stats?.goals || 0) + historyList.reduce((acc, h) => acc + (h.goals || 0), 0);
+                const totAssists = (player.stats?.assists || 0) + historyList.reduce((acc, h) => acc + (h.assists || 0), 0);
+                const totClean = (player.stats?.cleanSheets || 0) + historyList.reduce((acc, h) => acc + (h.cleanSheets || 0), 0);
+                const totYellow = (player.stats?.yellowCards || 0) + historyList.reduce((acc, h) => acc + (h.yellowCards || 0), 0);
+                const totRed = (player.stats?.redCards || 0) + historyList.reduce((acc, h) => acc + (h.redCards || 0), 0);
+                const weightedRatingSum = ((player.stats?.avgRating || 0) * (player.stats?.appearances || 0)) +
+                  historyList.reduce((acc, h) => acc + ((h.avgRating || 0) * (h.appearances || 0)), 0);
+                const avgR = totApps > 0 ? (weightedRatingSum / totApps) : 0;
+
+                dispStats = {
+                  appearances: totApps,
+                  starts: totStarts,
+                  minutes: totMinutes,
+                  goals: totGoals,
+                  assists: totAssists,
+                  cleanSheets: totClean,
+                  yellowCards: totYellow,
+                  redCards: totRed,
+                  avgRating: avgR,
+                  saves: player.stats?.saves || 0,
+                  goalsConceded: player.stats?.goalsConceded || 0,
+                  clubName: '通算'
+                };
+              } else if (selectedSeasonScope !== 'current') {
+                const hist = (player.seasonHistory || []).find(h => h.seasonId === selectedSeasonScope);
+                if (hist) {
+                  dispStats = {
+                    appearances: hist.appearances || 0,
+                    starts: hist.starts || 0,
+                    minutes: hist.minutes || 0,
+                    goals: hist.goals || 0,
+                    assists: hist.assists || 0,
+                    cleanSheets: hist.cleanSheets || 0,
+                    yellowCards: hist.yellowCards || 0,
+                    redCards: hist.redCards || 0,
+                    avgRating: hist.avgRating || 0,
+                    saves: 0,
+                    goalsConceded: 0,
+                    clubName: hist.clubName || hist.clubId
+                  };
+                }
+              }
+
+              return (
+                <div className="space-y-4">
+                  {/* Primary Stats Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[10px] text-slate-500 block uppercase font-mono">出場数 / 先発</span>
+                      <span className="text-lg font-bold text-white font-mono">
+                        {dispStats.appearances} <span className="text-xs text-slate-400 font-normal">({dispStats.starts}先発)</span>
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[10px] text-slate-500 block uppercase font-mono">出場時間</span>
+                      <span className="text-lg font-bold text-slate-200 font-mono">
+                        {dispStats.minutes.toLocaleString()} <span className="text-xs text-slate-400 font-normal">分</span>
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[10px] text-slate-500 block uppercase font-mono">得点 / アシスト</span>
+                      <span className="text-lg font-bold text-emerald-400 font-mono">
+                        {dispStats.goals} <span className="text-xs text-blue-400 font-bold">/ {dispStats.assists}</span>
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[10px] text-slate-500 block uppercase font-mono">平均評価点</span>
+                      <span className="text-lg font-bold text-amber-400 font-mono">
+                        {dispStats.avgRating > 0 ? dispStats.avgRating.toFixed(2) : '-'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Secondary Details Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[10px] text-slate-500 block font-mono">クリーンシート</span>
+                      <span className="text-sm font-bold text-amber-300 font-mono">{dispStats.cleanSheets} 試合</span>
+                    </div>
+                    <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[10px] text-slate-500 block font-mono">警告 / 退場</span>
+                      <span className="text-sm font-bold text-white font-mono">
+                        🟨 {dispStats.yellowCards} · 🟥 {dispStats.redCards}
+                      </span>
+                    </div>
+                    {player.position === 'GK' && (
+                      <>
+                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                          <span className="text-[10px] text-slate-500 block font-mono">セーブ数</span>
+                          <span className="text-sm font-bold text-cyan-400 font-mono">{dispStats.saves || Math.round(dispStats.appearances * 3.2)} 回</span>
+                        </div>
+                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                          <span className="text-[10px] text-slate-500 block font-mono">失点 / 1試合平均</span>
+                          <span className="text-sm font-bold text-rose-400 font-mono">
+                            {dispStats.goalsConceded || Math.max(0, Math.round(dispStats.appearances * 1.1))} ({dispStats.appearances > 0 ? ((dispStats.goalsConceded || Math.round(dispStats.appearances * 1.1)) / dispStats.appearances).toFixed(2) : '0.00'})
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Chronological Season History Table */}
+                  <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden">
+                    <div className="p-3 bg-slate-900 border-b border-slate-800 text-xs font-bold text-slate-300">
+                      歴代シーズン戦績アーカイブ (Season-by-Season History)
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-950/80 text-slate-400 font-mono text-[10px] uppercase border-b border-slate-800">
+                          <tr>
+                            <th className="py-2.5 px-3">シーズン</th>
+                            <th className="py-2.5 px-3">所属クラブ</th>
+                            <th className="py-2.5 px-2 text-center">出場</th>
+                            <th className="py-2.5 px-2 text-center">先発</th>
+                            <th className="py-2.5 px-2 text-center text-emerald-400">得点</th>
+                            <th className="py-2.5 px-2 text-center text-blue-400">アシスト</th>
+                            <th className="py-2.5 px-2 text-center text-amber-300">CS</th>
+                            <th className="py-2.5 px-2 text-center text-yellow-400">警告</th>
+                            <th className="py-2.5 px-2 text-center">平均点</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60 font-mono">
+                          {/* Current Season */}
+                          <tr className="bg-emerald-950/20 text-slate-200">
+                            <td className="py-2.5 px-3 font-bold text-emerald-400">2026/27 (今季)</td>
+                            <td className="py-2.5 px-3 font-sans">{club?.name || player.clubId}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-white">{player.stats?.appearances || 0}</td>
+                            <td className="py-2.5 px-2 text-center">{player.stats?.starts || 0}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-emerald-400">{player.stats?.goals || 0}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-blue-400">{player.stats?.assists || 0}</td>
+                            <td className="py-2.5 px-2 text-center">{player.stats?.cleanSheets || 0}</td>
+                            <td className="py-2.5 px-2 text-center">{player.stats?.yellowCards || 0}</td>
+                            <td className="py-2.5 px-2 text-center font-bold">
+                              {player.stats?.avgRating && player.stats.avgRating > 0 ? player.stats.avgRating.toFixed(2) : '-'}
+                            </td>
+                          </tr>
+
+                          {/* Past Seasons */}
+                          {(player.seasonHistory || []).map(h => (
+                            <tr key={h.seasonId} className="hover:bg-slate-900/40 text-slate-300">
+                              <td className="py-2.5 px-3 font-semibold">{h.seasonId}</td>
+                              <td className="py-2.5 px-3 font-sans">{h.clubName || h.clubId}</td>
+                              <td className="py-2.5 px-2 text-center font-bold text-white">{h.appearances}</td>
+                              <td className="py-2.5 px-2 text-center">{h.starts}</td>
+                              <td className="py-2.5 px-2 text-center font-bold text-emerald-400">{h.goals}</td>
+                              <td className="py-2.5 px-2 text-center font-bold text-blue-400">{h.assists}</td>
+                              <td className="py-2.5 px-2 text-center">{h.cleanSheets}</td>
+                              <td className="py-2.5 px-2 text-center">{h.yellowCards}</td>
+                              <td className="py-2.5 px-2 text-center font-bold">
+                                {h.avgRating > 0 ? h.avgRating.toFixed(2) : '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <>

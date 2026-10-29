@@ -279,7 +279,7 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
         : seed.name.includes('菅原')
         ? 'southampton_yukinari_sugawara'
         : seed.name.includes('板倉')
-        ? 'gladbach_ko_itakura'
+        ? 'mgladbach_ko_itakura'
         : seed.name.includes('鎌田')
         ? 'crystal_palace_daichi_kamada'
         : seed.name.includes('田中 碧')

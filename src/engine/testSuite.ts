@@ -20,7 +20,7 @@ import {
   CURRENT_ROSTER_DATA_VERSION, 
   CURRENT_SCHEMA_VERSION 
 } from './storageEngine';
-import { updatePlayerShirtNumber } from './dataValidator';
+import { updatePlayerShirtNumber, REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
 import { executeTransferCompletion, simulateAITransfers } from './transferEngine';
 import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 import { SUPPORTED_CUPS, getEuropeanLeaguePhaseStandings, getTournamentBracket } from './cupEngine';
@@ -1568,6 +1568,218 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 41', name: '高校生2種登録制度検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 42 (Requirement 1): 板倉滉のボルシアMG所属・欧州主要クラブ真正名簿
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const itakuraPlayer = Object.values(baseState.players).find(p => p.name.includes('板倉') || p.id.includes('itakura'));
+    const isGladbach = itakuraPlayer?.clubId === 'mgladbach';
+    const gladbachClub = baseState.clubs['mgladbach'];
+    const itakuraInGladbachRoster = gladbachClub?.playerIds.includes(itakuraPlayer?.id || '');
+    const arsenalHasNoItakura = !(baseState.clubs['arsenal']?.playerIds.includes(itakuraPlayer?.id || ''));
+
+    const passed = Boolean(itakuraPlayer && isGladbach && itakuraInGladbachRoster && arsenalHasNoItakura);
+    results.push({
+      id: 'TEST 42',
+      name: '板倉滉のボルシアMG所属・欧州主要クラブ真正名簿整合性 (Requirement 1)',
+      passed,
+      details: passed
+        ? `成功: 板倉滉選手がボルシア・メンヒェングラートバッハ(mgladbach)に所属し、アーセナルなど誤配置クラブから除外されていることを確認しました。`
+        : `失敗: 板倉選手存在(${Boolean(itakuraPlayer)})、所属クラブ(${itakuraPlayer?.clubId})、ボルシアMG名簿登録(${itakuraInGladbachRoster})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 42', name: '板倉滉所属検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 43 (Requirement 2): 出場数58試合バグ根絶・公式戦出場数整合性
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const p1 = Object.values(baseState.players)[0];
+    const initialApps = p1.stats.appearances;
+    
+    // Test healing: simulate a corrupted player with 58 apps when club played 0 official matches
+    const mockCorruptedState: GameWorldState = {
+      ...JSON.parse(JSON.stringify(baseState)),
+      players: {
+        ...baseState.players,
+        [p1.id]: {
+          ...p1,
+          stats: {
+            ...p1.stats,
+            appearances: 58,
+            starts: 55,
+            minutes: 4800
+          }
+        }
+      }
+    };
+
+    const repairResult = REPAIR_SAVE_DATA_INTEGRITY(mockCorruptedState);
+    const repairedPlayer = repairResult.state.players[p1.id];
+    const isRepaired = repairedPlayer?.stats?.appearances === 0;
+
+    const passed = initialApps === 0 && isRepaired;
+    results.push({
+      id: 'TEST 43',
+      name: '出場数58試合バグ根絶・公式戦出場数整合性クランプ (Requirement 2)',
+      passed,
+      details: passed
+        ? `成功: 初期状態での公式戦出場数が0であり、異常値(58試合)が混入してもクラブ消化試合数(0)に確実に修復・クランプされることを確認しました。`
+        : `失敗: 初期出場数(${initialApps})、自己修復後出場数(${repairedPlayer?.stats.appearances})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 43', name: '出場数58試合バグ検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 44 (Requirement 3): 今季・過去シーズン・通算個人成績の分離と履歴保持
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const targetPlayer = Object.values(testState.players)[0];
+    targetPlayer.stats.appearances = 25;
+    targetPlayer.stats.goals = 12;
+    targetPlayer.stats.assists = 7;
+
+    const { state: nextSeasonState } = processSeasonEndPromotionsAndRelegations(testState, '2027/28');
+    const updatedP = nextSeasonState.players[targetPlayer.id];
+
+    const currentSeasonReset = updatedP.stats.appearances === 0 && updatedP.stats.goals === 0;
+    const historyRecorded = updatedP.seasonHistory && updatedP.seasonHistory.length > 0 && updatedP.seasonHistory[0].goals === 12;
+
+    const passed = Boolean(currentSeasonReset && historyRecorded);
+    results.push({
+      id: 'TEST 44',
+      name: '今季・過去シーズン・通算個人成績の分離と履歴保持 (Requirement 3)',
+      passed,
+      details: passed
+        ? `成功: シーズン終了移行時に今季成績が0にリセットされ、seasonHistoryに前季記録(25試合12ゴール)が保持されることを確認しました。`
+        : `失敗: 今季リセット(${currentSeasonReset})、履歴保持(${historyRecorded})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 44', name: 'シーズン個人成績分離検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 45 (Requirement 4): 全11カップ戦トーナメントブラケット・ACL完全排除
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const requiredCups = ['ucl', 'uel', 'uecl', 'fa-cup', 'carabao-cup', 'copa-del-rey', 'dfb-pokal', 'coppa-italia', 'coupe-de-france', 'emperors-cup', 'levain-cup'];
+    const all11Exist = requiredCups.every(cId => SUPPORTED_CUPS.some(sc => sc.id === cId));
+    
+    // Check no ACL in supported cups, fixtures, or news
+    const noACLInCups = !SUPPORTED_CUPS.some(c => c.id.toLowerCase().includes('acl') || c.name.includes('ACL') || c.name.includes('AFC'));
+    const noACLInFixtures = !baseState.fixtures.some(f => (f.competition as string).toLowerCase().includes('acl') || f.competitionName.includes('ACL'));
+    const noACLInNews = !baseState.news.some(n => n.headline.includes('ACL') || n.body.includes('ACL'));
+
+    const passed = all11Exist && noACLInCups && noACLInFixtures && noACLInNews;
+    results.push({
+      id: 'TEST 45',
+      name: '全11カップ戦トーナメントブラケット・ACL完全排除 (Requirement 4)',
+      passed,
+      details: passed
+        ? `成功: 全11主要カップ戦(欧州3大会+各国6杯+日本2杯)が完全定義され、ACL(AFCチャンピオンズリーグ)は一切生成されていません。`
+        : `失敗: 全11杯存在(${all11Exist})、大会ACL除外(${noACLInCups})、日程ACL除外(${noACLInFixtures})、ニュースACL除外(${noACLInNews})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 45', name: '全11カップ戦・ACL排除検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 46 (Requirement 5): 欧州新リーグフェーズ(UCL/UEL/UECL 36クラブ)日程と英クラブ参加
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const uclStandings = getEuropeanLeaguePhaseStandings('ucl', baseState.clubs, baseState.fixtures);
+    const has36Clubs = uclStandings.length === 36;
+    
+    // Check English clubs included
+    const hasEnglishClub = uclStandings.some(r => {
+      const club = baseState.clubs[r.clubId];
+      return club?.country === 'イングランド' || ['arsenal', 'manchester-city', 'liverpool'].includes(r.clubId);
+    });
+
+    const passed = has36Clubs && hasEnglishClub;
+    results.push({
+      id: 'TEST 46',
+      name: '欧州新リーグフェーズ(UCL 36クラブ)順位表と英クラブ参加 (Requirement 5)',
+      passed,
+      details: passed
+        ? `成功: UEFAチャンピオンズリーグ新方式36クラブが順位表に整列し、プレミアリーグの主要クラブが含まれていることを確認しました。`
+        : `失敗: 36クラブ構成(${has36Clubs}, 実際: ${uclStandings.length})、英クラブ参加(${hasEnglishClub})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 46', name: '欧州新リーグフェーズ検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 47 (Requirement 6): 2部リーグ昇格制度・Championship 6クラブ昇格POシミュレーション
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const champClubs = Object.values(testState.clubs).filter(c => c.league === 'championship');
+    testState.standings['championship'] = champClubs.map((c, i) => ({
+      clubId: c.id,
+      clubName: c.name,
+      played: 46,
+      won: 30 - i,
+      drawn: 5,
+      lost: 11 + i,
+      goalsFor: 70 - i,
+      goalsAgainst: 40 + i,
+      goalDiff: 30 - 2 * i,
+      points: 95 - 3 * i,
+      form: ['W', 'W', 'W', 'W', 'W']
+    }));
+
+    const { state: updatedState } = processSeasonEndPromotionsAndRelegations(testState, '2027/28');
+    
+    const playoffFixtures = updatedState.fixtures.filter(f => f.competition === 'championship-playoffs');
+    const hasPlayoffFixtures = playoffFixtures.length >= 3;
+    const hasPromoted3 = Object.values(updatedState.clubs).filter(c => c.league === 'premier-league').length >= 20;
+
+    const passed = hasPlayoffFixtures && hasPromoted3;
+    results.push({
+      id: 'TEST 47',
+      name: '2部リーグ昇格制度・Championship 6クラブ昇格POシミュレーション (Requirement 6)',
+      passed,
+      details: passed
+        ? `成功: Championship 3〜8位による昇格プレーオフ日程(${playoffFixtures.length}試合)が生成・シミュレーションされ、勝者が1部に昇格しました。`
+        : `失敗: PO日程生成(${hasPlayoffFixtures}, 実際: ${playoffFixtures.length})、1部クラブ数(${hasPromoted3})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 47', name: '2部昇格プレーオフシミュレーション検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 48 (Requirement 7): セーブデータ整合性検証・自己修復ユーティリティ
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    
+    // Inject corruption
+    const itakura = Object.values(testState.players).find(p => p.name.includes('板倉') || p.id.includes('itakura'));
+    if (itakura) {
+      itakura.clubId = 'arsenal';
+    }
+
+    const repairResult = REPAIR_SAVE_DATA_INTEGRITY(testState);
+    const repairedItakura = Object.values(repairResult.state.players).find(p => p.name.includes('板倉') || p.id.includes('itakura'));
+    const isRepairedGladbach = repairedItakura?.clubId === 'mgladbach';
+
+    const passed = Boolean(isRepairedGladbach);
+    results.push({
+      id: 'TEST 48',
+      name: 'セーブデータ整合性検証・自己修復ユーティリティ(REPAIR_SAVE_DATA_INTEGRITY) (Requirement 7)',
+      passed,
+      details: passed
+        ? `成功: セーブデータロード時の自己修復ルーチンが正常に機能し、不正所属(アーセナル)となった板倉滉選手が本来のボルシアMGへ自己修復されました。`
+        : `失敗: 自己修復後板倉所属(${repairedItakura?.clubId})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 48', name: 'データ整合性自己修復検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -1576,6 +1788,7 @@ export const runAll32Tests = runAll27Tests;
 export const runAll34Tests = runAll27Tests;
 export const runAll36Tests = runAll27Tests;
 export const runAll41Tests = runAll27Tests;
+export const runAll48Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

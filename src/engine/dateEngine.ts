@@ -1,4 +1,4 @@
-import { GameWorldState, MatchFixture, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory } from '../types/game';
+import { GameWorldState, MatchFixture, MatchEvent, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory } from '../types/game';
 import { ENABLE_J_LEAGUE } from '../data/clubsData';
 import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRandomWeightedInjury } from './matchEngine';
 import { simulateAITransfers } from './transferEngine';
@@ -641,22 +641,152 @@ export function processSeasonEndPromotionsAndRelegations(
   const getStandings = (k: LeagueKey) => standings[k] || [];
   const nameOf = (id: string) => clubs[id]?.name || id;
 
+  const currentYear = parseInt(state.season.split('/')[0], 10) || 2026;
+  const playoffFixtures: MatchFixture[] = [];
+
+  // Helper function to simulate a playoff match with realistic score and events
+  const simulatePlayoffMatch = (
+    homeClubId: string,
+    awayClubId: string,
+    competition: string,
+    competitionName: string,
+    round: string,
+    date: string,
+    neutralVenue?: string
+  ): { fixture: MatchFixture; winnerId: string } => {
+    const homeClub = clubs[homeClubId];
+    const awayClub = clubs[awayClubId];
+    const homeRep = homeClub?.reputation || 50;
+    const awayRep = awayClub?.reputation || 50;
+
+    const homeProb = homeRep / (homeRep + awayRep);
+    const roll = Math.random();
+    let homeScore = 0;
+    let awayScore = 0;
+    let winnerId = homeClubId;
+    let penaltyShootout: { homeScore: number; awayScore: number } | undefined = undefined;
+
+    if (roll < homeProb * 0.75) {
+      homeScore = Math.floor(Math.random() * 2) + 2;
+      awayScore = Math.floor(Math.random() * 2);
+      winnerId = homeClubId;
+    } else if (roll > homeProb + (1 - homeProb) * 0.5) {
+      awayScore = Math.floor(Math.random() * 2) + 2;
+      homeScore = Math.floor(Math.random() * 2);
+      winnerId = awayClubId;
+    } else {
+      homeScore = Math.random() < 0.5 ? 1 : 2;
+      awayScore = homeScore;
+      const homePenWins = Math.random() < 0.5;
+      penaltyShootout = homePenWins ? { homeScore: 5, awayScore: 4 } : { homeScore: 3, awayScore: 4 };
+      winnerId = homePenWins ? homeClubId : awayClubId;
+    }
+
+    const homePlayers = Object.values(state.players).filter(p => p.clubId === homeClubId && p.position !== 'GK');
+    const awayPlayers = Object.values(state.players).filter(p => p.clubId === awayClubId && p.position !== 'GK');
+    const events: MatchEvent[] = [];
+
+    for (let g = 0; g < homeScore; g++) {
+      const scorer = homePlayers[Math.floor(Math.random() * homePlayers.length)] || { id: `${homeClubId}_p${g}`, name: `${homeClub?.shortName || 'Home'}選手` };
+      events.push({
+        minute: 18 + g * 25 + Math.floor(Math.random() * 8),
+        type: 'goal',
+        clubId: homeClubId,
+        playerId: scorer.id,
+        playerName: scorer.name,
+        description: `【プレーオフ ゴール！】${scorer.name}がペナルティエリアから劇的なシュートを沈めてゴール！`
+      });
+    }
+
+    for (let g = 0; g < awayScore; g++) {
+      const scorer = awayPlayers[Math.floor(Math.random() * awayPlayers.length)] || { id: `${awayClubId}_p${g}`, name: `${awayClub?.shortName || 'Away'}選手` };
+      events.push({
+        minute: 22 + g * 28 + Math.floor(Math.random() * 8),
+        type: 'goal',
+        clubId: awayClubId,
+        playerId: scorer.id,
+        playerName: scorer.name,
+        description: `【プレーオフ ゴール！】${scorer.name}が鮮やかなカウンターからネットを揺らした！`
+      });
+    }
+
+    const fixture: MatchFixture = {
+      id: `playoff_${competition}_${homeClubId}_${awayClubId}_${date}_${Math.floor(Math.random() * 10000)}`,
+      date,
+      competition,
+      competitionName,
+      round,
+      homeClubId,
+      awayClubId,
+      status: 'finished',
+      homeScore,
+      awayScore,
+      penaltyShootout,
+      events,
+      isUserMatch: state.userClubId === homeClubId || state.userClubId === awayClubId,
+      isResultApplied: true
+    };
+
+    return { fixture, winnerId };
+  };
+
   // 1. ENGLAND: Premier League (20) ⇄ Championship (24)
+  // Promotion: 1st, 2nd auto promoted. 3rd-8th (6 clubs) enter promotion playoffs (QFs, SFs, Final at Wembley)
   const plRows = getStandings('premier-league');
   const plRelegated = plRows.length >= 20 ? plRows.slice(-3).map(r => r.clubId) : (plRows.length >= 3 ? plRows.slice(-3).map(r => r.clubId) : []);
   const champRows = getStandings('championship');
   const champDirectPromoted = champRows.length >= 2 ? champRows.slice(0, 2).map(r => r.clubId) : [];
-  const champPlayoffPool = champRows.length >= 6 ? champRows.slice(2, 6) : [];
-  const champPlayoffWinner = champPlayoffPool.length > 0 ? champPlayoffPool[0].clubId : (champRows[2]?.clubId || '');
+  
+  let champPlayoffWinner = '';
+  if (champRows.length >= 8) {
+    const seed3 = champRows[2].clubId;
+    const seed4 = champRows[3].clubId;
+    const seed5 = champRows[4].clubId;
+    const seed6 = champRows[5].clubId;
+    const seed7 = champRows[6].clubId;
+    const seed8 = champRows[7].clubId;
+
+    // Quarter-Finals: 5th vs 8th, 6th vs 7th
+    const qf1 = simulatePlayoffMatch(seed5, seed8, 'championship-playoffs', 'EFL Championship 昇格プレーオフ 準々決勝', '準々決勝', `${currentYear}-05-12`);
+    const qf2 = simulatePlayoffMatch(seed6, seed7, 'championship-playoffs', 'EFL Championship 昇格プレーオフ 準々決勝', '準々決勝', `${currentYear}-05-13`);
+    playoffFixtures.push(qf1.fixture, qf2.fixture);
+
+    // Semi-Finals: 3rd vs QF2 winner, 4th vs QF1 winner
+    const sf1 = simulatePlayoffMatch(seed3, qf2.winnerId, 'championship-playoffs', 'EFL Championship 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-05-18`);
+    const sf2 = simulatePlayoffMatch(seed4, qf1.winnerId, 'championship-playoffs', 'EFL Championship 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-05-19`);
+    playoffFixtures.push(sf1.fixture, sf2.fixture);
+
+    // Final at Wembley Stadium
+    const finalMatch = simulatePlayoffMatch(sf1.winnerId, sf2.winnerId, 'championship-playoffs', 'EFL Championship 昇格プレーオフ 決勝 (ウェンブリー)', '決勝', `${currentYear}-05-25`, 'ウェンブリー・スタジアム');
+    playoffFixtures.push(finalMatch.fixture);
+    champPlayoffWinner = finalMatch.winnerId;
+  } else if (champRows.length >= 4) {
+    const seed3 = champRows[2].clubId;
+    const seed4 = champRows[3].clubId;
+    const sf = simulatePlayoffMatch(seed3, seed4, 'championship-playoffs', 'EFL Championship 昇格プレーオフ 決勝', '決勝', `${currentYear}-05-25`, 'ウェンブリー・スタジアム');
+    playoffFixtures.push(sf.fixture);
+    champPlayoffWinner = sf.winnerId;
+  } else {
+    champPlayoffWinner = champRows[2]?.clubId || '';
+  }
   const champPromoted = [...champDirectPromoted, ...(champPlayoffWinner ? [champPlayoffWinner] : [])];
 
   // 2. SPAIN: La Liga (20) ⇄ Segunda División (22)
   const llRows = getStandings('laliga');
-  const llRelegated = llRows.length >= 20 ? plRows.slice(-3).map(r => r.clubId) : (llRows.length >= 3 ? llRows.slice(-3).map(r => r.clubId) : []);
+  const llRelegated = llRows.length >= 20 ? llRows.slice(-3).map(r => r.clubId) : (llRows.length >= 3 ? llRows.slice(-3).map(r => r.clubId) : []);
   const segRows = getStandings('segunda-division');
   const segDirectPromoted = segRows.length >= 2 ? segRows.slice(0, 2).map(r => r.clubId) : [];
-  const segPlayoffPool = segRows.length >= 6 ? segRows.slice(2, 6) : [];
-  const segPlayoffWinner = segPlayoffPool.length > 0 ? segPlayoffPool[0].clubId : (segRows[2]?.clubId || '');
+  let segPlayoffWinner = '';
+  if (segRows.length >= 6) {
+    const s1 = simulatePlayoffMatch(segRows[2].clubId, segRows[5].clubId, 'segunda-playoffs', 'セグンダ・ディビシオン 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-06-03`);
+    const s2 = simulatePlayoffMatch(segRows[3].clubId, segRows[4].clubId, 'segunda-playoffs', 'セグンダ・ディビシオン 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-06-04`);
+    playoffFixtures.push(s1.fixture, s2.fixture);
+    const fin = simulatePlayoffMatch(s1.winnerId, s2.winnerId, 'segunda-playoffs', 'セグンダ・ディビシオン 昇格プレーオフ 決勝', '決勝', `${currentYear}-06-11`);
+    playoffFixtures.push(fin.fixture);
+    segPlayoffWinner = fin.winnerId;
+  } else {
+    segPlayoffWinner = segRows.length >= 3 ? segRows[2]?.clubId : '';
+  }
   const segPromoted = [...segDirectPromoted, ...(segPlayoffWinner ? [segPlayoffWinner] : [])];
 
   // 3. GERMANY: Bundesliga (18) ⇄ 2. Bundesliga (18)
@@ -666,11 +796,12 @@ export function processSeasonEndPromotionsAndRelegations(
   const bl2Rows = getStandings('2-bundesliga');
   const bl2DirectPromoted = bl2Rows.length >= 2 ? bl2Rows.slice(0, 2).map(r => r.clubId) : [];
   const bl2PlayoffClubId = bl2Rows.length >= 3 ? bl2Rows[2]?.clubId : ''; // 3rd place Promotion Playoff
-  const blPlayoffWinnerIs2ndDiv = Math.random() < 0.45;
   const blRelegated = [...blDirectRelegated];
   const bl2Promoted = [...bl2DirectPromoted];
   if (blPlayoffClubId && bl2PlayoffClubId) {
-    if (blPlayoffWinnerIs2ndDiv) {
+    const blRelegationMatch = simulatePlayoffMatch(blPlayoffClubId, bl2PlayoffClubId, 'bundesliga-relegation-playoffs', 'ブンデスリーガ 入替戦', '入替戦', `${currentYear}-05-24`);
+    playoffFixtures.push(blRelegationMatch.fixture);
+    if (blRelegationMatch.winnerId === bl2PlayoffClubId) {
       blRelegated.push(blPlayoffClubId);
       bl2Promoted.push(bl2PlayoffClubId);
     }
@@ -681,7 +812,17 @@ export function processSeasonEndPromotionsAndRelegations(
   const saRelegated = saRows.length >= 20 ? saRows.slice(-3).map(r => r.clubId) : (saRows.length >= 3 ? saRows.slice(-3).map(r => r.clubId) : []);
   const sbRows = getStandings('serie-b');
   const sbDirectPromoted = sbRows.length >= 2 ? sbRows.slice(0, 2).map(r => r.clubId) : [];
-  const sbPlayoffWinner = sbRows.length >= 3 ? sbRows[2]?.clubId : '';
+  let sbPlayoffWinner = '';
+  if (sbRows.length >= 6) {
+    const sbSf1 = simulatePlayoffMatch(sbRows[2].clubId, sbRows[5].clubId, 'serie-b-playoffs', 'セリエB 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-05-22`);
+    const sbSf2 = simulatePlayoffMatch(sbRows[3].clubId, sbRows[4].clubId, 'serie-b-playoffs', 'セリエB 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-05-23`);
+    playoffFixtures.push(sbSf1.fixture, sbSf2.fixture);
+    const sbFin = simulatePlayoffMatch(sbSf1.winnerId, sbSf2.winnerId, 'serie-b-playoffs', 'セリエB 昇格プレーオフ 決勝', '決勝', `${currentYear}-05-29`);
+    playoffFixtures.push(sbFin.fixture);
+    sbPlayoffWinner = sbFin.winnerId;
+  } else {
+    sbPlayoffWinner = sbRows.length >= 3 ? sbRows[2]?.clubId : '';
+  }
   const sbPromoted = [...sbDirectPromoted, ...(sbPlayoffWinner ? [sbPlayoffWinner] : [])];
 
   // 5. FRANCE: Ligue 1 (18) ⇄ Ligue 2 (18)
@@ -691,23 +832,38 @@ export function processSeasonEndPromotionsAndRelegations(
   const l2Rows = getStandings('ligue-2');
   const l2DirectPromoted = l2Rows.length >= 2 ? l2Rows.slice(0, 2).map(r => r.clubId) : [];
   const l2PlayoffClubId = l2Rows.length >= 3 ? l2Rows[2]?.clubId : ''; // 3rd place Barrages
-  const l1BarrageWinnerIsL2 = Math.random() < 0.45;
   const l1Relegated = [...l1DirectRelegated];
   const l2Promoted = [...l2DirectPromoted];
   if (l1PlayoffClubId && l2PlayoffClubId) {
-    if (l1BarrageWinnerIsL2) {
+    const l1BarrageMatch = simulatePlayoffMatch(l1PlayoffClubId, l2PlayoffClubId, 'ligue-1-barrages', 'リーグ・アン 昇降格プレーオフ (バラージュ)', '入替戦', `${currentYear}-05-28`);
+    playoffFixtures.push(l1BarrageMatch.fixture);
+    if (l1BarrageMatch.winnerId === l2PlayoffClubId) {
       l1Relegated.push(l1PlayoffClubId);
       l2Promoted.push(l2PlayoffClubId);
     }
   }
 
   // 6. JAPAN: J1 League (20) ⇄ J2 League (20)
+  // J1: bottom 3 relegated. J2: 1st, 2nd auto promoted. 3rd-6th enter J2 Playoff (SFs, Final)
   const j1Rows = getStandings('j1-league');
   const j1Relegated = j1Rows.length >= 20 ? j1Rows.slice(-3).map(r => r.clubId) : (j1Rows.length >= 3 ? j1Rows.slice(-3).map(r => r.clubId) : []);
   const j2Rows = getStandings('j2-league');
   const j2DirectPromoted = j2Rows.length >= 2 ? j2Rows.slice(0, 2).map(r => r.clubId) : [];
-  const j2PlayoffWinner = j2Rows.length >= 3 ? j2Rows[2]?.clubId : '';
+  let j2PlayoffWinner = '';
+  if (j2Rows.length >= 6) {
+    const j2Sf1 = simulatePlayoffMatch(j2Rows[2].clubId, j2Rows[5].clubId, 'j2-playoffs', 'J2 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-12-01`);
+    const j2Sf2 = simulatePlayoffMatch(j2Rows[3].clubId, j2Rows[4].clubId, 'j2-playoffs', 'J2 昇格プレーオフ 準決勝', '準決勝', `${currentYear}-12-01`);
+    playoffFixtures.push(j2Sf1.fixture, j2Sf2.fixture);
+    const j2Fin = simulatePlayoffMatch(j2Sf1.winnerId, j2Sf2.winnerId, 'j2-playoffs', 'J2 昇格プレーオフ 決勝', '決勝', `${currentYear}-12-07`, '国立競技場');
+    playoffFixtures.push(j2Fin.fixture);
+    j2PlayoffWinner = j2Fin.winnerId;
+  } else {
+    j2PlayoffWinner = j2Rows.length >= 3 ? j2Rows[2]?.clubId : '';
+  }
   const j2Promoted = [...j2DirectPromoted, ...(j2PlayoffWinner ? [j2PlayoffWinner] : [])];
+
+  // Store newly simulated playoff fixtures into state
+  state.fixtures.push(...playoffFixtures);
 
   // Swap league divisions and set division numbers
   plRelegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'championship'; clubs[id].division = 2; } });
@@ -812,7 +968,6 @@ export function processSeasonEndPromotionsAndRelegations(
   });
 
   // Calculate next season string dynamically
-  const currentYear = parseInt(state.season.split('/')[0], 10) || 2026;
   const nextYear = typeof targetSeasonYear === 'number'
     ? targetSeasonYear 
     : targetSeasonYear 
@@ -903,7 +1058,7 @@ export function processSeasonEndPromotionsAndRelegations(
       clubs,
       players: updatedPlayers,
       standings: updatedStandings,
-      fixtures: nextFixtures,
+      fixtures: [...playoffFixtures, ...nextFixtures],
       tournaments: updatedTournaments,
       selectedPreSeason: undefined, // Clears selection so pre-season invitations show in July!
       clubVision: updatedVision

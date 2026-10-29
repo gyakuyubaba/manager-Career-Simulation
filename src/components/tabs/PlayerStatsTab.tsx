@@ -27,46 +27,121 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
   const [selectedLeague, setSelectedLeague] = useState<LeagueKey | 'all'>('all');
   const [activeCategory, setActiveCategory] = useState<'scorers' | 'assists' | 'gk' | 'ratings' | 'minutes' | 'cards' | 'ballondor'>('scorers');
   const [statType, setStatType] = useState<'league' | 'cup' | 'total'>('total');
+  const [seasonScope, setSeasonScope] = useState<'current' | 'past' | 'career'>('current');
+  const [selectedPastSeason, setSelectedPastSeason] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectingPlayer, setInspectingPlayer] = useState<Player | null>(null);
 
-  // Filter players by league & search
-  const filteredPlayers = useMemo(() => {
-    return Object.values(state.players).filter(p => {
-      if (p.clubId === 'free_agent') return false;
-      const club = state.clubs[p.clubId];
-      if (!club) return false;
-
-      // League filter
-      if (selectedLeague !== 'all' && club.league !== selectedLeague) {
-        return false;
-      }
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesName = p.name.toLowerCase().includes(q);
-        const matchesClub = club.name.toLowerCase().includes(q) || club.shortName?.toLowerCase().includes(q);
-        const matchesParentClub = p.parentClubId && state.clubs[p.parentClubId]?.name.toLowerCase().includes(q);
-        return matchesName || matchesClub || matchesParentClub;
-      }
-
-      return true;
+  // Discover all past seasons archived in player records
+  const availablePastSeasons = useMemo(() => {
+    const sSet = new Set<string>();
+    Object.values(state.players).forEach(p => {
+      (p.seasonHistory || []).forEach(h => {
+        if (h.seasonId) sSet.add(h.seasonId);
+      });
     });
-  }, [state.players, state.clubs, selectedLeague, searchQuery]);
+    return Array.from(sSet).sort().reverse();
+  }, [state.players]);
 
-  // Rankings
+  // Set default past season if available
+  React.useEffect(() => {
+    if (availablePastSeasons.length > 0 && !selectedPastSeason) {
+      setSelectedPastSeason(availablePastSeasons[0]);
+    }
+  }, [availablePastSeasons, selectedPastSeason]);
+
+  // Helper to extract stats according to seasonScope
+  const getScopedPlayerStats = (p: Player) => {
+    if (seasonScope === 'current') {
+      return p.stats || { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+    }
+    if (seasonScope === 'past') {
+      const hist = (p.seasonHistory || []).find(h => h.seasonId === (selectedPastSeason || availablePastSeasons[0]));
+      return hist ? {
+        appearances: hist.appearances || 0,
+        starts: hist.starts || 0,
+        minutes: hist.minutes || 0,
+        goals: hist.goals || 0,
+        assists: hist.assists || 0,
+        cleanSheets: hist.cleanSheets || 0,
+        yellowCards: hist.yellowCards || 0,
+        redCards: hist.redCards || 0,
+        avgRating: hist.avgRating || 0,
+        saves: 0,
+        goalsConceded: 0
+      } : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+    }
+    // Career Totals: sum of current season + all archived past seasons
+    const historyList = p.seasonHistory || [];
+    const totApps = (p.stats?.appearances || 0) + historyList.reduce((acc, h) => acc + (h.appearances || 0), 0);
+    const totStarts = (p.stats?.starts || 0) + historyList.reduce((acc, h) => acc + (h.starts || 0), 0);
+    const totMinutes = (p.stats?.minutes || 0) + historyList.reduce((acc, h) => acc + (h.minutes || 0), 0);
+    const totGoals = (p.stats?.goals || 0) + historyList.reduce((acc, h) => acc + (h.goals || 0), 0);
+    const totAssists = (p.stats?.assists || 0) + historyList.reduce((acc, h) => acc + (h.assists || 0), 0);
+    const totClean = (p.stats?.cleanSheets || 0) + historyList.reduce((acc, h) => acc + (h.cleanSheets || 0), 0);
+    const totYellow = (p.stats?.yellowCards || 0) + historyList.reduce((acc, h) => acc + (h.yellowCards || 0), 0);
+    const totRed = (p.stats?.redCards || 0) + historyList.reduce((acc, h) => acc + (h.redCards || 0), 0);
+    const weightedSum = ((p.stats?.avgRating || 0) * (p.stats?.appearances || 0)) +
+      historyList.reduce((acc, h) => acc + ((h.avgRating || 0) * (h.appearances || 0)), 0);
+    const avgR = totApps > 0 ? +(weightedSum / totApps).toFixed(2) : 0;
+
+    return {
+      appearances: totApps,
+      starts: totStarts,
+      minutes: totMinutes,
+      goals: totGoals,
+      assists: totAssists,
+      cleanSheets: totClean,
+      yellowCards: totYellow,
+      redCards: totRed,
+      avgRating: avgR,
+      saves: p.stats?.saves || 0,
+      goalsConceded: p.stats?.goalsConceded || 0
+    };
+  };
+
+  // Filter players by league & search with scoped stats
+  const filteredPlayers = useMemo(() => {
+    return Object.values(state.players)
+      .filter(p => {
+        if (p.clubId === 'free_agent') return false;
+        const club = state.clubs[p.clubId];
+        if (!club) return false;
+
+        // League filter
+        if (selectedLeague !== 'all' && club.league !== selectedLeague) {
+          return false;
+        }
+
+        // Search query
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const matchesName = p.name.toLowerCase().includes(q);
+          const matchesClub = club.name.toLowerCase().includes(q) || club.shortName?.toLowerCase().includes(q);
+          const matchesParentClub = p.parentClubId && state.clubs[p.parentClubId]?.name.toLowerCase().includes(q);
+          return matchesName || matchesClub || matchesParentClub;
+        }
+
+        return true;
+      })
+      .map(p => ({
+        ...p,
+        currentScopedStats: getScopedPlayerStats(p)
+      }));
+  }, [state.players, state.clubs, selectedLeague, searchQuery, seasonScope, selectedPastSeason, availablePastSeasons]);
+
+  // Rankings using currentScopedStats
   const topScorers = useMemo(() => {
     return [...filteredPlayers]
       .filter(p => p.position !== 'GK')
-      .sort((a, b) => (b.stats?.goals || 0) - (a.stats?.goals || 0) || (b.stats?.avgRating || 0) - (a.stats?.avgRating || 0))
+      .sort((a, b) => (b.currentScopedStats.goals || 0) - (a.currentScopedStats.goals || 0) || (b.currentScopedStats.avgRating || 0) - (a.currentScopedStats.avgRating || 0))
       .slice(0, 30);
   }, [filteredPlayers]);
 
   const topAssists = useMemo(() => {
     return [...filteredPlayers]
       .filter(p => p.position !== 'GK')
-      .sort((a, b) => (b.stats?.assists || 0) - (a.stats?.assists || 0) || (b.stats?.avgRating || 0) - (a.stats?.avgRating || 0))
+      .sort((a, b) => (b.currentScopedStats.assists || 0) - (a.currentScopedStats.assists || 0) || (b.currentScopedStats.avgRating || 0) - (a.currentScopedStats.avgRating || 0))
       .slice(0, 30);
   }, [filteredPlayers]);
 
@@ -74,10 +149,10 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
     return [...filteredPlayers]
       .filter(p => p.position === 'GK')
       .map(gk => {
-        const apps = gk.stats?.appearances || 0;
-        const cs = gk.stats?.cleanSheets || 0;
-        const saves = gk.stats?.saves || Math.round(apps * 3.4);
-        const conceded = gk.stats?.goalsConceded || Math.max(0, apps * 1.2 - cs);
+        const apps = gk.currentScopedStats.appearances || 0;
+        const cs = gk.currentScopedStats.cleanSheets || 0;
+        const saves = gk.currentScopedStats.saves || Math.round(apps * 3.4);
+        const conceded = gk.currentScopedStats.goalsConceded || Math.max(0, Math.round(apps * 1.2 - cs));
         const concededPerMatch = apps > 0 ? (conceded / apps).toFixed(2) : '0.00';
         return {
           ...gk,
@@ -86,20 +161,20 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
           derivedConcededRate: concededPerMatch
         };
       })
-      .sort((a, b) => (b.stats?.cleanSheets || 0) - (a.stats?.cleanSheets || 0) || b.derivedSaves - a.derivedSaves)
+      .sort((a, b) => (b.currentScopedStats.cleanSheets || 0) - (a.currentScopedStats.cleanSheets || 0) || b.derivedSaves - a.derivedSaves)
       .slice(0, 30);
   }, [filteredPlayers]);
 
   const topRatings = useMemo(() => {
     return [...filteredPlayers]
-      .filter(p => (p.stats?.appearances || 0) >= 3 || (p.stats?.minutes || 0) >= 180)
-      .sort((a, b) => (b.stats?.avgRating || 0) - (a.stats?.avgRating || 0))
+      .filter(p => (p.currentScopedStats.appearances || 0) >= 1)
+      .sort((a, b) => (b.currentScopedStats.avgRating || 0) - (a.currentScopedStats.avgRating || 0))
       .slice(0, 30);
   }, [filteredPlayers]);
 
   const topMinutes = useMemo(() => {
     return [...filteredPlayers]
-      .sort((a, b) => (b.stats?.minutes || 0) - (a.stats?.minutes || 0))
+      .sort((a, b) => (b.currentScopedStats.minutes || 0) - (a.currentScopedStats.minutes || 0))
       .slice(0, 30);
   }, [filteredPlayers]);
 
@@ -107,7 +182,7 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
     return [...filteredPlayers]
       .map(p => ({
         ...p,
-        totalCardsScore: (p.stats?.redCards || 0) * 3 + (p.stats?.yellowCards || 0)
+        totalCardsScore: (p.currentScopedStats.redCards || 0) * 3 + (p.currentScopedStats.yellowCards || 0)
       }))
       .filter(p => p.totalCardsScore > 0)
       .sort((a, b) => b.totalCardsScore - a.totalCardsScore)
@@ -156,6 +231,65 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
               <X className="w-3.5 h-3.5" />
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Scope Toggle: 今季の成績 / 過去シーズンの成績 / 通算成績 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+          <span className="text-xs font-bold text-slate-400 mr-1 shrink-0">集計スコープ:</span>
+          <button
+            type="button"
+            onClick={() => setSeasonScope('current')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              seasonScope === 'current'
+                ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            今季の成績 (2026/27)
+          </button>
+          <button
+            type="button"
+            onClick={() => setSeasonScope('past')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              seasonScope === 'past'
+                ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            過去シーズンの成績
+          </button>
+          <button
+            type="button"
+            onClick={() => setSeasonScope('career')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              seasonScope === 'career'
+                ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            通算成績 (生涯累計)
+          </button>
+        </div>
+
+        {seasonScope === 'past' && availablePastSeasons.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-mono">シーズン選択:</span>
+            <select
+              value={selectedPastSeason}
+              onChange={(e) => setSelectedPastSeason(e.target.value)}
+              className="bg-slate-950 border border-slate-700 text-white text-xs font-mono font-bold rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-emerald-500"
+            >
+              {availablePastSeasons.map(s => (
+                <option key={s} value={s}>{s} シーズン</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="text-[11px] text-slate-400 font-mono">
+          {seasonScope === 'current' ? '※ プレシーズンは除外された公式戦記録' : seasonScope === 'past' ? '※ 過去シーズン確定アーカイブ' : '※ 全キャリア公式戦の合算記録'}
         </div>
       </div>
 
@@ -797,37 +931,69 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
             </div>
 
             {/* Stats Breakdown */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-400">2026/27 シーズン公式戦スタッツ</h4>
-              <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs font-mono">
-                <div>
-                  <span className="text-slate-500 text-[10px] block">出場試合</span>
-                  <span className="font-bold text-white">{inspectingPlayer.stats?.appearances || 0}</span>
+            {(() => {
+              const curStats = getScopedPlayerStats(inspectingPlayer);
+              const scopeTitle = seasonScope === 'current' 
+                ? '2026/27 シーズン公式戦スタッツ' 
+                : seasonScope === 'past' 
+                ? `${selectedPastSeason || availablePastSeasons[0] || '過去'} シーズン公式戦アーカイブ` 
+                : '生涯通算スタッツ (全シーズン公式戦累計)';
+
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-300">{scopeTitle}</h4>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {seasonScope === 'current' ? '今季記録' : seasonScope === 'past' ? 'アーカイブ' : '通算'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs font-mono">
+                    <div>
+                      <span className="text-slate-500 text-[10px] block">出場試合</span>
+                      <span className="font-bold text-white">{curStats.appearances}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[10px] block">ゴール</span>
+                      <span className="font-bold text-emerald-400">{curStats.goals}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[10px] block">アシスト</span>
+                      <span className="font-bold text-blue-400">{curStats.assists}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[10px] block">平均採点</span>
+                      <span className="font-bold text-white">
+                        {curStats.avgRating && curStats.avgRating > 0 ? curStats.avgRating.toFixed(2) : '-'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[10px] block">クリーンシート</span>
+                      <span className="font-bold text-amber-300">{curStats.cleanSheets}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[10px] block">出場時間</span>
+                      <span className="font-bold text-slate-300">{curStats.minutes} 分</span>
+                    </div>
+                  </div>
+
+                  {/* Past Season History Mini Table if present */}
+                  {inspectingPlayer.seasonHistory && inspectingPlayer.seasonHistory.length > 0 && (
+                    <div className="mt-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">過去シーズン履歴:</span>
+                      <div className="max-h-28 overflow-y-auto divide-y divide-slate-800 text-[11px] font-mono">
+                        {inspectingPlayer.seasonHistory.map(h => (
+                          <div key={h.seasonId} className="py-1 flex items-center justify-between text-slate-300">
+                            <span className="font-bold text-slate-400">{h.seasonId} ({h.clubName || h.clubId})</span>
+                            <span>{h.appearances}試 {h.goals}G {h.assists}A (評: {h.avgRating > 0 ? h.avgRating.toFixed(1) : '-'})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">ゴール</span>
-                  <span className="font-bold text-emerald-400">{inspectingPlayer.stats?.goals || 0}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">アシスト</span>
-                  <span className="font-bold text-blue-400">{inspectingPlayer.stats?.assists || 0}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">平均採点</span>
-                  <span className="font-bold text-white">
-                    {inspectingPlayer.stats?.avgRating && inspectingPlayer.stats.avgRating > 0 ? inspectingPlayer.stats.avgRating.toFixed(2) : '-'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">クリーンシート</span>
-                  <span className="font-bold text-amber-300">{inspectingPlayer.stats?.cleanSheets || 0}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">出場時間</span>
-                  <span className="font-bold text-slate-300">{inspectingPlayer.stats?.minutes || 0} 分</span>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Loan info or Type 2 Info */}
             {inspectingPlayer.isType2Registered && (

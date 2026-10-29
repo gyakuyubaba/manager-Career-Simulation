@@ -171,14 +171,87 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                     const isUserClub = row.clubId === state.userClubId;
                     const clubObj = state.clubs[row.clubId];
 
-                    // Zone indicators
+                    // Zone indicators for 1st and 2nd divisions
                     let zoneBg = '';
-                    if (idx < 4 && ['premier-league', 'laliga', 'serie-a', 'bundesliga'].includes(selectedLeague)) {
-                      zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
-                    } else if (idx < 3 && selectedLeague === 'j1-league') {
-                      zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
-                    } else if (idx >= standings.length - 3) {
-                      zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
+                    let zoneBadge = '';
+
+                    const isTopDivision = ['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1', 'j1-league'].includes(selectedLeague);
+                    const isDiv2 = ['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league'].includes(selectedLeague);
+
+                    if (isTopDivision) {
+                      if (idx < 4 && ['premier-league', 'laliga', 'serie-a'].includes(selectedLeague)) {
+                        zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                        zoneBadge = 'UCL';
+                      } else if (idx < 4 && selectedLeague === 'bundesliga') {
+                        zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                        zoneBadge = 'UCL';
+                      } else if (idx < 3 && selectedLeague === 'ligue-1') {
+                        zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                        zoneBadge = 'UCL';
+                      } else if (idx < 3 && selectedLeague === 'j1-league') {
+                        zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
+                        zoneBadge = '上位';
+                      } else if (idx >= standings.length - (['bundesliga', 'ligue-1'].includes(selectedLeague) ? 2 : 3)) {
+                        zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
+                        zoneBadge = '降格圏';
+                      }
+                    } else if (isDiv2) {
+                      if (selectedLeague === 'championship') {
+                        if (idx < 2) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
+                          zoneBadge = '自動昇格';
+                        } else if (idx >= 2 && idx < 8) {
+                          zoneBg = 'border-l-4 border-l-sky-500 bg-sky-950/20';
+                          zoneBadge = 'PO進出';
+                        } else if (idx >= standings.length - 3) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
+                          zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === 'j2-league') {
+                        if (idx < 2) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
+                          zoneBadge = '自動昇格';
+                        } else if (idx >= 2 && idx < 6) {
+                          zoneBg = 'border-l-4 border-l-sky-500 bg-sky-950/20';
+                          zoneBadge = 'PO進出';
+                        } else if (idx >= standings.length - 3) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
+                          zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === 'segunda-division') {
+                        if (idx < 2) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
+                          zoneBadge = '自動昇格';
+                        } else if (idx >= 2 && idx < 6) {
+                          zoneBg = 'border-l-4 border-l-sky-500 bg-sky-950/20';
+                          zoneBadge = 'PO進出';
+                        } else if (idx >= standings.length - 4) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
+                          zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === '2-bundesliga' || selectedLeague === 'ligue-2') {
+                        if (idx < 2) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
+                          zoneBadge = '自動昇格';
+                        } else if (idx === 2) {
+                          zoneBg = 'border-l-4 border-l-amber-500 bg-amber-950/20';
+                          zoneBadge = '入替戦';
+                        } else if (idx >= standings.length - 2) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
+                          zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === 'serie-b') {
+                        if (idx < 2) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
+                          zoneBadge = '自動昇格';
+                        } else if (idx >= 2 && idx < 8) {
+                          zoneBg = 'border-l-4 border-l-sky-500 bg-sky-950/20';
+                          zoneBadge = 'PO進出';
+                        } else if (idx >= standings.length - 3) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
+                          zoneBadge = '降格圏';
+                        }
+                      }
                     }
 
                     return (
@@ -195,6 +268,16 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                           <span className="font-bold text-white truncate max-w-[220px]">
                             {clubObj?.name || row.clubName}
                           </span>
+                          {zoneBadge && (
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              zoneBadge === '自動昇格' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                              zoneBadge === 'PO進出' || zoneBadge === '入替戦' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' :
+                              zoneBadge === 'UCL' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                              'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}>
+                              {zoneBadge}
+                            </span>
+                          )}
                           {isUserClub && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
                               自クラブ
@@ -218,6 +301,23 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Standings Legend */}
+            <div className="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center gap-4 text-[11px] text-slate-400 flex-wrap">
+              <span className="font-bold text-slate-300">凡例:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span>
+                <span>自動昇格圏 (1〜2位)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block"></span>
+                <span>昇格プレーオフ圏 (Championship 3〜8位 / J2 3〜6位)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block"></span>
+                <span>降格圏</span>
+              </div>
             </div>
           </div>
         </div>

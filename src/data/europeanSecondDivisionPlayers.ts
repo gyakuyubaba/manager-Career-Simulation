@@ -113,7 +113,7 @@ export const MUST_CHECK_AND_OVERSEAS_SEEDS: Record<string, RosterSeed[]> = {
   ],
 
   // --- Borussia Mönchengladbach (Ko Itakura) ---
-  b_monchengladbach: [
+  mgladbach: [
     { name: '板倉 滉 (Ko Itakura)', position: 'CB', age: 29, nationality: '日本', ovr: 79, shirtNumber: 3, playstyle: 'ボール運べるCB', preferredFoot: '右' }
   ],
 

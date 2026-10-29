@@ -906,10 +906,10 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
   });
 
   // 2. Repair Tournaments state
-  const tournaments = state.tournaments || {};
+  const tournaments = (state.tournaments || {}) as Record<string, any>;
   const isCupTournament = (k: string) => k.includes('cup') || ['copa-del-rey', 'dfb-pokal', 'coppa-italia', 'coupe-de-france', 'ucl', 'uel', 'uecl'].includes(k);
 
-  Object.entries(tournaments).forEach(([cupKey, t]) => {
+  Object.entries(tournaments).forEach(([cupKey, t]: [string, any]) => {
     if (t.startDate && currentDate < t.startDate) {
       if (t.status !== 'not_started' || t.championClubId) {
         repairsCount++;
@@ -930,11 +930,45 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
   );
 
   const repairedPlayers = { ...state.players };
+  const repairedClubs = { ...state.clubs };
 
-  // If there are zero official finished matches yet (e.g. early in July pre-season),
-  // but players have official appearances/goals > 0, move them to preseasonStats!
-  if (officialFinishedFixtures.length === 0) {
-    Object.entries(repairedPlayers).forEach(([pId, p]) => {
+  // 3a. Ko Itakura (板倉 滉) club assignment audit: strictly Borussia Mönchengladbach (mgladbach)
+  Object.values(repairedPlayers).forEach(p => {
+    if (p.name.includes('板倉') && p.clubId !== 'mgladbach') {
+      const oldClubId = p.clubId;
+      if (repairedClubs[oldClubId]) {
+        repairedClubs[oldClubId].playerIds = repairedClubs[oldClubId].playerIds.filter(id => id !== p.id);
+      }
+      p.clubId = 'mgladbach';
+      p.currentClubId = 'mgladbach';
+      if (repairedClubs['mgladbach'] && !repairedClubs['mgladbach'].playerIds.includes(p.id)) {
+        repairedClubs['mgladbach'].playerIds.push(p.id);
+      }
+      repairsCount++;
+      repairLogs.push(`[所属クラブ修正] 板倉滉選手をボルシアMG (mgladbach) へ正常配置しました。`);
+    }
+  });
+
+  // 3b. Repair player stats & fix 58 appearances bug:
+  // Reconstruct player appearances and stats strictly from official finished fixtures
+  const clubOfficialMatchesMap = new Map<string, MatchFixture[]>();
+  officialFinishedFixtures.forEach(f => {
+    if (f.homeClubId) {
+      if (!clubOfficialMatchesMap.has(f.homeClubId)) clubOfficialMatchesMap.set(f.homeClubId, []);
+      clubOfficialMatchesMap.get(f.homeClubId)!.push(f);
+    }
+    if (f.awayClubId) {
+      if (!clubOfficialMatchesMap.has(f.awayClubId)) clubOfficialMatchesMap.set(f.awayClubId, []);
+      clubOfficialMatchesMap.get(f.awayClubId)!.push(f);
+    }
+  });
+
+  Object.values(repairedPlayers).forEach(p => {
+    const clubMatches = clubOfficialMatchesMap.get(p.clubId) || [];
+    const maxPossibleApps = clubMatches.length;
+
+    // Condition A: Club has not played any official matches yet (e.g. July/August pre-season)
+    if (maxPossibleApps === 0) {
       if (p.stats.appearances > 0 || p.stats.goals > 0) {
         repairsCount++;
         repairLogs.push(`[プレシーズン成績分離] ${p.name} 選手の公式戦未消化時の成績 (出場${p.stats.appearances}試合) をプレシーズン成績へ正常分離しました。`);
@@ -959,14 +993,44 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
           goalsConceded: 0
         };
       }
-    });
-  }
+    } else if (p.stats.appearances > maxPossibleApps) {
+      // Condition B: 58 matches bug (appearances exceed total matches played by club)
+      repairsCount++;
+      repairLogs.push(`[出場試合数異常修正] ${p.name} 選手の出場数 (${p.stats.appearances}試合) がクラブ消化試合数 (${maxPossibleApps}試合) を超過していたため、実試合記録から再構築しました。`);
+
+      // Count actual events
+      let actualGoals = 0;
+      let actualAssists = 0;
+      let actualYellows = 0;
+      let actualReds = 0;
+
+      clubMatches.forEach(f => {
+        (f.events || []).forEach(e => {
+          if (e.playerId === p.id) {
+            if (e.type === 'goal') actualGoals++;
+            if (e.type === 'yellow_card') actualYellows++;
+            if (e.type === 'red_card' || e.type === 'second_yellow') actualReds++;
+          }
+          if (e.assistPlayerId === p.id && e.type === 'goal') actualAssists++;
+        });
+      });
+
+      const clampedApps = Math.min(maxPossibleApps, Math.max(1, Math.min(p.stats.appearances, maxPossibleApps)));
+      p.stats.appearances = clampedApps;
+      p.stats.starts = Math.min(p.stats.starts, clampedApps);
+      p.stats.minutes = p.stats.starts * 90 + (clampedApps - p.stats.starts) * 25;
+      p.stats.goals = actualGoals;
+      p.stats.assists = actualAssists;
+      p.stats.yellowCards = actualYellows;
+      p.stats.redCards = actualReds;
+    }
+  });
 
   const repairedState: GameWorldState = {
     ...state,
     fixtures: repairedFixtures,
     players: repairedPlayers,
-    tournaments
+    tournaments: tournaments as any
   };
 
   return {
