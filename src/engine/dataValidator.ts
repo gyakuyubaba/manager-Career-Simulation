@@ -332,10 +332,10 @@ export function checkPlayerDataIntegrity(
       result.repairedCount++;
     }
 
-    const targetClubId = player.clubId || 'arsenal';
+    const targetClubId = player.clubId || 'free_agent';
     const validClubId = targetClubId === 'free_agent' 
       ? 'free_agent' 
-      : (clubs[targetClubId] ? targetClubId : 'arsenal');
+      : (clubs[targetClubId] ? targetClubId : 'free_agent');
 
     const resolvedAltPositions = (player.altPositions && player.altPositions.length > 0)
       ? player.altPositions
@@ -949,7 +949,154 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
     }
   });
 
-  // 3b. Repair player stats & fix 58 appearances bug:
+  // 3b. European clubs Japanese players audit: Evict non-European domestic/orphan Japanese players from Arsenal and all European clubs
+  const VALID_EURO_JAPANESE_PLAYERS = new Set([
+    'arsenal_takehiro_tomiyasu',
+    'liverpool_wataru_endo',
+    'crystal_palace_daichi_kamada',
+    'palace_kamada',
+    'brighton_kaoru_mitoma',
+    'southampton_sugawara',
+    'southampton_yukinari_sugawara',
+    'real_sociedad_takefusa_kubo',
+    'sociedad_kubo',
+    'bayern_hiroki_ito',
+    'freiburg_ritsu_doan',
+    'mgladbach_ko_itakura',
+    'mainz_kaishu_sano',
+    'parma_zion_suzuki',
+    'monaco_takumi_minamino',
+    'reims_junya_ito',
+    'reims_keito_nakamura',
+    'leeds_ao_tanaka'
+  ]);
+
+  const INVALID_J3_ORPHAN_IDS = new Set(['JP_000401', 'JP_000402', 'JP_000403', 'JP_000404', 'JP_000405']);
+  const INVALID_ARSENAL_JAPANESE_NAMES = new Set(['矢野 貴章', '細川 淳矢', '端戸 仁', '浅川 隼人', '藤本 憲明']);
+  const isInvalidJapaneseName = (name?: string): boolean => {
+    if (!name) return false;
+    const stripped = name.replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+    return (
+      INVALID_ARSENAL_JAPANESE_NAMES.has(name) ||
+      stripped === '矢野貴章' ||
+      stripped === '細川淳矢' ||
+      stripped === '端戸仁' ||
+      stripped === '浅川隼人' ||
+      stripped === '藤本憲明'
+    );
+  };
+
+  // Purge the 5 non-existent J3 players from existence completely
+  INVALID_J3_ORPHAN_IDS.forEach(badId => {
+    if (repairedPlayers[badId]) {
+      const p = repairedPlayers[badId];
+      const cId = p.clubId;
+      if (repairedClubs[cId]) {
+        repairedClubs[cId].playerIds = repairedClubs[cId].playerIds.filter(id => id !== badId);
+      }
+      delete repairedPlayers[badId];
+      repairsCount++;
+      repairLogs.push(`[不要選手完全削除] 存在しないJ3所属選手 ${p.name} (${badId}) を名簿から完全削除しました。`);
+    }
+  });
+
+  // Check all European clubs:
+  Object.values(repairedClubs).forEach(club => {
+    if (club.country !== '日本') {
+      const playersToEvict: string[] = [];
+      club.playerIds.forEach(pId => {
+        const p = repairedPlayers[pId];
+        if (!p) {
+          playersToEvict.push(pId);
+          return;
+        }
+        if (isInvalidJapaneseName(p.name)) {
+          playersToEvict.push(pId);
+          return;
+        }
+        if (p.nationality === '日本') {
+          const isAllowedEuroJapanese = VALID_EURO_JAPANESE_PLAYERS.has(p.id) ||
+            p.name.includes('冨安') ||
+            p.name.includes('遠藤 航') ||
+            p.name.includes('三笘') ||
+            p.name.includes('久保') ||
+            p.name.includes('伊藤 洋輝') ||
+            p.name.includes('堂安') ||
+            p.name.includes('板倉') ||
+            p.name.includes('鎌田') ||
+            p.name.includes('菅原') ||
+            p.name.includes('佐野 海舟') ||
+            p.name.includes('鈴木 彩艶') ||
+            p.name.includes('南野') ||
+            p.name.includes('伊東 純也') ||
+            p.name.includes('中村 敬斗') ||
+            p.name.includes('田中 碧');
+
+          if (!isAllowedEuroJapanese) {
+            playersToEvict.push(pId);
+            p.clubId = 'free_agent';
+            p.currentClubId = 'free_agent';
+            if (repairedClubs['free_agent'] && !repairedClubs['free_agent'].playerIds.includes(p.id)) {
+              repairedClubs['free_agent'].playerIds.push(p.id);
+            }
+            repairsCount++;
+            repairLogs.push(`[欧州クラブ誤配備選手除外] ${p.name} 選手を ${club.name} の名簿から除外しました。`);
+          }
+        }
+      });
+
+      if (playersToEvict.length > 0) {
+        club.playerIds = club.playerIds.filter(id => !playersToEvict.includes(id));
+      }
+    }
+  });
+
+  // Also sweep repairedPlayers directly to ensure non-existent Japanese players are completely cleared
+  const allEvictedPlayerIds = new Set<string>([...INVALID_J3_ORPHAN_IDS]);
+  Object.values(repairedPlayers).forEach(p => {
+    if (isInvalidJapaneseName(p.name)) {
+      allEvictedPlayerIds.add(p.id);
+      delete repairedPlayers[p.id];
+      repairsCount++;
+      repairLogs.push(`[実在外選手完全抹消] 実在しない選手 ${p.name} (${p.id}) を完全削除しました。`);
+    }
+  });
+
+  // Ensure all clubs playerIds remove allEvictedPlayerIds
+  Object.values(repairedClubs).forEach(c => {
+    c.playerIds = c.playerIds.filter(id => !allEvictedPlayerIds.has(id));
+  });
+
+  // Ensure tactics lineups do not have deleted/evicted players
+  if (state.tactics?.lineup) {
+    state.tactics.lineup.bench = state.tactics.lineup.bench.filter(id => !allEvictedPlayerIds.has(id));
+    if (state.tactics.lineup.reserves) {
+      state.tactics.lineup.reserves = state.tactics.lineup.reserves.filter(id => !allEvictedPlayerIds.has(id));
+    }
+    state.tactics.lineup.starters = state.tactics.lineup.starters.filter(s => !allEvictedPlayerIds.has(s.playerId));
+  }
+
+  // 3b-2. 5-Day Injury Return Date Auto-Repair: Ensure players past their returnDate are restored to HEALTHY
+  Object.values(repairedPlayers).forEach(p => {
+    if (p.injuryStatus === 'INJURED' || p.injury?.isInjured) {
+      const returnDate = p.injuryReturnDate || p.injury?.returnDate;
+      if (returnDate && currentDate >= returnDate) {
+        p.injuryStatus = 'HEALTHY';
+        p.injury = { isInjured: false, recoveryDays: 0 };
+        p.injuryReturnDate = undefined;
+        p.injuryStartDate = undefined;
+        p.injuryType = undefined;
+        p.injuryDaysRemaining = 0;
+        if (p.squadStatus === 'OUT_OF_SQUAD') {
+          p.squadStatus = 'RESERVE';
+        }
+        repairsCount++;
+        repairLogs.push(`[怪我復帰修復] 復帰予定日(${returnDate})を経過した${p.name}をHEALTHYに復帰させました。`);
+      }
+    }
+  });
+
+  // 3c. Repair player stats & fix 58 appearances bug:
   // Reconstruct player appearances and stats strictly from official finished fixtures
   const clubOfficialMatchesMap = new Map<string, MatchFixture[]>();
   officialFinishedFixtures.forEach(f => {
@@ -969,12 +1116,12 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
 
     // Condition A: Club has not played any official matches yet (e.g. July/August pre-season)
     if (maxPossibleApps === 0) {
-      if (p.stats.appearances > 0 || p.stats.goals > 0) {
+      if (p.stats.appearances > 0 || p.stats.goals > 0 || p.stats.assists > 0 || p.stats.cleanSheets > 0) {
         repairsCount++;
-        repairLogs.push(`[プレシーズン成績分離] ${p.name} 選手の公式戦未消化時の成績 (出場${p.stats.appearances}試合) をプレシーズン成績へ正常分離しました。`);
-        if (!p.preseasonStats) {
+        repairLogs.push(`[プレシーズン成績分離・架空シーズン同期] ${p.name} 選手の公式戦未消化時の成績 (出場${p.stats.appearances}試合) を0にリセットし、架空シーズン(${state.season || '2026/27'})と同期しました。`);
+        if (!p.preseasonStats && (p.stats.appearances > 0 || p.stats.goals > 0)) {
           p.preseasonStats = { ...p.stats };
-        } else {
+        } else if (p.preseasonStats) {
           p.preseasonStats.appearances = Math.max(p.preseasonStats.appearances, p.stats.appearances);
           p.preseasonStats.goals = Math.max(p.preseasonStats.goals, p.stats.goals);
           p.preseasonStats.assists = Math.max(p.preseasonStats.assists, p.stats.assists);
@@ -992,43 +1139,112 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
           saves: 0,
           goalsConceded: 0
         };
+        p.competitionStats = {};
       }
-    } else if (p.stats.appearances > maxPossibleApps) {
-      // Condition B: 58 matches bug (appearances exceed total matches played by club)
-      repairsCount++;
-      repairLogs.push(`[出場試合数異常修正] ${p.name} 選手の出場数 (${p.stats.appearances}試合) がクラブ消化試合数 (${maxPossibleApps}試合) を超過していたため、実試合記録から再構築しました。`);
-
-      // Count actual events
+    } else {
+      // Condition B: Club has played official matches in this game season:
+      // Reconcile and calculate player stats strictly from in-game finished fixtures
       let actualGoals = 0;
       let actualAssists = 0;
       let actualYellows = 0;
       let actualReds = 0;
+      const compEventsMap: Record<string, { goals: number; assists: number; yellows: number; reds: number; matches: Set<string> }> = {};
 
       clubMatches.forEach(f => {
+        const cKey = f.competition;
+        if (!compEventsMap[cKey]) {
+          compEventsMap[cKey] = { goals: 0, assists: 0, yellows: 0, reds: 0, matches: new Set() };
+        }
+        let playerParticipatedInMatch = false;
+        if (f.stats?.playerRatings && f.stats.playerRatings[p.id] !== undefined) {
+          playerParticipatedInMatch = true;
+        }
+
         (f.events || []).forEach(e => {
           if (e.playerId === p.id) {
-            if (e.type === 'goal') actualGoals++;
-            if (e.type === 'yellow_card') actualYellows++;
-            if (e.type === 'red_card' || e.type === 'second_yellow') actualReds++;
+            playerParticipatedInMatch = true;
+            if (e.type === 'goal') {
+              actualGoals++;
+              compEventsMap[cKey].goals++;
+            }
+            if (e.type === 'yellow_card') {
+              actualYellows++;
+              compEventsMap[cKey].yellows++;
+            }
+            if (e.type === 'red_card' || e.type === 'second_yellow') {
+              actualReds++;
+              compEventsMap[cKey].reds++;
+            }
           }
-          if (e.assistPlayerId === p.id && e.type === 'goal') actualAssists++;
+          if (e.assistPlayerId === p.id && e.type === 'goal') {
+            playerParticipatedInMatch = true;
+            actualAssists++;
+            compEventsMap[cKey].assists++;
+          }
         });
+
+        if (playerParticipatedInMatch) {
+          compEventsMap[cKey].matches.add(f.id);
+        }
       });
 
-      const clampedApps = Math.min(maxPossibleApps, Math.max(1, Math.min(p.stats.appearances, maxPossibleApps)));
-      p.stats.appearances = clampedApps;
-      p.stats.starts = Math.min(p.stats.starts, clampedApps);
-      p.stats.minutes = p.stats.starts * 90 + (clampedApps - p.stats.starts) * 25;
-      p.stats.goals = actualGoals;
-      p.stats.assists = actualAssists;
-      p.stats.yellowCards = actualYellows;
-      p.stats.redCards = actualReds;
+      // Clamp appearances strictly to maxPossibleApps
+      let clampedApps = Math.min(maxPossibleApps, Math.max(0, p.stats.appearances || 0));
+      const minRequiredApps = Math.max(actualGoals > 0 ? 1 : 0, actualAssists > 0 ? 1 : 0);
+      clampedApps = Math.min(maxPossibleApps, Math.max(clampedApps, minRequiredApps));
+
+      const statsDiffer = p.stats.goals !== actualGoals ||
+        p.stats.assists !== actualAssists ||
+        p.stats.appearances !== clampedApps ||
+        p.stats.yellowCards !== actualYellows ||
+        p.stats.redCards !== actualReds;
+
+      if (statsDiffer) {
+        repairsCount++;
+        repairLogs.push(`[架空シーズン個人成績完全同期] ${p.name} 選手の今季個人成績をゲーム内の実試合シミュレーション記録（出場:${clampedApps}/${maxPossibleApps}試合, 得点:${actualGoals}, アシスト:${actualAssists}）へ完全同期しました。`);
+        p.stats.appearances = clampedApps;
+        p.stats.starts = Math.min(clampedApps, p.stats.starts ?? clampedApps);
+        p.stats.minutes = p.stats.starts * 90 + Math.max(0, clampedApps - p.stats.starts) * 25;
+        p.stats.goals = actualGoals;
+        p.stats.assists = actualAssists;
+        p.stats.yellowCards = actualYellows;
+        p.stats.redCards = actualReds;
+        if (clampedApps === 0) {
+          p.stats.avgRating = 0;
+          p.stats.cleanSheets = 0;
+        } else if (!p.stats.avgRating || p.stats.avgRating <= 0) {
+          p.stats.avgRating = 6.6;
+        }
+      }
+
+      // Rebuild competitionStats accurately
+      if (!p.competitionStats) p.competitionStats = {};
+      Object.entries(compEventsMap).forEach(([cKey, d]) => {
+        const cMatches = clubMatches.filter(m => m.competition === cKey);
+        const cApps = Math.min(cMatches.length, Math.max(d.matches.size, Math.min(clampedApps, cMatches.length)));
+        p.competitionStats![cKey] = {
+          appearances: cApps,
+          starts: cApps,
+          minutes: cApps * 90,
+          goals: d.goals,
+          assists: d.assists,
+          cleanSheets: (p.position === 'GK' || ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position))
+            ? cMatches.filter(m => (m.homeClubId === p.clubId && m.awayScore === 0) || (m.awayClubId === p.clubId && m.homeScore === 0)).length
+            : 0,
+          yellowCards: d.yellows,
+          redCards: d.reds,
+          avgRating: p.stats.avgRating || 6.6,
+          saves: 0,
+          goalsConceded: 0
+        };
+      });
     }
   });
 
   const repairedState: GameWorldState = {
     ...state,
     fixtures: repairedFixtures,
+    clubs: repairedClubs,
     players: repairedPlayers,
     tournaments: tournaments as any
   };

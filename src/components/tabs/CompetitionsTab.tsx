@@ -179,21 +179,42 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                     const isDiv2 = ['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league'].includes(selectedLeague);
 
                     if (isTopDivision) {
-                      if (idx < 4 && ['premier-league', 'laliga', 'serie-a'].includes(selectedLeague)) {
-                        zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
-                        zoneBadge = 'UCL';
-                      } else if (idx < 4 && selectedLeague === 'bundesliga') {
-                        zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
-                        zoneBadge = 'UCL';
-                      } else if (idx < 3 && selectedLeague === 'ligue-1') {
-                        zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
-                        zoneBadge = 'UCL';
-                      } else if (idx < 3 && selectedLeague === 'j1-league') {
-                        zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
-                        zoneBadge = '上位';
-                      } else if (idx >= standings.length - (['bundesliga', 'ligue-1'].includes(selectedLeague) ? 2 : 3)) {
-                        zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
-                        zoneBadge = '降格圏';
+                      if (['premier-league', 'laliga', 'serie-a', 'bundesliga'].includes(selectedLeague)) {
+                        if (idx < 4) {
+                          zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                          zoneBadge = 'UCL';
+                        } else if (idx < 6) {
+                          zoneBg = 'border-l-4 border-l-amber-500 bg-amber-950/10';
+                          zoneBadge = 'EL';
+                        } else if (idx === 6) {
+                          zoneBg = 'border-l-4 border-l-teal-500 bg-teal-950/10';
+                          zoneBadge = 'ECL';
+                        } else if (idx >= standings.length - (selectedLeague === 'bundesliga' ? 2 : 3)) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
+                          zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === 'ligue-1') {
+                        if (idx < 3) {
+                          zoneBg = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                          zoneBadge = 'UCL';
+                        } else if (idx < 5) {
+                          zoneBg = 'border-l-4 border-l-amber-500 bg-amber-950/10';
+                          zoneBadge = 'EL';
+                        } else if (idx === 5) {
+                          zoneBg = 'border-l-4 border-l-teal-500 bg-teal-950/10';
+                          zoneBadge = 'ECL';
+                        } else if (idx >= standings.length - 2) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
+                          zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === 'j1-league') {
+                        if (idx < 3) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
+                          zoneBadge = '上位';
+                        } else if (idx >= standings.length - 3) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/10';
+                          zoneBadge = '降格圏';
+                        }
                       }
                     } else if (isDiv2) {
                       if (selectedLeague === 'championship') {
@@ -258,21 +279,24 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                       <tr
                         key={row.clubId}
                         className={`transition-colors ${zoneBg} ${
-                          isUserClub ? 'bg-emerald-950/30 text-emerald-300 font-semibold' : 'hover:bg-slate-800/30 text-slate-300'
+                          isUserClub ? 'bg-emerald-950/30 text-emerald-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
                         }`}
                       >
                         <td className="py-3 px-3 text-center font-mono font-bold">
                           {idx + 1}
                         </td>
                         <td className="py-3 px-4 flex items-center gap-2">
-                          <span className="font-bold text-white truncate max-w-[220px]">
+                          <span className="font-bold text-white truncate max-w-[180px]">
                             {clubObj?.name || row.clubName}
                           </span>
                           {zoneBadge && (
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              zoneBadge === 'UCL' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40' :
+                              zoneBadge === 'EL' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' :
+                              zoneBadge === 'ECL' ? 'bg-teal-500/20 text-teal-400 border border-teal-500/40' :
                               zoneBadge === '自動昇格' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
                               zoneBadge === 'PO進出' || zoneBadge === '入替戦' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' :
-                              zoneBadge === 'UCL' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                              zoneBadge === '上位' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
                               'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             }`}>
                               {zoneBadge}
@@ -306,14 +330,34 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
             {/* Standings Legend */}
             <div className="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center gap-4 text-[11px] text-slate-400 flex-wrap">
               <span className="font-bold text-slate-300">凡例:</span>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span>
-                <span>自動昇格圏 (1〜2位)</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block"></span>
-                <span>昇格プレーオフ圏 (Championship 3〜8位 / J2 3〜6位)</span>
-              </div>
+              {['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1'].includes(selectedLeague) && (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block"></span>
+                    <span>UEFAチャンピオンズリーグ (UCL) 出場圏</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block"></span>
+                    <span>UEFAヨーロッパリーグ (EL) 出場圏</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-teal-500 inline-block"></span>
+                    <span>UEFAカンファレンスリーグ (ECL) 出場圏</span>
+                  </div>
+                </>
+              )}
+              {['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league'].includes(selectedLeague) && (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span>
+                    <span>自動昇格圏 (1〜2位)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-sky-500 inline-block"></span>
+                    <span>昇格プレーオフ圏</span>
+                  </div>
+                </>
+              )}
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block"></span>
                 <span>降格圏</span>
@@ -566,19 +610,40 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                                 </span>
                               </div>
 
-                              {/* Details (PK, Aggregate) */}
-                              {isFinished && (
+                              {/* Details (2-Legged, PK, Aggregate) */}
+                              {match.isTwoLegged && (match.firstLegScore || match.secondLegScore || match.aggregateScore) && (
+                                <div className="mt-2 pt-2 border-t border-slate-800/80 space-y-1 text-[10px] font-mono text-slate-400">
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">第1戦:</span>
+                                    <span>{match.firstLegScore || '未実施'}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">第2戦:</span>
+                                    <span>{match.secondLegScore || '未実施'}</span>
+                                  </div>
+                                  {match.aggregateScore && (
+                                    <div className="flex justify-between font-bold text-amber-300">
+                                      <span>合計:</span>
+                                      <span>{match.aggregateScore}</span>
+                                    </div>
+                                  )}
+                                  {match.penaltyShootout && (
+                                    <div className="flex justify-between font-bold text-rose-300">
+                                      <span>PK戦:</span>
+                                      <span>{match.penaltyShootout.homeScore} - {match.penaltyShootout.awayScore}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {!match.isTwoLegged && isFinished && (
                                 <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
                                   {match.penaltyShootout ? (
                                     <span className="text-amber-400 font-bold">
                                       PK戦: {match.penaltyShootout.homeScore} - {match.penaltyShootout.awayScore}
                                     </span>
-                                  ) : match.aggregateScore ? (
-                                    <span className="text-slate-400 font-mono">
-                                      {match.aggregateScore}
-                                    </span>
                                   ) : (
-                                    <span className="text-slate-500">90分決着</span>
+                                    <span className="text-slate-500">{match.extraTimePlayed ? '延長戦決着' : '90分決着'}</span>
                                   )}
 
                                   <span className="text-emerald-400 font-semibold flex items-center gap-1">

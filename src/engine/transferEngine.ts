@@ -1,5 +1,5 @@
-import { Player, Club, TransferNegotiation, NewsItem, GameWorldState, IncomingAIOffer } from '../types/game';
-import { addDays } from './dateEngine';
+import { Player, Club, TransferNegotiation, NewsItem, GameWorldState, IncomingAIOffer, PendingTransfer } from '../types/game';
+import { addDays, isTransferWindow } from './dateEngine';
 
 // Realistic Derby & Direct Rivalry Mapping across all 6 leagues
 export const CLUB_RIVALRIES: Record<string, string[]> = {
@@ -285,6 +285,28 @@ export function handlePlayerNegotiationStep(
   return { updatedNegotiation: updated, responseMessage: msg, isCompleted: false, isCollapsed: false };
 }
 
+export function calculateJoinDate(currentDate: string, timing: 'immediate' | 'next_window' | 'next_season'): string {
+  if (timing === 'immediate') return currentDate;
+  const parts = currentDate.split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+
+  if (timing === 'next_season') {
+    if (month >= 7) {
+      return `${year + 1}-07-01`;
+    } else {
+      return `${year}-07-01`;
+    }
+  }
+
+  // timing === 'next_window'
+  if (month >= 7) {
+    return `${year + 1}-01-01`;
+  } else {
+    return `${year}-07-01`;
+  }
+}
+
 // Complete transfer execution (Requirement 2 & 4: Atomic Squad and Transaction Updates)
 export function executeTransferCompletion(
   state: GameWorldState,
@@ -300,6 +322,60 @@ export function executeTransferCompletion(
   const transferFee = isFreeAgent ? 0 : negotiation.currentBidFee;
   const weeklyWage = negotiation.wageOffered;
   const isLoan = !!negotiation.isLoan;
+
+  // Requirement 10: Transfer window timing check & pending transfers
+  const isWindowOpen = isTransferWindow(state.currentDate);
+  const requestedTiming = negotiation.joinTiming || (isWindowOpen ? 'immediate' : 'next_window');
+  // Forbid immediate join outside transfer window
+  const actualTiming = (!isWindowOpen && requestedTiming === 'immediate') ? 'next_window' : requestedTiming;
+
+  if (actualTiming !== 'immediate') {
+    const joinDate = calculateJoinDate(state.currentDate, actualTiming);
+
+    // Deduct transfer fee now from buyer and credit seller
+    buyerClub.transferBudget -= transferFee;
+    if (!isFreeAgent && sellerClub && sellerClub.id !== 'free_agent') {
+      sellerClub.transferBudget += Math.round(transferFee * 0.95);
+    }
+
+    const pendingRecord: PendingTransfer = {
+      id: `pending_${Date.now()}_${player.id}`,
+      playerId: player.id,
+      playerName: player.name,
+      sellerClubId: sellerClub ? sellerClub.id : 'free_agent',
+      buyerClubId: buyerClub.id,
+      fee: transferFee,
+      wage: weeklyWage,
+      contractYears: negotiation.contractYearsOffered,
+      type: negotiation.negotiationType || (isLoan ? 'loan' : 'permanent'),
+      agreedDate: state.currentDate,
+      joinDate,
+      timingChoice: actualTiming
+    };
+
+    const timingLabel = actualTiming === 'next_season' ? '来シーズン開始時' : '次の移籍期間開始時';
+    const pendingNews: NewsItem = {
+      id: `news_pending_agree_${Date.now()}_${player.id}`,
+      date: state.currentDate,
+      headline: `【移籍合意】${buyerClub.name}、${player.name}の獲得合意を正式発表！${timingLabel}に加入へ`,
+      body: `${buyerClub.name}は${sellerClub?.name || '無所属'}所属の${player.name}（${player.age}歳）について、移籍金€${(transferFee / 1000000).toFixed(1)}Mでの獲得合意を発表しました。合流日は${joinDate}付となり、それまでは現所属に留まります。`,
+      category: 'transfer',
+      relatedClubId: buyerClub.id,
+      relatedPlayerId: player.id,
+      importance: 'high'
+    };
+
+    return {
+      ...state,
+      clubs: {
+        ...state.clubs,
+        [buyerClub.id]: buyerClub,
+        ...(sellerClub && sellerClub.id !== 'free_agent' ? { [sellerClub.id]: sellerClub } : {})
+      },
+      pendingTransfers: [...(state.pendingTransfers || []), pendingRecord],
+      news: [pendingNews, ...state.news]
+    };
+  }
 
   // 1. Financial Movement
   buyerClub.transferBudget -= transferFee;

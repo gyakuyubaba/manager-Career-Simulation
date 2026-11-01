@@ -1,4 +1,4 @@
-import { GameWorldState, MatchFixture, MatchEvent, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory } from '../types/game';
+import { GameWorldState, MatchFixture, MatchEvent, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory, CompetitionCategory, PendingTransfer } from '../types/game';
 import { ENABLE_J_LEAGUE } from '../data/clubsData';
 import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRandomWeightedInjury } from './matchEngine';
 import { simulateAITransfers } from './transferEngine';
@@ -10,6 +10,20 @@ import { updateClubVisionAfterSeason } from './clubVisionEngine';
 import { checkAndAdvanceBallonDor } from './ballonDorEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 import { initializeTournamentCompetitions } from './cupEngine';
+
+// Get competition category for isolated disciplinary suspensions
+export function getCompetitionCategory(competition: string): CompetitionCategory {
+  if (competition === 'ucl') return 'ucl';
+  if (competition === 'uel') return 'uel';
+  if (competition === 'uecl') return 'uecl';
+  if (
+    competition.includes('cup') ||
+    ['copa-del-rey', 'coppa-italia', 'dfb-pokal', 'coupe-de-france', 'super-cup', 'levain-cup', 'emperors-cup'].includes(competition)
+  ) {
+    return 'domestic_cup';
+  }
+  return 'league';
+}
 
 // Format ISO date to display string YYYY年M月D日
 export function formatDateJP(dateStr: string): string {
@@ -133,94 +147,177 @@ export function applyMatchResultToWorld(
     });
   }
 
-  // 3.5 Decrement suspensions for official competitive matches (Requirement 3: プレシーズンでは消化しない)
-  if (finalFixture.competition !== 'pre-season') {
+  // 3.5 Decrement suspensions for official competitive matches with COMPETITION ISOLATION (Requirement 7)
+  if (finalFixture.competition !== 'pre-season' && finalFixture.competitionType !== 'preseason') {
     const newlyCardedPlayerIds = new Set(
       (finalFixture.events || [])
         .filter(e => e.type === 'red_card' || e.type === 'second_yellow')
         .map(e => e.playerId)
     );
     const participatingTeamIds = [finalFixture.homeClubId, finalFixture.awayClubId];
+    const matchCategory = getCompetitionCategory(finalFixture.competition);
 
     Object.values(players).forEach(p => {
       if (participatingTeamIds.includes(p.clubId) && p.suspension?.isSuspended && !newlyCardedPlayerIds.has(p.id)) {
-        if (p.suspension.matchesRemaining > 0) {
-          p.suspension.matchesRemaining -= 1;
-        }
-        if (p.suspension.matchesRemaining <= 0) {
-          p.suspension.isSuspended = false;
-          p.suspension.matchesRemaining = 0;
-          p.suspension.reason = undefined;
-          if (p.squadStatus === 'OUT_OF_SQUAD') {
-            p.squadStatus = 'RESERVE';
+        const suspCat = p.suspension.competitionCategory;
+        // Competition isolation: only decrement if this fixture's competition category matches
+        if (!suspCat || suspCat === matchCategory) {
+          if (p.suspension.matchesRemaining > 0) {
+            p.suspension.matchesRemaining -= 1;
+          }
+          if (p.suspension.matchesRemaining <= 0) {
+            p.suspension.isSuspended = false;
+            p.suspension.matchesRemaining = 0;
+            p.suspension.reason = undefined;
+            p.suspension.competitionCategory = undefined;
+            if (p.squadStatus === 'OUT_OF_SQUAD') {
+              p.squadStatus = 'RESERVE';
+            }
           }
         }
       }
     });
   }
 
-  // 4. Knockout Cup Tournament Advancement (Requirement 9)
+  // 4. Knockout Cup Tournament Advancement & 2-Legged Ties (Requirement 1, 4, 8)
   const isKnockout = finalFixture.competition.includes('cup') ||
-                     ['copa-del-rey', 'coppa-italia', 'dfb-pokal', 'coupe-de-france', 'ucl', 'uel', 'pre-season'].includes(finalFixture.competition);
+                     ['copa-del-rey', 'coppa-italia', 'dfb-pokal', 'coupe-de-france', 'ucl', 'uel', 'uecl', 'pre-season'].includes(finalFixture.competition);
 
   let updatedNews = [...state.news];
+  let clubTitlesHistory = { ...(state.clubTitlesHistory || {}) };
 
-  if (isKnockout && finalFixture.homeScore !== undefined && finalFixture.awayScore !== undefined) {
+  // Handle 2-legged ties
+  if (finalFixture.leg === 1) {
+    // Leg 1: Store score into paired Leg 2 fixture; do NOT advance winners yet!
+    const leg2 = fixtures.find(f => 
+      f.competition === finalFixture.competition &&
+      (f.leg === 2 || f.round?.includes('Leg 2')) &&
+      ((f.homeClubId === finalFixture.awayClubId && f.awayClubId === finalFixture.homeClubId) || 
+       (f.round?.replace('Leg 2', '') === finalFixture.round?.replace('Leg 1', '')))
+    );
+    if (leg2) {
+      leg2.leg1Score = { homeScore: finalFixture.homeScore ?? 0, awayScore: finalFixture.awayScore ?? 0 };
+    }
+    const leg1News: NewsItem = {
+      id: `news_leg1_${Date.now()}_${finalFixture.id}`,
+      date: finalFixture.date || state.currentDate,
+      headline: `【第1戦終了】${finalFixture.competitionName} ${finalFixture.homeScore} - ${finalFixture.awayScore} で決着`,
+      body: `${finalFixture.competitionName}の第1戦は${finalFixture.homeScore}-${finalFixture.awayScore}のスコアで終了。勝負の行方はホーム＆アウェーの第2戦へ持ち越されました。`,
+      category: 'tournament',
+      relatedClubId: finalFixture.homeClubId,
+      importance: 'medium'
+    };
+    updatedNews.unshift(leg1News);
+  } else if (isKnockout && finalFixture.homeScore !== undefined && finalFixture.awayScore !== undefined) {
     let winnerId: string;
     let loserId: string;
 
-    if (finalFixture.homeScore > finalFixture.awayScore) {
-      winnerId = finalFixture.homeClubId;
-      loserId = finalFixture.awayClubId;
-    } else if (finalFixture.awayScore > finalFixture.homeScore) {
-      winnerId = finalFixture.awayClubId;
-      loserId = finalFixture.homeClubId;
-    } else if (finalFixture.penaltyShootout) {
-      winnerId = finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId;
+    // Check if this is a 2-legged tie (Leg 2)
+    if (finalFixture.leg === 2 || finalFixture.round?.includes('Leg 2')) {
+      const homeLeg1 = finalFixture.leg1Score ? finalFixture.leg1Score.awayScore : 0;
+      const awayLeg1 = finalFixture.leg1Score ? finalFixture.leg1Score.homeScore : 0;
+      const totalHome = homeLeg1 + finalFixture.homeScore;
+      const totalAway = awayLeg1 + finalFixture.awayScore;
+      finalFixture.aggregateScore = { homeScore: totalHome, awayScore: totalAway };
+
+      if (finalFixture.penaltyShootout) {
+        winnerId = finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId;
+      } else if (totalHome > totalAway) {
+        winnerId = finalFixture.homeClubId;
+      } else if (totalAway > totalHome) {
+        winnerId = finalFixture.awayClubId;
+      } else {
+        winnerId = finalFixture.homeClubId;
+      }
       loserId = winnerId === finalFixture.homeClubId ? finalFixture.awayClubId : finalFixture.homeClubId;
     } else {
-      winnerId = finalFixture.homeClubId;
-      loserId = finalFixture.awayClubId;
+      // Single leg knockout
+      if (finalFixture.homeScore > finalFixture.awayScore) {
+        winnerId = finalFixture.homeClubId;
+        loserId = finalFixture.awayClubId;
+      } else if (finalFixture.awayScore > finalFixture.homeScore) {
+        winnerId = finalFixture.awayClubId;
+        loserId = finalFixture.homeClubId;
+      } else if (finalFixture.penaltyShootout) {
+        winnerId = finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId;
+        loserId = winnerId === finalFixture.homeClubId ? finalFixture.awayClubId : finalFixture.homeClubId;
+      } else {
+        winnerId = finalFixture.homeClubId;
+        loserId = finalFixture.awayClubId;
+      }
     }
 
     const winnerClub = state.clubs[winnerId];
     const loserClub = state.clubs[loserId];
-
-    // Find if there is a next round fixture in this competition that needs teams
-    const nextRoundFixture = fixtures.find(f => 
-      f.competition === finalFixture.competition && 
-      f.status === 'upcoming' && 
-      f.date > finalFixture.date &&
-      (!f.homeClubId || !f.awayClubId || f.homeClubId === 'tbd' || f.awayClubId === 'tbd')
-    );
-
-    if (nextRoundFixture) {
-      if (!nextRoundFixture.homeClubId || nextRoundFixture.homeClubId === 'tbd') {
-        nextRoundFixture.homeClubId = winnerId;
-      } else if (!nextRoundFixture.awayClubId || nextRoundFixture.awayClubId === 'tbd') {
-        nextRoundFixture.awayClubId = winnerId;
-      }
-    }
-
-    // Add tournament progression news
+    const isFinal = (finalFixture.round && finalFixture.round.toLowerCase().includes('final')) || 
+                    finalFixture.competitionName.includes('決勝') || 
+                    (finalFixture.round && finalFixture.round.includes('決勝'));
     const isUserInvolved = winnerId === state.userClubId || loserId === state.userClubId;
     const isWinnerUser = winnerId === state.userClubId;
 
-    const cupHeadline = isUserInvolved
-      ? (isWinnerUser
-          ? `【カップ戦勝利】${winnerClub?.name || 'チーム'}が${loserClub?.name || '対戦相手'}を撃破し次ラウンド進出決定！`
-          : `【カップ戦敗退】${loserClub?.name || 'チーム'}、${winnerClub?.name || '相手'}に惜敗しトーナメント敗退決定`)
-      : `【${finalFixture.competitionName}】${winnerClub?.name || ''}が${finalFixture.homeScore}-${finalFixture.awayScore}で次ラウンド進出`;
+    if (isFinal) {
+      // REQUIREMENT 8: Cup Championship Victory Celebration & Trophies tracking
+      const seasonYear = parseInt(state.season?.split('/')[0], 10) || 2026;
+      const winnerTitles = clubTitlesHistory[winnerId] || [];
+      winnerTitles.push({
+        year: seasonYear,
+        competitionName: finalFixture.competitionName,
+        category: getCompetitionCategory(finalFixture.competition)
+      });
+      clubTitlesHistory[winnerId] = winnerTitles;
 
-    updatedNews.unshift({
-      id: `news_cup_${Date.now()}_${finalFixture.id}`,
-      date: finalFixture.date || state.currentDate,
-      headline: cupHeadline,
-      body: `${finalFixture.competitionName}の熱戦。${winnerClub?.name || '勝者'}が${loserClub?.name || '敗者'}との激闘を制し、見事次のトーナメントラウンドへの切符を掴み取りました。`,
-      category: 'tournament',
-      relatedClubId: winnerId,
-      importance: isUserInvolved ? 'high' : 'medium'
-    });
+      if (isWinnerUser) {
+        state.manager.careerTrophies = (state.manager.careerTrophies || 0) + 1;
+      }
+
+      const victoryHeadline = isWinnerUser
+        ? `【歓喜の戴冠・タイトル獲得！】${winnerClub?.name}、${finalFixture.competitionName}制覇を達成！`
+        : `【大会制覇！】${winnerClub?.name}が${loserClub?.name}を破り、${finalFixture.competitionName}優勝！`;
+
+      const victoryBody = `栄光のカップ戦決勝。激戦の末に${winnerClub?.name}が${loserClub?.name}を下し、見事に${finalFixture.competitionName}のトロフィーを掲げました！${winnerClub?.name}のサポーターは街中で歴史的戴冠を祝い、選手たちの勇敢な戦いぶりに惜しみない称賛が送られています。`;
+
+      updatedNews.unshift({
+        id: `news_champ_${Date.now()}_${finalFixture.id}`,
+        date: finalFixture.date || state.currentDate,
+        headline: victoryHeadline,
+        body: victoryBody,
+        category: 'tournament',
+        relatedClubId: winnerId,
+        importance: 'high'
+      });
+    } else {
+      // Find if there is a next round fixture in this competition that needs teams
+      const nextRoundFixture = fixtures.find(f => 
+        f.competition === finalFixture.competition && 
+        f.status === 'upcoming' && 
+        f.date > finalFixture.date &&
+        (!f.homeClubId || !f.awayClubId || f.homeClubId === 'tbd' || f.awayClubId === 'tbd')
+      );
+
+      if (nextRoundFixture) {
+        if (!nextRoundFixture.homeClubId || nextRoundFixture.homeClubId === 'tbd') {
+          nextRoundFixture.homeClubId = winnerId;
+        } else if (!nextRoundFixture.awayClubId || nextRoundFixture.awayClubId === 'tbd') {
+          nextRoundFixture.awayClubId = winnerId;
+        }
+      }
+
+      const cupHeadline = isUserInvolved
+        ? (isWinnerUser
+            ? `【カップ戦勝利】${winnerClub?.name || 'チーム'}が${loserClub?.name || '対戦相手'}を撃破し次ラウンド進出決定！`
+            : `【カップ戦敗退】${loserClub?.name || 'チーム'}、${winnerClub?.name || '相手'}に惜敗しトーナメント敗退決定`)
+        : `【${finalFixture.competitionName}】${winnerClub?.name || ''}が${finalFixture.homeScore}-${finalFixture.awayScore}で次ラウンド進出`;
+
+      updatedNews.unshift({
+        id: `news_cup_${Date.now()}_${finalFixture.id}`,
+        date: finalFixture.date || state.currentDate,
+        headline: cupHeadline,
+        body: `${finalFixture.competitionName}の熱戦。${winnerClub?.name || '勝者'}が${loserClub?.name || '敗者'}との激闘を制し、見事次のトーナメントラウンドへの切符を掴み取りました。`,
+        category: 'tournament',
+        relatedClubId: winnerId,
+        importance: isUserInvolved ? 'high' : 'medium'
+      });
+    }
   }
 
   // 5. Board Confidence, Fan Approval, and Sacking Evaluation for User Matches (with Match Deduplication)
@@ -279,6 +376,7 @@ export function applyMatchResultToWorld(
     standings,
     players,
     news: updatedNews,
+    clubTitlesHistory,
     boardConfidence,
     fanApproval,
     consecutiveLosses,
@@ -316,6 +414,7 @@ export function advanceOneDay(
   // 1. Fatigue Recovery & Daily Health check for players (Requirement 1 & 2)
   const updatedPlayers = { ...state.players };
   let injuryNews: NewsItem | null = null;
+  const recoveryNewsList: NewsItem[] = [];
   const todayFixtures = state.fixtures.filter(f => f.date === nextDate);
 
   // Exact Birthday & Age Recalculation (Requirement 9: 全選手が毎年確実に歳を取る)
@@ -369,22 +468,33 @@ export function advanceOneDay(
       }
 
       // Check if return date reached or recovery days completed
-      const reachedReturnDate = p.injuryReturnDate && nextDate >= p.injuryReturnDate;
+      const reachedReturnDate = (p.injuryReturnDate && nextDate >= p.injuryReturnDate) || (p.injury?.returnDate && nextDate >= p.injury.returnDate);
       const zeroDaysLeft = p.injuryDaysRemaining === 0 || (p.injury?.recoveryDays === 0 && !p.injuryReturnDate);
 
       if (reachedReturnDate || zeroDaysLeft) {
         p.injuryStatus = 'HEALTHY';
-        p.injury.isInjured = false;
-        p.injury.recoveryDays = 0;
-        p.injury.returnDate = undefined;
+        p.injury = { isInjured: false, recoveryDays: 0 };
         p.injuryReturnDate = undefined;
         p.injuryStartDate = undefined;
         p.injuryType = undefined;
         p.injuryDaysRemaining = 0;
+        if (p.squadStatus === 'OUT_OF_SQUAD') {
+          p.squadStatus = 'RESERVE';
+        }
 
         if (p.clubId === state.userClubId && !autoSimulateUserMatch) {
           stoppedReason = `【戦列復帰】主力選手の${p.name}が怪我から全体練習に完全合流しました！`;
         }
+        recoveryNewsList.push({
+          id: `news_rec_${Date.now()}_${p.id}`,
+          date: nextDate,
+          headline: `【戦列復帰】${p.name}が怪我から復帰`,
+          body: `${p.name}が怪我から順調に回復し、全体練習に完全合流しました。次節以降の公式戦への出場が可能となります。`,
+          category: 'injury',
+          relatedClubId: p.clubId,
+          relatedPlayerId: p.id,
+          importance: p.clubId === state.userClubId ? 'high' : 'medium'
+        });
       } else {
         // Strictly maintain INJURED state and prevent participation
         p.injuryStatus = 'INJURED';
@@ -502,6 +612,9 @@ export function advanceOneDay(
   });
 
   state.players = updatedPlayers;
+  if (recoveryNewsList.length > 0) {
+    state.news = [...recoveryNewsList, ...state.news];
+  }
   if (loanReturnNews.length > 0) {
     state.news = [...loanReturnNews, ...state.news];
   }
@@ -511,6 +624,50 @@ export function advanceOneDay(
 
   // Autonomous AI Transfers
   state = simulateAITransfers(state);
+
+  // Process Pending Transfers (Requirement 10)
+  const pendingTransfers = state.pendingTransfers || [];
+  const remainingPending: PendingTransfer[] = [];
+  const pendingExecutedNews: NewsItem[] = [];
+
+  pendingTransfers.forEach(t => {
+    if (nextDate >= t.joinDate) {
+      const p = state.players[t.playerId];
+      const buyer = state.clubs[t.buyerClubId];
+      const seller = state.clubs[t.sellerClubId];
+      if (p && buyer) {
+        if (seller) {
+          seller.playerIds = seller.playerIds.filter(id => id !== p.id);
+        }
+        if (!buyer.playerIds.includes(p.id)) {
+          buyer.playerIds.push(p.id);
+        }
+        p.clubId = buyer.id;
+        p.currentClubId = buyer.id;
+        p.contractYears = t.contractYears;
+        p.wage = t.wage;
+        p.squadStatus = 'RESERVE';
+        p.isTransferListed = false;
+
+        pendingExecutedNews.push({
+          id: `news_pending_exec_${Date.now()}_${p.id}`,
+          date: nextDate,
+          headline: `【正式加入】内定の${p.name}が${buyer.name}へ合流！`,
+          body: `事前合意に基づき、${p.name}が本日付で${buyer.name}へ正式加入しました。早速トップチームの練習に合流しています。`,
+          category: 'transfer',
+          relatedClubId: buyer.id,
+          relatedPlayerId: p.id,
+          importance: 'high'
+        });
+      }
+    } else {
+      remainingPending.push(t);
+    }
+  });
+  state.pendingTransfers = remainingPending;
+  if (pendingExecutedNews.length > 0) {
+    state.news = [...pendingExecutedNews, ...state.news];
+  }
 
   // Ballon d'Or November Event Check (Nominees in early Nov, Winner in late Nov)
   const bdorResult = checkAndAdvanceBallonDor(state, nextDate);
@@ -612,9 +769,10 @@ export function advanceOneDay(
 
     const promRel = processSeasonEndPromotionsAndRelegations(state, currentSeasonYear + 1);
     state = promRel.state;
-    state.news = [promRel.news, ...state.news];
+    const euroQual = calculateEuropeanQualifications(state);
+    state.news = [promRel.news, ...euroQual.news, ...state.news];
     if (!autoSimulateUserMatch) {
-      stoppedReason = `【${state.season}新シーズン開幕】昇降格が反映され、新シーズンのプレシーズンツアーが開幕しました！`;
+      stoppedReason = `【${state.season}新シーズン開幕】昇降格および欧州大会出場枠が確定し、新シーズンのプレシーズンツアーが開幕しました！`;
     }
   }
 
@@ -1352,4 +1510,167 @@ export function simulatePendingAIFixturesForDate(
   // Synchronize standings
   currentState.standings = rebuildStandingsFromMatchResults(currentState.fixtures, currentState.clubs, currentState.standings);
   return currentState;
+}
+
+/**
+ * Requirement 3: Calculate UEFA European Competition (UCL, UEL, UECL) qualifications
+ * for all 5 top European leagues with domestic cup winner integration and rollovers.
+ * STRICTLY NO ACL.
+ */
+export function calculateEuropeanQualifications(state: GameWorldState): {
+  uclClubs: string[];
+  uelClubs: string[];
+  ueclClubs: string[];
+  news: NewsItem[];
+} {
+  const standings = state.standings;
+  const clubs = state.clubs;
+  const tournaments: Record<string, any> = (state.tournaments as any) || {};
+
+  const uclSet = new Set<string>();
+  const uelSet = new Set<string>();
+  const ueclSet = new Set<string>();
+
+  const getStandings = (k: LeagueKey) => standings[k] || [];
+
+  // 1. Premier League (Top 4 UCL, 5th UEL, FA Cup winner UEL, Carabao Cup winner UECL)
+  const pl = getStandings('premier-league');
+  const faCupChamp = tournaments['fa-cup']?.championClubId;
+  const carabaoChamp = tournaments['carabao-cup']?.championClubId;
+
+  pl.slice(0, 4).forEach(r => uclSet.add(r.clubId));
+  if (faCupChamp && !uclSet.has(faCupChamp)) {
+    uelSet.add(faCupChamp);
+  }
+  if (pl[4] && !uclSet.has(pl[4].clubId)) uelSet.add(pl[4].clubId);
+  if (uelSet.size < 2 && pl[5] && !uclSet.has(pl[5].clubId)) uelSet.add(pl[5].clubId);
+
+  if (carabaoChamp && !uclSet.has(carabaoChamp) && !uelSet.has(carabaoChamp)) {
+    ueclSet.add(carabaoChamp);
+  } else {
+    const nextForEcl = pl.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
+    if (nextForEcl) ueclSet.add(nextForEcl.clubId);
+  }
+
+  // 2. La Liga (Top 4 UCL, 5th UEL, Copa del Rey UEL, 6th UECL)
+  const ll = getStandings('laliga');
+  const copaChamp = tournaments['copa-del-rey']?.championClubId;
+  ll.slice(0, 4).forEach(r => uclSet.add(r.clubId));
+  if (copaChamp && !uclSet.has(copaChamp)) uelSet.add(copaChamp);
+  if (ll[4] && !uclSet.has(ll[4].clubId)) uelSet.add(ll[4].clubId);
+  if (uelSet.size < 2 && ll[5] && !uclSet.has(ll[5].clubId)) uelSet.add(ll[5].clubId);
+  const nextForEclLL = ll.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
+  if (nextForEclLL) ueclSet.add(nextForEclLL.clubId);
+
+  // 3. Serie A (Top 4 UCL, 5th UEL, Coppa Italia UEL, 6th UECL)
+  const sa = getStandings('serie-a');
+  const coppaChamp = tournaments['coppa-italia']?.championClubId;
+  sa.slice(0, 4).forEach(r => uclSet.add(r.clubId));
+  if (coppaChamp && !uclSet.has(coppaChamp)) uelSet.add(coppaChamp);
+  if (sa[4] && !uclSet.has(sa[4].clubId)) uelSet.add(sa[4].clubId);
+  if (uelSet.size < 2 && sa[5] && !uclSet.has(sa[5].clubId)) uelSet.add(sa[5].clubId);
+  const nextForEclSA = sa.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
+  if (nextForEclSA) ueclSet.add(nextForEclSA.clubId);
+
+  // 4. Bundesliga (Top 4 UCL, 5th UEL, DFB-Pokal UEL, 6th UECL)
+  const bl = getStandings('bundesliga');
+  const dfbChamp = tournaments['dfb-pokal']?.championClubId;
+  bl.slice(0, 4).forEach(r => uclSet.add(r.clubId));
+  if (dfbChamp && !uclSet.has(dfbChamp)) uelSet.add(dfbChamp);
+  if (bl[4] && !uclSet.has(bl[4].clubId)) uelSet.add(bl[4].clubId);
+  if (uelSet.size < 2 && bl[5] && !uclSet.has(bl[5].clubId)) uelSet.add(bl[5].clubId);
+  const nextForEclBL = bl.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
+  if (nextForEclBL) ueclSet.add(nextForEclBL.clubId);
+
+  // 5. Ligue 1 (Top 3 UCL, 4th UEL, Coupe de France UEL, 5th/6th UECL)
+  const l1 = getStandings('ligue-1');
+  const coupeChamp = tournaments['coupe-de-france']?.championClubId;
+  l1.slice(0, 3).forEach(r => uclSet.add(r.clubId));
+  if (coupeChamp && !uclSet.has(coupeChamp)) uelSet.add(coupeChamp);
+  if (l1[3] && !uclSet.has(l1[3].clubId)) uelSet.add(l1[3].clubId);
+  if (uelSet.size < 2 && l1[4] && !uclSet.has(l1[4].clubId)) uelSet.add(l1[4].clubId);
+  const nextForEclL1 = l1.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
+  if (nextForEclL1) ueclSet.add(nextForEclL1.clubId);
+
+  const uclClubs = Array.from(uclSet);
+  const uelClubs = Array.from(uelSet);
+  const ueclClubs = Array.from(ueclSet);
+
+  const news: NewsItem[] = [];
+
+  // Generate User Club European news
+  if (state.userClubId) {
+    const userClub = clubs[state.userClubId];
+    if (uclSet.has(state.userClubId)) {
+      news.push({
+        id: `news_euro_ucl_${Date.now()}`,
+        date: state.currentDate,
+        headline: `【CL出場決定！】${userClub?.name}、来季UEFAチャンピオンズリーグ本戦への出場権を獲得！`,
+        body: `激闘のリーグ戦の末、${userClub?.name}が見事にトップ4（CL出場圏内）でフィニッシュ！世界最高峰の舞台「UEFAチャンピオンズリーグ」の出場権を掴み取りました。`,
+        category: 'tournament',
+        relatedClubId: state.userClubId,
+        importance: 'high'
+      });
+    } else if (uelSet.has(state.userClubId)) {
+      news.push({
+        id: `news_euro_uel_${Date.now()}`,
+        date: state.currentDate,
+        headline: `【EL出場決定！】${userClub?.name}、来季UEFAヨーロッパリーグ出場権を獲得！`,
+        body: `${userClub?.name}が激しい欧州カップ出場争いを制し、来季のUEFAヨーロッパリーグ（UEL）本戦出場を決めました！`,
+        category: 'tournament',
+        relatedClubId: state.userClubId,
+        importance: 'high'
+      });
+    } else if (ueclSet.has(state.userClubId)) {
+      news.push({
+        id: `news_euro_uecl_${Date.now()}`,
+        date: state.currentDate,
+        headline: `【ECL出場決定！】${userClub?.name}、来季UEFAカンファレンスリーグ出場権を獲得！`,
+        body: `${userClub?.name}が粘り強い戦いでリーグ上位に踏みとどまり、UEFAカンファレンスリーグ（UECL）への切符を手に入れました！`,
+        category: 'tournament',
+        relatedClubId: state.userClubId,
+        importance: 'high'
+      });
+    }
+  }
+  // Also generate representative news for UEL and UECL qualification
+  const repUelClubId = uelClubs[0];
+  if (repUelClubId && repUelClubId !== state.userClubId) {
+    const club = clubs[repUelClubId];
+    news.push({
+      id: `news_euro_uel_rep_${Date.now()}`,
+      date: state.currentDate,
+      headline: `【EL出場決定！】${club?.name}、来季UEFAヨーロッパリーグ出場権獲得`,
+      body: `${club?.name}が激戦の欧州カップ出場枠争いを制し、来季UELへの出場を確定させました。`,
+      category: 'tournament',
+      relatedClubId: repUelClubId,
+      importance: 'medium'
+    });
+  }
+
+  const repUeclClubId = ueclClubs[0];
+  if (repUeclClubId && repUeclClubId !== state.userClubId) {
+    const club = clubs[repUeclClubId];
+    news.push({
+      id: `news_euro_uecl_rep_${Date.now()}`,
+      date: state.currentDate,
+      headline: `【ECL出場決定！】${club?.name}、来季カンファレンスリーグ出場権獲得`,
+      body: `${club?.name}が来季UEFAカンファレンスリーグ本戦への切符を手中に収めました。`,
+      category: 'tournament',
+      relatedClubId: repUeclClubId,
+      importance: 'medium'
+    });
+  }
+
+  // General European Qualifications Overview
+  news.push({
+    id: `news_euro_overview_${Date.now()}`,
+    date: state.currentDate,
+    headline: '【UEFA公式発表】来季欧州カップ戦（UCL・EL・ECL）全出場クラブ確定！',
+    body: `欧州5大リーグおよび各国国内カップ戦の結果を受け、来季のUEFA主催3大大会（CL・EL・ECL）への出場枠が正式に確定しました。CLには欧州王者を争う全36チーム、ELおよびECLにも各国の強豪クラブが集結します。`,
+    category: 'tournament',
+    importance: 'high'
+  });
+
+  return { uclClubs, uelClubs, ueclClubs, news };
 }

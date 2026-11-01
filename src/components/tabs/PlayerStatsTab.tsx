@@ -50,11 +50,96 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
     }
   }, [availablePastSeasons, selectedPastSeason]);
 
-  // Helper to extract stats according to seasonScope
+  const LEAGUE_COMPETITION_KEYS = useMemo(() => new Set([
+    'premier-league', 'championship', 'laliga', 'segunda-division',
+    'bundesliga', '2-bundesliga', 'serie-a', 'serie-b',
+    'ligue-1', 'ligue-2', 'j1-league', 'j2-league', 'j3-league'
+  ]), []);
+
+  // Helper to extract stats according to seasonScope and statType
   const getScopedPlayerStats = (p: Player) => {
+    let rawStats: {
+      appearances: number;
+      starts: number;
+      minutes: number;
+      goals: number;
+      assists: number;
+      cleanSheets: number;
+      yellowCards: number;
+      redCards: number;
+      avgRating: number;
+      saves: number;
+      goalsConceded: number;
+    };
+
     if (seasonScope === 'current') {
-      return p.stats || { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+      if (statType === 'total') {
+        rawStats = p.stats
+          ? {
+              ...p.stats,
+              saves: p.stats.saves || 0,
+              goalsConceded: p.stats.goalsConceded || 0
+            }
+          : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+      } else {
+        const compStatsMap = p.competitionStats || {};
+        let filteredApps = 0;
+        let filteredStarts = 0;
+        let filteredMins = 0;
+        let filteredGoals = 0;
+        let filteredAssists = 0;
+        let filteredCS = 0;
+        let filteredYellow = 0;
+        let filteredRed = 0;
+        let weightedRating = 0;
+        let filteredSaves = 0;
+        let filteredConceded = 0;
+
+        Object.entries(compStatsMap).forEach(([compId, cs]) => {
+          const isLeague = LEAGUE_COMPETITION_KEYS.has(compId);
+          const matches = statType === 'league' ? isLeague : !isLeague;
+          if (matches && cs) {
+            filteredApps += cs.appearances || 0;
+            filteredStarts += cs.starts || 0;
+            filteredMins += cs.minutes || 0;
+            filteredGoals += cs.goals || 0;
+            filteredAssists += cs.assists || 0;
+            filteredCS += cs.cleanSheets || 0;
+            filteredYellow += cs.yellowCards || 0;
+            filteredRed += cs.redCards || 0;
+            filteredSaves += cs.saves || 0;
+            filteredConceded += cs.goalsConceded || 0;
+            weightedRating += (cs.avgRating || 0) * (cs.appearances || 0);
+          }
+        });
+
+        if (Object.keys(compStatsMap).length === 0 && (p.stats?.appearances || 0) > 0) {
+          rawStats = statType === 'league'
+            ? {
+                ...p.stats,
+                saves: p.stats.saves || 0,
+                goalsConceded: p.stats.goalsConceded || 0
+              }
+            : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
+        } else {
+          rawStats = {
+            appearances: filteredApps,
+            starts: filteredStarts,
+            minutes: filteredMins,
+            goals: filteredGoals,
+            assists: filteredAssists,
+            cleanSheets: filteredCS,
+            yellowCards: filteredYellow,
+            redCards: filteredRed,
+            avgRating: filteredApps > 0 ? +(weightedRating / filteredApps).toFixed(2) : 0,
+            saves: filteredSaves,
+            goalsConceded: filteredConceded
+          };
+        }
+      }
+      return rawStats;
     }
+
     if (seasonScope === 'past') {
       const hist = (p.seasonHistory || []).find(h => h.seasonId === (selectedPastSeason || availablePastSeasons[0]));
       return hist ? {
@@ -71,6 +156,7 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
         goalsConceded: 0
       } : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
     }
+
     // Career Totals: sum of current season + all archived past seasons
     const historyList = p.seasonHistory || [];
     const totApps = (p.stats?.appearances || 0) + historyList.reduce((acc, h) => acc + (h.appearances || 0), 0);
@@ -128,7 +214,7 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
         ...p,
         currentScopedStats: getScopedPlayerStats(p)
       }));
-  }, [state.players, state.clubs, selectedLeague, searchQuery, seasonScope, selectedPastSeason, availablePastSeasons]);
+  }, [state.players, state.clubs, selectedLeague, searchQuery, seasonScope, selectedPastSeason, availablePastSeasons, statType]);
 
   // Rankings using currentScopedStats
   const topScorers = useMemo(() => {
@@ -247,7 +333,7 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                 : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
             }`}
           >
-            今季の成績 (2026/27)
+            今季の成績 ({state.season} 架空シーズン)
           </button>
           <button
             type="button"
@@ -483,13 +569,13 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                       </td>
                       <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
                       <td className="py-3 px-3 text-center font-mono">{p.age}</td>
-                      <td className="py-3 px-3 text-center font-mono">{p.stats?.appearances || 0}</td>
+                      <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.appearances || 0}</td>
                       <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                        {p.stats?.goals || 0}
+                        {p.currentScopedStats.goals || 0}
                       </td>
-                      <td className="py-3 px-3 text-center font-mono text-slate-300">{p.stats?.assists || 0}</td>
+                      <td className="py-3 px-3 text-center font-mono text-slate-300">{p.currentScopedStats.assists || 0}</td>
                       <td className="py-3 px-3 text-center font-mono font-semibold">
-                        {p.stats?.avgRating && p.stats.avgRating > 0 ? p.stats.avgRating.toFixed(2) : '-'}
+                        {p.currentScopedStats.avgRating && p.currentScopedStats.avgRating > 0 ? p.currentScopedStats.avgRating.toFixed(2) : '-'}
                       </td>
                     </tr>
                   );
@@ -540,13 +626,13 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                       </td>
                       <td className="py-3 px-4 text-slate-300">{club?.name}</td>
                       <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                      <td className="py-3 px-3 text-center font-mono">{p.stats?.appearances || 0}</td>
+                      <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.appearances || 0}</td>
                       <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                        {p.stats?.assists || 0}
+                        {p.currentScopedStats.assists || 0}
                       </td>
-                      <td className="py-3 px-3 text-center font-mono text-slate-400">{p.stats?.goals || 0}</td>
+                      <td className="py-3 px-3 text-center font-mono text-slate-400">{p.currentScopedStats.goals || 0}</td>
                       <td className="py-3 px-3 text-center font-mono">
-                        {p.stats?.avgRating && p.stats.avgRating > 0 ? p.stats.avgRating.toFixed(2) : '-'}
+                        {p.currentScopedStats.avgRating && p.currentScopedStats.avgRating > 0 ? p.currentScopedStats.avgRating.toFixed(2) : '-'}
                       </td>
                     </tr>
                   );
@@ -593,9 +679,9 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                       <td className="py-3 px-3 text-center font-mono font-bold">{idx + 1}</td>
                       <td className="py-3 px-4 font-bold text-white">{gk.name}</td>
                       <td className="py-3 px-4 text-slate-300">{club?.name}</td>
-                      <td className="py-3 px-3 text-center font-mono">{gk.stats?.appearances || 0}</td>
+                      <td className="py-3 px-3 text-center font-mono">{gk.currentScopedStats.appearances || 0}</td>
                       <td className="py-3 px-4 text-center font-mono font-black text-amber-300 text-sm">
-                        {gk.stats?.cleanSheets || 0}
+                        {gk.currentScopedStats.cleanSheets || 0}
                       </td>
                       <td className="py-3 px-3 text-center font-mono font-bold text-blue-400">
                         {gk.derivedSaves}
@@ -607,7 +693,7 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                         {gk.derivedConcededRate}
                       </td>
                       <td className="py-3 px-3 text-center font-mono">
-                        {gk.stats?.avgRating && gk.stats.avgRating > 0 ? gk.stats.avgRating.toFixed(2) : '-'}
+                        {gk.currentScopedStats.avgRating && gk.currentScopedStats.avgRating > 0 ? gk.currentScopedStats.avgRating.toFixed(2) : '-'}
                       </td>
                     </tr>
                   );
@@ -770,11 +856,11 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                     <td className="py-3 px-4 font-bold text-white">{p.name}</td>
                     <td className="py-3 px-4 text-slate-300">{state.clubs[p.clubId]?.name}</td>
                     <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.stats?.appearances || 0}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.stats?.goals || 0}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.stats?.assists || 0}</td>
+                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.appearances || 0}</td>
+                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.goals || 0}</td>
+                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.assists || 0}</td>
                     <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                      {p.stats?.avgRating && p.stats.avgRating > 0 ? p.stats.avgRating.toFixed(2) : '-'}
+                      {p.currentScopedStats.avgRating && p.currentScopedStats.avgRating > 0 ? p.currentScopedStats.avgRating.toFixed(2) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -808,9 +894,9 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                     <td className="py-3 px-4 font-bold text-white">{p.name}</td>
                     <td className="py-3 px-4 text-slate-300">{state.clubs[p.clubId]?.name}</td>
                     <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.stats?.starts || 0}</td>
+                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.starts || 0}</td>
                     <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                      {p.stats?.minutes || 0} 分
+                      {p.currentScopedStats.minutes || 0} 分
                     </td>
                   </tr>
                 ))}
@@ -846,10 +932,10 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
                     <td className="py-3 px-4 text-slate-300">{state.clubs[p.clubId]?.name}</td>
                     <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
                     <td className="py-3 px-3 text-center font-mono font-bold text-amber-300">
-                      {p.stats?.yellowCards || 0}
+                      {p.currentScopedStats.yellowCards || 0}
                     </td>
                     <td className="py-3 px-3 text-center font-mono font-bold text-rose-400">
-                      {p.stats?.redCards || 0}
+                      {p.currentScopedStats.redCards || 0}
                     </td>
                     <td className="py-3 px-3 text-center">
                       {p.suspension?.isSuspended ? (

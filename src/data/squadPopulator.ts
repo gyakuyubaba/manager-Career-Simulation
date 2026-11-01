@@ -156,8 +156,23 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
       currentClubId: p.clubId,
       squadStatus: p.squadStatus || 'OUT_OF_SQUAD',
       injuryStatus: p.injuryStatus || (p.injury?.isInjured ? 'INJURED' : 'FIT'),
-      injury: p.injury || { isInjured: false },
-      suspension: p.suspension || { isSuspended: false, matchesRemaining: 0 }
+      injury: p.injury ? { ...p.injury } : { isInjured: false },
+      suspension: p.suspension ? { ...p.suspension } : { isSuspended: false, matchesRemaining: 0 },
+      stats: {
+        appearances: 0,
+        starts: 0,
+        minutes: 0,
+        goals: 0,
+        assists: 0,
+        cleanSheets: 0,
+        yellowCards: 0,
+        redCards: 0,
+        avgRating: 0,
+        saves: 0,
+        goalsConceded: 0
+      },
+      preseasonStats: p.preseasonStats ? { ...p.preseasonStats } : undefined,
+      competitionStats: {}
     };
 
     registry[finalId] = cleanPlayer;

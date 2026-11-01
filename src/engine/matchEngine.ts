@@ -1,5 +1,5 @@
-import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition, GoalDetail } from '../types/game';
-import { addDays } from './dateEngine';
+import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition, GoalDetail, CompetitionCategory } from '../types/game';
+import { addDays, getCompetitionCategory } from './dateEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 
 // Condition multiplier for calculations
@@ -28,13 +28,54 @@ export function finalMatchEligibilityCheck(
   bench: string[],
   clubId: string,
   players: Record<string, Player>,
-  currentDate?: string
+  currentDate?: string,
+  competition?: string
 ): MatchEligibilityCheckResult {
   const errors: string[] = [];
   const ineligibleStarters: { player: Player; reason: string; badge: string }[] = [];
   const ineligibleBench: { player: Player; reason: string; badge: string }[] = [];
   const ineligibleAll: { player: Player; reason: string; badge: string; role: 'STARTER' | 'BENCH' }[] = [];
   const ineligiblePlayerIds: string[] = [];
+
+  const compCategory: CompetitionCategory | undefined = competition ? getCompetitionCategory(competition) : undefined;
+
+  const isPlayerSuspendedForCompetition = (p: Player): { isSuspended: boolean; reason: string } => {
+    if (!p.suspension) return { isSuspended: false, reason: '' };
+
+    if (compCategory) {
+      if (p.suspension.competitionSuspensions && p.suspension.competitionSuspensions[compCategory] !== undefined) {
+        const remaining = p.suspension.competitionSuspensions[compCategory] || 0;
+        if (remaining > 0) {
+          return {
+            isSuspended: true,
+            reason: `出場停止処分中 (${compCategory} 残${remaining}試合)`
+          };
+        }
+        return { isSuspended: false, reason: '' };
+      }
+      if (p.suspension.competitionCategory) {
+        if (p.suspension.competitionCategory === compCategory) {
+          const remaining = p.suspension.matchesRemaining || 1;
+          if (remaining > 0 || p.suspension.isSuspended) {
+            return {
+              isSuspended: true,
+              reason: `出場停止処分中 (${compCategory} 残${remaining}試合)`
+            };
+          }
+        }
+        return { isSuspended: false, reason: '' };
+      }
+    }
+
+    if (p.suspension.isSuspended || (p.suspension.matchesRemaining || 0) > 0) {
+      return {
+        isSuspended: true,
+        reason: `出場停止処分中 (残${p.suspension.matchesRemaining || 1}試合)`
+      };
+    }
+
+    return { isSuspended: false, reason: '' };
+  };
 
   // Check Starters
   starters.forEach(pId => {
@@ -69,10 +110,11 @@ export function finalMatchEligibilityCheck(
       return;
     }
 
-    if (p.suspension?.isSuspended || (p.suspension?.matchesRemaining || 0) > 0) {
-      const reason = `出場停止処分中 (残${p.suspension.matchesRemaining}試合)`;
+    const suspensionCheck = isPlayerSuspendedForCompetition(p);
+    if (suspensionCheck.isSuspended) {
+      const reason = suspensionCheck.reason;
       const badge = '【出場停止】';
-      errors.push(`【出場停止中】${p.name}選手は出場停止処分中のため出場できません。`);
+      errors.push(`【出場停止中】${p.name}選手は${reason}のため出場できません。`);
       ineligibleStarters.push({ player: p, reason, badge });
       ineligibleAll.push({ player: p, reason, badge, role: 'STARTER' });
       ineligiblePlayerIds.push(pId);
@@ -134,10 +176,11 @@ export function finalMatchEligibilityCheck(
       return;
     }
 
-    if (p.suspension?.isSuspended || (p.suspension?.matchesRemaining || 0) > 0) {
-      const reason = `出場停止中 (残${p.suspension.matchesRemaining}試合)`;
+    const suspensionCheck = isPlayerSuspendedForCompetition(p);
+    if (suspensionCheck.isSuspended) {
+      const reason = suspensionCheck.reason;
       const badge = '【出場停止】';
-      errors.push(`【ベンチ停止警告】${p.name}選手は出場停止処分中のためベンチ登録できません。`);
+      errors.push(`【ベンチ停止警告】${p.name}選手は${reason}のためベンチ登録できません。`);
       ineligibleBench.push({ player: p, reason, badge });
       ineligibleAll.push({ player: p, reason, badge, role: 'BENCH' });
       ineligiblePlayerIds.push(pId);
@@ -650,6 +693,48 @@ export function generateGoalDetail(
   };
 }
 
+// Requirement 1: Check whether a fixture requires a decider (ET / PK)
+export function isMatchRequiringDecider(fixture: MatchFixture): { requiresDecider: boolean; isTwoLeggedSecondLeg: boolean } {
+  if (fixture.needsDecider) {
+    return { requiresDecider: true, isTwoLeggedSecondLeg: false };
+  }
+  if (['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1', 'j1-league', 'j2-league', 'j3-league'].includes(fixture.competition)) {
+    return { requiresDecider: false, isTwoLeggedSecondLeg: false };
+  }
+  if (fixture.competition === 'pre-season' || fixture.competitionType === 'preseason') {
+    return { requiresDecider: false, isTwoLeggedSecondLeg: false };
+  }
+  if (fixture.leg === 1) {
+    return { requiresDecider: false, isTwoLeggedSecondLeg: false };
+  }
+  if (fixture.leg === 2) {
+    return { requiresDecider: true, isTwoLeggedSecondLeg: true };
+  }
+  if (fixture.round && /第\d+節/.test(fixture.round)) {
+    return { requiresDecider: false, isTwoLeggedSecondLeg: false };
+  }
+  const isCup = (fixture.competitionType as string) === 'cup' || 
+                (fixture.competitionType as string) === 'tournament' ||
+                fixture.competitionType === 'domestic_cup' ||
+                fixture.competitionType === 'continental_competition' ||
+                fixture.competition.includes('cup') || 
+                fixture.competition === 'copa-del-rey' || 
+                fixture.competition === 'dfb-pokal' || 
+                fixture.competition === 'coppa-italia' || 
+                fixture.competition === 'coupe-de-france' ||
+                fixture.competition === 'ucl' ||
+                fixture.competition === 'uel' ||
+                fixture.competition === 'uecl' ||
+                fixture.round?.includes('決勝') ||
+                fixture.round?.includes('準決勝') ||
+                fixture.round?.includes('準々決勝') ||
+                fixture.round?.includes('回戦');
+  if (isCup) {
+    return { requiresDecider: true, isTwoLeggedSecondLeg: false };
+  }
+  return { requiresDecider: false, isTwoLeggedSecondLeg: false };
+}
+
 // -------------------------------------------------------------
 // 【3 & 4. 試合シミュレーションエンジン (0-0過多解消 & 時間帯展開)】
 // -------------------------------------------------------------
@@ -1047,10 +1132,15 @@ export function simulateFullMatch(
           }
 
           if (updatedPlayers[offender.id]) {
+            const compCat = getCompetitionCategory(fixture.competition);
             updatedPlayers[offender.id].suspension = {
               isSuspended: true,
               matchesRemaining: cardDetails.matchesRemaining,
-              reason: cardDetails.reason
+              reason: cardDetails.reason,
+              competitionCategory: compCat,
+              competitionSuspensions: {
+                [compCat]: cardDetails.matchesRemaining
+              }
             };
             updatedPlayers[offender.id].squadStatus = 'OUT_OF_SQUAD';
           }
@@ -1073,10 +1163,15 @@ export function simulateFullMatch(
               awayPitchPlayers = awayPitchPlayers.filter(id => id !== offender.id);
             }
             if (updatedPlayers[offender.id]) {
+              const compCat = getCompetitionCategory(fixture.competition);
               updatedPlayers[offender.id].suspension = {
                 isSuspended: true,
                 matchesRemaining: cardDetails.matchesRemaining,
-                reason: cardDetails.reason
+                reason: cardDetails.reason,
+                competitionCategory: compCat,
+                competitionSuspensions: {
+                  [compCat]: cardDetails.matchesRemaining
+                }
               };
               updatedPlayers[offender.id].squadStatus = 'OUT_OF_SQUAD';
             }
@@ -1154,51 +1249,93 @@ export function simulateFullMatch(
   // Sort events chronologically
   events.sort((a, b) => a.minute - b.minute);
 
-  // Requirement 11: Cup Tournament decisive extra time and penalties if drawn
+  // Requirement 1 & 2: Decisive extra time and penalties if drawn in knockout fixtures
   let extraTimePlayed = false;
   let penaltyShootout: { homeScore: number; awayScore: number } | undefined = undefined;
 
-  const isCupTie = fixture.competition.includes('cup') || 
-                   fixture.competition === 'copa-del-rey' || 
-                   fixture.competition === 'dfb-pokal' || 
-                   fixture.competition === 'coppa-italia' || 
-                   fixture.competition === 'coupe-de-france' ||
-                   fixture.competition === 'ucl' ||
-                   fixture.competition === 'uel';
+  const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
+  let needsExtraTime = false;
 
-  if (isCupTie && homeScore === awayScore) {
+  if (requiresDecider) {
+    if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+      // In 2nd leg: awayClub was home in leg 1, homeClub was away in leg 1
+      const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + homeScore;
+      const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + awayScore;
+      if (aggHome === aggAway) {
+        needsExtraTime = true;
+      }
+    } else {
+      if (homeScore === awayScore) {
+        needsExtraTime = true;
+      }
+    }
+  }
+
+  if (needsExtraTime) {
     extraTimePlayed = true;
-    const etHomeGoals = rng() < 0.22 ? 1 : 0;
-    const etAwayGoals = rng() < 0.22 ? 1 : 0;
-    homeScore += etHomeGoals;
-    awayScore += etAwayGoals;
-    if (etHomeGoals > 0 && homeStartersList[0]) {
-      const etDetail = generateGoalDetail(homeStartersList[0], undefined, false, false, rng, 104);
-      events.push({ minute: 104, type: 'goal', clubId: homeClub.id, playerId: homeStartersList[0].id, playerName: homeStartersList[0].name, description: `【延長戦ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    const etHomeGoals1 = rng() < 0.12 ? 1 : 0;
+    const etAwayGoals1 = rng() < 0.12 ? 1 : 0;
+    homeScore += etHomeGoals1;
+    awayScore += etAwayGoals1;
+    if (etHomeGoals1 > 0 && homePitchPlayers[0]) {
+      const p = updatedPlayers[homePitchPlayers[0]] || homeStartersList[0];
+      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 98);
+      events.push({ minute: 98, type: 'goal', clubId: homeClub.id, playerId: p.id, playerName: p.name, description: `【延長前半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
     }
-    if (etAwayGoals > 0 && awayStartersList[0]) {
-      const etDetail = generateGoalDetail(awayStartersList[0], undefined, false, false, rng, 116);
-      events.push({ minute: 116, type: 'goal', clubId: awayClub.id, playerId: awayStartersList[0].id, playerName: awayStartersList[0].name, description: `【延長戦ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    if (etAwayGoals1 > 0 && awayPitchPlayers[0]) {
+      const p = updatedPlayers[awayPitchPlayers[0]] || awayStartersList[0];
+      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 103);
+      events.push({ minute: 103, type: 'goal', clubId: awayClub.id, playerId: p.id, playerName: p.name, description: `【延長前半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
     }
 
-    if (homeScore === awayScore) {
+    const etHomeGoals2 = rng() < 0.12 ? 1 : 0;
+    const etAwayGoals2 = rng() < 0.12 ? 1 : 0;
+    homeScore += etHomeGoals2;
+    awayScore += etAwayGoals2;
+    if (etHomeGoals2 > 0 && homePitchPlayers[0]) {
+      const p = updatedPlayers[homePitchPlayers[0]] || homeStartersList[0];
+      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 112);
+      events.push({ minute: 112, type: 'goal', clubId: homeClub.id, playerId: p.id, playerName: p.name, description: `【延長後半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    }
+    if (etAwayGoals2 > 0 && awayPitchPlayers[0]) {
+      const p = updatedPlayers[awayPitchPlayers[0]] || awayStartersList[0];
+      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 118);
+      events.push({ minute: 118, type: 'goal', clubId: awayClub.id, playerId: p.id, playerName: p.name, description: `【延長後半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    }
+
+    let stillTied = false;
+    if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+      const finalAggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + homeScore;
+      const finalAggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + awayScore;
+      stillTied = (finalAggHome === finalAggAway);
+    } else {
+      stillTied = (homeScore === awayScore);
+    }
+
+    if (stillTied) {
       let pHome = 0;
       let pAway = 0;
       for (let k = 0; k < 5; k++) {
-        if (rng() < 0.75) pHome++;
-        if (rng() < 0.75) pAway++;
+        if (rng() < 0.76) pHome++;
+        if (rng() < 0.76) pAway++;
       }
-      if (pHome === pAway) {
-        if (rng() < 0.5) pHome++; else pAway++;
+      while (pHome === pAway) {
+        const homeKick = rng() < 0.70 ? 1 : 0;
+        const awayKick = rng() < 0.70 ? 1 : 0;
+        pHome += homeKick;
+        pAway += awayKick;
+        if (pHome !== pAway) break;
+        if (pHome > 20) { pHome++; break; }
       }
       penaltyShootout = { homeScore: pHome, awayScore: pAway };
+      const pkWinnerClub = pHome > pAway ? homeClub : awayClub;
       events.push({
         minute: 120,
         type: 'penalty',
-        clubId: pHome > pAway ? homeClub.id : awayClub.id,
-        playerId: (pHome > pAway ? homeStartersList[0]?.id : awayStartersList[0]?.id) || '',
-        playerName: (pHome > pAway ? homeClub.name : awayClub.name),
-        description: `【PK戦決着】PK戦 (${pHome} - ${pAway}) により${pHome > pAway ? homeClub.name : awayClub.name}の勝利が決定！`
+        clubId: pkWinnerClub.id,
+        playerId: pkWinnerClub.id === homeClub.id ? homeStartersList[0]?.id : awayStartersList[0]?.id,
+        playerName: pkWinnerClub.name,
+        description: `【PK戦決着】PK戦 (${pHome} - ${pAway}) により${pkWinnerClub.name}の勝利が決定！`
       });
     }
   }
@@ -1487,18 +1624,23 @@ export function fastForwardRemainingMatch(
   
   const allFinalEvents = [...lockedEvents, ...remainingEvents].sort((a, b) => a.minute - b.minute);
   
-  // Check cup tie decisive outcome if drawn
+  // Check knockout decider requirements
   let extraTimePlayed = fullResult.fixture.extraTimePlayed || false;
   let penaltyShootout = fullResult.fixture.penaltyShootout;
-  const isCupTie = fixture.competition.includes('cup') || 
-                   fixture.competition === 'copa-del-rey' || 
-                   fixture.competition === 'dfb-pokal' || 
-                   fixture.competition === 'coppa-italia' || 
-                   fixture.competition === 'coupe-de-france' ||
-                   fixture.competition === 'ucl' ||
-                   fixture.competition === 'uel';
-  
-  if (isCupTie && finalHomeScore === finalAwayScore && !penaltyShootout) {
+  const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
+
+  let isTiedForDecider = false;
+  if (requiresDecider) {
+    if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+      const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + finalHomeScore;
+      const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + finalAwayScore;
+      isTiedForDecider = (aggHome === aggAway);
+    } else {
+      isTiedForDecider = (finalHomeScore === finalAwayScore);
+    }
+  }
+
+  if (isTiedForDecider && !penaltyShootout) {
     extraTimePlayed = true;
     penaltyShootout = { homeScore: 5, awayScore: 4 }; // Decisive shootout
   }

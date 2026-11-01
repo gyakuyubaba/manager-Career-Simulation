@@ -151,10 +151,14 @@ export interface PlayerInjury {
   daysRemaining?: number;
 }
 
+export type CompetitionCategory = 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl';
+
 export interface PlayerSuspension {
   isSuspended: boolean;
   matchesRemaining: number;
   reason?: 'レッドカード' | '累積警告' | string;
+  competitionCategory?: CompetitionCategory;
+  competitionSuspensions?: Partial<Record<CompetitionCategory, number>>;
 }
 
 export interface Player {
@@ -412,6 +416,9 @@ export interface MatchStats {
 export interface MatchFixture {
   id: string; // matchId
   date: string;
+  time?: string;
+  weather?: string;
+  referee?: string;
   competition: LeagueKey | CupKey | 'pre-season' | string; // competitionId
   competitionType?: MatchCompetitionType;
   competitionName: string;
@@ -421,16 +428,22 @@ export interface MatchFixture {
   matchSeed?: number; // Deterministic simulation seed
   homeClubId: string;
   awayClubId: string;
-  status: 'upcoming' | 'playing' | 'halftime' | 'finished';
+  status: 'upcoming' | 'playing' | 'halftime' | 'finished' | 'scheduled' | 'live';
   homeScore?: number;
   awayScore?: number;
   events?: MatchEvent[];
   stats?: MatchStats;
   motmPlayerId?: string;
-  isUserMatch: boolean;
+  isUserMatch?: boolean;
   extraTimePlayed?: boolean;
   penaltyShootout?: { homeScore: number; awayScore: number };
   isResultApplied?: boolean;
+  isNeutralVenue?: boolean;
+  isFinal?: boolean;
+  needsDecider?: boolean;
+  leg?: 1 | 2;
+  leg1Score?: { homeScore: number; awayScore: number; home?: number; away?: number };
+  aggregateScore?: { homeScore: number; awayScore: number; homeTotal?: number; awayTotal?: number };
 }
 
 export type TournamentStatus = 'not_started' | 'in_progress' | 'completed';
@@ -502,6 +515,7 @@ export interface TransferNegotiation {
   signingBonusOffered: number;
   playerPatience: number;
   playerMessages: { sender: 'agent' | 'user'; text: string; date: string }[];
+  joinTiming?: 'immediate' | 'next_window' | 'next_season';
 }
 
 export interface IncomingAIOffer {
@@ -534,6 +548,21 @@ export interface CompletedTransferRecord {
   buyerClubId: string;
   fee: number;
   type: 'permanent' | 'loan' | 'buy_option' | 'dev_loan';
+}
+
+export interface PendingTransfer {
+  id: string;
+  playerId: string;
+  playerName: string;
+  sellerClubId: string;
+  buyerClubId: string;
+  fee: number;
+  wage: number;
+  contractYears: number;
+  type: 'permanent' | 'loan' | 'buy_option' | 'dev_loan';
+  agreedDate: string;
+  joinDate: string;
+  timingChoice: 'immediate' | 'next_window' | 'next_season';
 }
 
 export interface NewsItem {
@@ -738,6 +767,8 @@ export interface GameWorldState {
 
   // Tournaments State (CL, Cups)
   tournaments?: Record<CupKey, TournamentCompetition>;
+  pendingTransfers?: PendingTransfer[];
+  clubTitlesHistory?: Record<string, { year: number; competitionName: string; category: string }[]>;
 }
 
 export interface ScoutProspect {

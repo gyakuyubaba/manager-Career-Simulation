@@ -216,7 +216,7 @@ export const PlayerDetailModal: React.FC<Props> = ({
                   onChange={(e) => setSelectedSeasonScope(e.target.value)}
                   className="bg-slate-900 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="current">2026/27 (今季・公式戦)</option>
+                  <option value="current">今季（架空シーズン公式戦記録）</option>
                   {(player.seasonHistory || []).map(h => (
                     <option key={h.seasonId} value={h.seasonId}>
                       {h.seasonId} ({h.clubName || h.clubId})
@@ -228,7 +228,7 @@ export const PlayerDetailModal: React.FC<Props> = ({
 
               <div className="text-[11px] text-slate-400 font-mono">
                 {selectedSeasonScope === 'current'
-                  ? '※ プレシーズンは除外された公式記録です'
+                  ? '※ プレシーズンは除外された、ゲーム内架空シーズンの実公式戦記録です'
                   : selectedSeasonScope === 'career'
                   ? '※ 確定済み全シーズンの合算数値です'
                   : '※ 過去シーズンの確定アーカイブ記録です'}
@@ -384,7 +384,7 @@ export const PlayerDetailModal: React.FC<Props> = ({
                         <tbody className="divide-y divide-slate-800/60 font-mono">
                           {/* Current Season */}
                           <tr className="bg-emerald-950/20 text-slate-200">
-                            <td className="py-2.5 px-3 font-bold text-emerald-400">2026/27 (今季)</td>
+                            <td className="py-2.5 px-3 font-bold text-emerald-400">今季（架空公式戦）</td>
                             <td className="py-2.5 px-3 font-sans">{club?.name || player.clubId}</td>
                             <td className="py-2.5 px-2 text-center font-bold text-white">{player.stats?.appearances || 0}</td>
                             <td className="py-2.5 px-2 text-center">{player.stats?.starts || 0}</td>

@@ -19,8 +19,8 @@ import { generateRandomYouthAcademy } from '../data/youthGenerator';
 import { REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
 
 export const CURRENT_SCHEMA_VERSION = 7;
-export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V2_OFFICIAL';
-export const APP_CODE_VERSION = '2026.2.2';
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V3_OFFICIAL';
+export const APP_CODE_VERSION = '2026.2.3';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
 export const STORE_NAME = 'career_saves';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player } from '../../types/game';
-import { simulateFullMatch, generateAssistantCoachAdvice, finalMatchEligibilityCheck, MatchEligibilityCheckResult, fastForwardRemainingMatch } from '../../engine/matchEngine';
+import { simulateFullMatch, generateAssistantCoachAdvice, finalMatchEligibilityCheck, MatchEligibilityCheckResult, fastForwardRemainingMatch, isMatchRequiringDecider } from '../../engine/matchEngine';
 import { autoReplaceIneligiblePlayers } from '../../engine/dataValidator';
 import { getDefaultTacticsForClub } from '../../data/squadPopulator';
 import { FatigueGauge, ConditionDot } from '../common/FatigueGauge';
@@ -22,7 +22,9 @@ import {
   Flame,
   AlertCircle,
   AlertTriangle,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Trophy,
+  Sparkles
 } from 'lucide-react';
 
 interface Props {
@@ -52,7 +54,9 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [manualReplaceTarget, setManualReplaceTarget] = useState<Player | null>(null);
 
   // Match progression states
-  const [matchPhase, setMatchPhase] = useState<'pre' | 'first_half' | 'halftime' | 'second_half' | 'finished'>('pre');
+  const [matchPhase, setMatchPhase] = useState<
+    'pre' | 'first_half' | 'halftime' | 'second_half' | 'fulltime_pause' | 'extra_first' | 'et_halftime' | 'extra_second' | 'et_fulltime' | 'penalty_shootout' | 'finished'
+  >('pre');
   const [minute, setMinute] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [simSpeed, setSimSpeed] = useState<number>(1); // 1x, 2x, 4x, or instant
@@ -73,8 +77,34 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [revealedEvents, setRevealedEvents] = useState<MatchEvent[]>([]);
   const [subCount, setSubCount] = useState<number>(0);
 
-  // Halftime modal toggle
+  // Pause modals (Requirements 1 & 2)
   const [showHalftimeModal, setShowHalftimeModal] = useState<boolean>(false);
+  const [showFulltimeModal, setShowFulltimeModal] = useState<boolean>(false);
+  const [showEtHalftimeModal, setShowEtHalftimeModal] = useState<boolean>(false);
+  const [showEtFulltimeModal, setShowEtFulltimeModal] = useState<boolean>(false);
+  const [showChampionshipCelebration, setShowChampionshipCelebration] = useState<boolean>(false);
+  const [showRunnerUpModal, setShowRunnerUpModal] = useState<boolean>(false);
+
+  // PK Shootout state (Requirement 1: 5 kicks + sudden death)
+  const [pkState, setPkState] = useState<{
+    homeKicks: (boolean | null)[];
+    awayKicks: (boolean | null)[];
+    homeKickers: string[];
+    awayKickers: string[];
+    stepIndex: number;
+    homeScore: number;
+    awayScore: number;
+    isFinished: boolean;
+  }>({
+    homeKicks: [null, null, null, null, null],
+    awayKicks: [null, null, null, null, null],
+    homeKickers: [],
+    awayKickers: [],
+    stepIndex: 0,
+    homeScore: 0,
+    awayScore: 0,
+    isFinished: false
+  });
 
   // In-match substitution selector
   const [subPlayerOffId, setSubPlayerOffId] = useState<string | null>(null);
@@ -105,6 +135,47 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [injurySubChoiceId, setInjurySubChoiceId] = useState<string | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  // Complete match and evaluate championship / runner up if final
+  const handleCompleteMatch = (customPenaltyShootout?: { homeScore: number; awayScore: number }) => {
+    setIsPlaying(false);
+    setMatchPhase('finished');
+
+    if (simulatedResult) {
+      const isFinal = Boolean(
+        (fixture.round && fixture.round.includes('決勝') && !fixture.round.includes('準決勝')) ||
+        fixture.isFinal ||
+        fixture.round === '決勝'
+      );
+      const finalPk = customPenaltyShootout || simulatedResult.fixture.penaltyShootout;
+      const finalFixture: MatchFixture = {
+        ...simulatedResult.fixture,
+        homeScore: currentScore[0],
+        awayScore: currentScore[1],
+        extraTimePlayed: minute > 90 || simulatedResult.fixture.extraTimePlayed,
+        penaltyShootout: finalPk,
+        status: 'finished',
+        events: revealedEvents
+      };
+
+      onFinishMatch(finalFixture, simulatedResult.updatedPlayers);
+
+      if (isFinal) {
+        let winnerClubId = '';
+        if (currentScore[0] > currentScore[1]) winnerClubId = homeClub.id;
+        else if (currentScore[1] > currentScore[0]) winnerClubId = awayClub.id;
+        else if (finalPk) {
+          winnerClubId = finalPk.homeScore > finalPk.awayScore ? homeClub.id : awayClub.id;
+        }
+
+        if (winnerClubId === state.userClubId) {
+          setShowChampionshipCelebration(true);
+        } else if (winnerClubId) {
+          setShowRunnerUpModal(true);
+        }
+      }
+    }
+  };
 
   // Initialize simulation pool on mount
   useEffect(() => {
@@ -188,14 +259,9 @@ export const MatchSimulationView: React.FC<Props> = ({
   useEffect(() => {
     if (!isPlaying) return;
 
-    // Deliberate, suspenseful simulation interval (Requirement 3: "試合シミュレーション速度を遅くする"):
-    // 1x = 1200ms per match minute (allows taking in match flow and commentary)
-    // 2x = 500ms per match minute
-    // 4x = 180ms per match minute
     const intervalTime = simSpeed === 4 ? 180 : simSpeed === 2 ? 500 : 1200;
 
     const interval = setInterval(() => {
-      // If a dramatic event (goal, red card, penalty, VAR) is currently being highlighted, hold the clock
       if (isHighlightPausedRef.current) return;
 
       setMinute(prev => {
@@ -205,7 +271,6 @@ export const MatchSimulationView: React.FC<Props> = ({
         if (simulatedResult?.fixture?.events) {
           const newEvents = simulatedResult.fixture.events.filter((e: MatchEvent) => e.minute === nextMin);
           if (newEvents.length > 0) {
-            // Check for unhandled incident (Injury or Red Card) in this minute
             const incident = newEvents.find((e: MatchEvent) => 
               (e.type === 'injury' || e.type === 'red_card' || e.type === 'second_yellow') &&
               !handledIncidentsRef.current.has(`${e.minute}_${e.type}_${e.playerId || 'unknown'}`)
@@ -220,7 +285,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                   setCurrentScore(sc => [sc[0], sc[1] + 1]);
                 }
 
-                // Pause timer and show dramatic goal celebration highlight banner
                 isHighlightPausedRef.current = true;
                 setActiveHighlightEvent(e);
                 const pauseDuration = simSpeed === 4 ? 1800 : simSpeed === 2 ? 2600 : 3600;
@@ -231,7 +295,6 @@ export const MatchSimulationView: React.FC<Props> = ({
               }
             });
 
-            // If an incident occurred, halt simulation immediately!
             if (incident) {
               triggerIncidentPause(incident, nextMin);
               return nextMin;
@@ -240,21 +303,69 @@ export const MatchSimulationView: React.FC<Props> = ({
         }
 
         // Halftime at 45'
-        if (nextMin === 45) {
+        if (nextMin === 45 && matchPhase === 'first_half') {
           setIsPlaying(false);
           setMatchPhase('halftime');
           setShowHalftimeModal(true);
           return 45;
         }
 
-        // Full time at 90'
-        if (nextMin >= 90) {
+        // Pause Point ①: Full time at 90'
+        if (nextMin === 90 && matchPhase === 'second_half') {
           setIsPlaying(false);
-          setMatchPhase('finished');
-          if (simulatedResult) {
-            onFinishMatch(simulatedResult.fixture, simulatedResult.updatedPlayers);
+          const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
+          let isTiedAt90 = false;
+          if (requiresDecider) {
+            if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+              const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + currentScore[0];
+              const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + currentScore[1];
+              isTiedAt90 = (aggHome === aggAway);
+            } else {
+              isTiedAt90 = (currentScore[0] === currentScore[1]);
+            }
           }
-          return 90;
+
+          if (isTiedAt90) {
+            setMatchPhase('fulltime_pause');
+            setShowFulltimeModal(true);
+            return 90;
+          } else {
+            handleCompleteMatch();
+            return 90;
+          }
+        }
+
+        // Pause Point ②: Extra time halftime at 105'
+        if (nextMin === 105 && matchPhase === 'extra_first') {
+          setIsPlaying(false);
+          setMatchPhase('et_halftime');
+          setShowEtHalftimeModal(true);
+          return 105;
+        }
+
+        // Pause Point ③: Extra time full time at 120'
+        if (nextMin >= 120 && matchPhase === 'extra_second') {
+          setIsPlaying(false);
+          const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
+          let stillTiedAfterET = false;
+          if (requiresDecider) {
+            if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+              const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + currentScore[0];
+              const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + currentScore[1];
+              stillTiedAfterET = (aggHome === aggAway);
+            } else {
+              stillTiedAfterET = (currentScore[0] === currentScore[1]);
+            }
+          }
+
+          if (stillTiedAfterET) {
+            setMatchPhase('et_fulltime');
+            setShowEtFulltimeModal(true);
+            return 120;
+          } else {
+            handleCompleteMatch();
+            return 120;
+          }
         }
 
         return nextMin;
@@ -262,7 +373,7 @@ export const MatchSimulationView: React.FC<Props> = ({
     }, intervalTime);
 
     return () => clearInterval(interval);
-  }, [isPlaying, simSpeed, simulatedResult]);
+  }, [isPlaying, simSpeed, simulatedResult, matchPhase, currentScore]);
 
   // Auto scroll commentary
   useEffect(() => {
@@ -275,7 +386,8 @@ export const MatchSimulationView: React.FC<Props> = ({
       tactics.lineup.bench,
       state.userClubId || '',
       state.players,
-      state.currentDate
+      state.currentDate,
+      fixture.competition
     );
   });
   const [dateAlert, setDateAlert] = useState<string | null>(null);
@@ -329,7 +441,8 @@ export const MatchSimulationView: React.FC<Props> = ({
       tactics.lineup.bench,
       state.userClubId || '',
       state.players,
-      state.currentDate
+      state.currentDate,
+      fixture.competition
     );
 
     if (!check.isEligible) {
@@ -348,14 +461,85 @@ export const MatchSimulationView: React.FC<Props> = ({
     setIsPlaying(true);
   };
 
-  // Skip simulation to end of current half or full time (Requirement 1 & 7: 負傷/レッドカード発生時は即座に停止)
+  const handleStartExtraFirstHalf = () => {
+    setShowFulltimeModal(false);
+    setMatchPhase('extra_first');
+    setIsPlaying(true);
+  };
+
+  const handleStartExtraSecondHalf = () => {
+    setShowEtHalftimeModal(false);
+    setMatchPhase('extra_second');
+    setIsPlaying(true);
+  };
+
+  const handleStartPenaltyShootout = () => {
+    setShowEtFulltimeModal(false);
+    setMatchPhase('penalty_shootout');
+    const homeShooters = tactics.lineup.starters.map(s => state.players[s.playerId]?.name || '選手').slice(0, 5);
+    const oppPlayers = (isUserHome ? awayClub : homeClub)?.playerIds || [];
+    const awayShooters = oppPlayers.slice(0, 5).map(id => state.players[id]?.name || '相手選手');
+    setPkState({
+      homeKicks: [null, null, null, null, null],
+      awayKicks: [null, null, null, null, null],
+      homeKickers: homeShooters,
+      awayKickers: awayShooters,
+      stepIndex: 0,
+      homeScore: 0,
+      awayScore: 0,
+      isFinished: false
+    });
+  };
+
+  const handleInstantPkShootout = () => {
+    let pHome = 0;
+    let pAway = 0;
+    const hKicks: boolean[] = [];
+    const aKicks: boolean[] = [];
+    for (let k = 0; k < 5; k++) {
+      const hSucc = Math.random() < 0.76;
+      const aSucc = Math.random() < 0.76;
+      if (hSucc) pHome++;
+      if (aSucc) pAway++;
+      hKicks.push(hSucc);
+      aKicks.push(aSucc);
+    }
+    while (pHome === pAway) {
+      const hSucc = Math.random() < 0.70;
+      const aSucc = Math.random() < 0.70;
+      if (hSucc) pHome++;
+      if (aSucc) pAway++;
+      hKicks.push(hSucc);
+      aKicks.push(aSucc);
+      if (pHome !== pAway) break;
+      if (pHome > 20) { pHome++; hKicks.push(true); aKicks.push(false); break; }
+    }
+    setPkState({
+      homeKicks: hKicks,
+      awayKicks: aKicks,
+      homeKickers: pkState.homeKickers,
+      awayKickers: pkState.awayKickers,
+      stepIndex: hKicks.length * 2,
+      homeScore: pHome,
+      awayScore: pAway,
+      isFinished: true
+    });
+    handleCompleteMatch({ homeScore: pHome, awayScore: pAway });
+  };
+
+  // Skip simulation to end of current phase (Pause points at 90m, 105m, 120m respected!)
   const handleInstantSkip = () => {
     if (!homeClub || !awayClub) return;
 
-    const targetMin = minute < 45 ? 45 : 90;
+    let targetMin = 45;
+    if (minute < 45) targetMin = 45;
+    else if (minute < 90) targetMin = 90;
+    else if (minute < 105) targetMin = 105;
+    else targetMin = 120;
+
     const allEvents: MatchEvent[] = simulatedResult?.fixture?.events || [];
 
-    // Search ahead for any unhandled injury or red card incident between current minute and targetMin
+    // Search ahead for any unhandled incident
     const upcomingIncidents = allEvents.filter(
       (e: MatchEvent) =>
         e.minute > minute &&
@@ -365,11 +549,8 @@ export const MatchSimulationView: React.FC<Props> = ({
     ).sort((a, b) => a.minute - b.minute);
 
     if (upcomingIncidents.length > 0) {
-      // HALT at earliest incident minute!
       const incident = upcomingIncidents[0];
       const stopMin = incident.minute;
-
-      // Reveal events up to stopMin
       const eventsUpToStop = allEvents.filter((e: MatchEvent) => e.minute <= stopMin);
       setRevealedEvents(eventsUpToStop);
 
@@ -384,13 +565,10 @@ export const MatchSimulationView: React.FC<Props> = ({
       setCurrentScore([hScore, aScore]);
       setMinute(stopMin);
       setIsPlaying(false);
-
-      // Trigger incident notice modal - user must confirm before continuing!
       triggerIncidentPause(incident, stopMin);
       return;
     }
 
-    // No upcoming incidents: perform clean fast-forward
     const homeTac = isUserHome ? tactics : getDefaultTacticsForClub(homeClub, state.players);
     const awayTac = !isUserHome ? tactics : getDefaultTacticsForClub(awayClub, state.players);
 
@@ -423,7 +601,7 @@ export const MatchSimulationView: React.FC<Props> = ({
       setIsPlaying(false);
       setMatchPhase('halftime');
       setShowHalftimeModal(true);
-    } else {
+    } else if (minute < 90) {
       const res = fastForwardRemainingMatch(
         minute,
         revealedEvents,
@@ -437,12 +615,64 @@ export const MatchSimulationView: React.FC<Props> = ({
         simulatedResult
       );
 
-      setRevealedEvents(res.fixture.events || []);
-      setCurrentScore([res.fixture.homeScore ?? 0, res.fixture.awayScore ?? 0]);
+      const events90 = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 90);
+      setRevealedEvents(events90);
+      let hScore = 0;
+      let aScore = 0;
+      events90.forEach((e: MatchEvent) => {
+        if (e.type === 'goal') {
+          if (e.clubId === homeClub.id) hScore++;
+          else aScore++;
+        }
+      });
+      setCurrentScore([hScore, aScore]);
       setMinute(90);
       setIsPlaying(false);
-      setMatchPhase('finished');
-      onFinishMatch(res.fixture, res.updatedPlayers);
+
+      const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
+      let isTiedAt90 = false;
+      if (requiresDecider) {
+        if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+          const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + hScore;
+          const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + aScore;
+          isTiedAt90 = (aggHome === aggAway);
+        } else {
+          isTiedAt90 = (hScore === aScore);
+        }
+      }
+
+      if (isTiedAt90) {
+        setMatchPhase('fulltime_pause');
+        setShowFulltimeModal(true);
+      } else {
+        handleCompleteMatch();
+      }
+    } else if (minute < 105) {
+      setMinute(105);
+      setIsPlaying(false);
+      setMatchPhase('et_halftime');
+      setShowEtHalftimeModal(true);
+    } else {
+      setMinute(120);
+      setIsPlaying(false);
+      const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
+      let stillTied = false;
+      if (requiresDecider) {
+        if (isTwoLeggedSecondLeg && fixture.leg1Score) {
+          const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + currentScore[0];
+          const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + currentScore[1];
+          stillTied = (aggHome === aggAway);
+        } else {
+          stillTied = (currentScore[0] === currentScore[1]);
+        }
+      }
+
+      if (stillTied) {
+        setMatchPhase('et_fulltime');
+        setShowEtFulltimeModal(true);
+      } else {
+        handleCompleteMatch();
+      }
     }
   };
 
@@ -638,12 +868,16 @@ export const MatchSimulationView: React.FC<Props> = ({
                 {String(minute).padStart(2, '0')}:00
               </span>
               <span className="text-slate-500">·</span>
-              <span className="text-slate-400 font-semibold text-[10px] uppercase">
                 {matchPhase === 'pre' ? t.matchDay : 
                  matchPhase === 'halftime' ? t.halftime : 
+                 matchPhase === 'fulltime_pause' ? '90分終了 (延長戦)' :
+                 matchPhase === 'extra_first' ? '延長前半' :
+                 matchPhase === 'et_halftime' ? '延長ハーフタイム' :
+                 matchPhase === 'extra_second' ? '延長後半' :
+                 matchPhase === 'et_fulltime' ? '延長120分終了 (PK前)' :
+                 matchPhase === 'penalty_shootout' ? 'PK戦 (PENALTIES)' :
                  matchPhase === 'finished' ? t.matchFinished : 
                  minute <= 45 ? '1st Half' : '2nd Half'}
-              </span>
             </div>
           </div>
 
@@ -855,7 +1089,7 @@ export const MatchSimulationView: React.FC<Props> = ({
               </button>
             )}
 
-            {(matchPhase === 'first_half' || matchPhase === 'second_half') && (
+            {(matchPhase === 'first_half' || matchPhase === 'second_half' || matchPhase === 'extra_first' || matchPhase === 'extra_second') && (
               <button
                 type="button"
                 onClick={() => setIsPlaying(!isPlaying)}
@@ -878,6 +1112,39 @@ export const MatchSimulationView: React.FC<Props> = ({
               >
                 <Play className="w-4 h-4 fill-current" />
                 <span>{t.secondHalf}</span>
+              </button>
+            )}
+
+            {matchPhase === 'fulltime_pause' && (
+              <button
+                type="button"
+                onClick={handleStartExtraFirstHalf}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>延長戦を開始する (延長前半へ)</span>
+              </button>
+            )}
+
+            {matchPhase === 'et_halftime' && (
+              <button
+                type="button"
+                onClick={handleStartExtraSecondHalf}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>延長後半を開始する</span>
+              </button>
+            )}
+
+            {matchPhase === 'et_fulltime' && (
+              <button
+                type="button"
+                onClick={handleStartPenaltyShootout}
+                className="px-5 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 active:scale-[0.98] text-white font-extrabold text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-rose-500/20 animate-pulse"
+              >
+                <Zap className="w-4 h-4 fill-current" />
+                <span>PK戦を開始する</span>
               </button>
             )}
 
@@ -1485,6 +1752,337 @@ export const MatchSimulationView: React.FC<Props> = ({
           </div>
         )}
 
+        {/* PK SHOOTOUT ARENA (Requirement 1: 5 kicks + sudden death) */}
+        {matchPhase === 'penalty_shootout' && (
+          <div className="bg-slate-900 border-2 border-rose-500/80 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⚽</span>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">PK戦 (PENALTY SHOOTOUT)</h3>
+                  <p className="text-xs text-slate-400">延長戦終了時同点のためPK戦にて勝者を決定します (5本＋サドンデス)</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
+                  {pkState.homeScore} - {pkState.awayScore}
+                </span>
+              </div>
+            </div>
+
+            {/* Scoreboard of kicks */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Home Team Kicks */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-white">
+                  <span>{homeClub?.name}</span>
+                  <span className="font-mono text-emerald-400">{pkState.homeScore} 成功</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {pkState.homeKicks.map((res, i) => (
+                    <div
+                      key={i}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs border ${
+                        res === true
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                          : res === false
+                          ? 'bg-rose-500/20 border-rose-500 text-rose-400'
+                          : 'bg-slate-900 border-slate-800 text-slate-600'
+                      }`}
+                    >
+                      {res === true ? '◯' : res === false ? '✕' : (i + 1)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Away Team Kicks */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-white">
+                  <span>{awayClub?.name}</span>
+                  <span className="font-mono text-emerald-400">{pkState.awayScore} 成功</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {pkState.awayKicks.map((res, i) => (
+                    <div
+                      key={i}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs border ${
+                        res === true
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                          : res === false
+                          ? 'bg-rose-500/20 border-rose-500 text-rose-400'
+                          : 'bg-slate-900 border-slate-800 text-slate-600'
+                      }`}
+                    >
+                      {res === true ? '◯' : res === false ? '✕' : (i + 1)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Shootout Control Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-slate-400 font-mono">
+                {pkState.homeKicks.length > 5 ? '【サドンデス方式】決着がつくまで1本ずつ進行中' : `第${Math.min(5, Math.floor(pkState.stepIndex / 2) + 1)}巡目`}
+              </span>
+
+              <button
+                type="button"
+                onClick={handleInstantPkShootout}
+                className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm cursor-pointer shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-transform active:scale-95"
+              >
+                <span>PK戦の勝敗を決着させる</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* PAUSE POINT ①: 90 MIN FULLTIME MODAL (Requirement 2) */}
+        {showFulltimeModal && matchPhase === 'fulltime_pause' && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-amber-500/80 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3 border-b border-amber-500/30 pb-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-lg text-amber-400 shrink-0">
+                  ⏱️
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+                    試合一時停止 (PAUSE POINT 1)
+                  </span>
+                  <h3 className="text-lg font-black text-white">
+                    後半終了 (90分) - 延長戦突入
+                  </h3>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-center space-y-2">
+                <div className="text-xs text-slate-400">90分スコア</div>
+                <div className="text-3xl font-black font-mono text-white">
+                  {homeClub?.shortName} {currentScore[0]} - {currentScore[1]} {awayClub?.shortName}
+                </div>
+                <p className="text-xs text-amber-300">
+                  ※本大会のレギュレーションにより、同点のため前後半各15分の延長戦を実施します。
+                </p>
+                <div className="text-[11px] text-slate-400">
+                  交代枠残り: {5 - subCount}名 / 一時停止中に戦術変更や選手交代が可能です。
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFulltimeModal(false);
+                    setActiveTab('subs');
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                >
+                  戦術・交代を確認する
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartExtraFirstHalf}
+                  className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
+                >
+                  延長戦を開始する (延長前半へ)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PAUSE POINT ②: 105 MIN EXTRA TIME HALFTIME MODAL (Requirement 2) */}
+        {showEtHalftimeModal && matchPhase === 'et_halftime' && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-amber-500/80 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3 border-b border-amber-500/30 pb-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-lg text-amber-400 shrink-0">
+                  ⏱️
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+                    試合一時停止 (PAUSE POINT 2)
+                  </span>
+                  <h3 className="text-lg font-black text-white">
+                    延長前半終了 (105分)
+                  </h3>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-center space-y-2">
+                <div className="text-xs text-slate-400">105分時点スコア</div>
+                <div className="text-3xl font-black font-mono text-white">
+                  {homeClub?.shortName} {currentScore[0]} - {currentScore[1]} {awayClub?.shortName}
+                </div>
+                <p className="text-xs text-slate-300">
+                  選手の疲労蓄積が進んでいます。残り15分の延長後半に向けて指示を出してください。
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEtHalftimeModal(false);
+                    setActiveTab('subs');
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                >
+                  交代・戦術を修正
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartExtraSecondHalf}
+                  className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
+                >
+                  延長後半を開始する (106-120分)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PAUSE POINT ③: 120 MIN PRE-PK CONFIRMATION MODAL (Requirement 1 & 2) */}
+        {showEtFulltimeModal && matchPhase === 'et_fulltime' && (
+          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-rose-500/80 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3 border-b border-rose-500/30 pb-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-lg text-rose-400 shrink-0">
+                  🎯
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-rose-400 uppercase tracking-wider block">
+                    試合一時停止 (PAUSE POINT 3)
+                  </span>
+                  <h3 className="text-lg font-black text-white">
+                    延長後半終了 (120分) - PK戦突入確認
+                  </h3>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-center space-y-2">
+                <div className="text-xs text-slate-400">120分最終スコア</div>
+                <div className="text-3xl font-black font-mono text-white">
+                  {homeClub?.shortName} {currentScore[0]} - {currentScore[1]} {awayClub?.shortName}
+                </div>
+                <p className="text-xs text-rose-300 font-bold">
+                  【PK戦突入】120分の激闘を終えて決着がつかず、勝敗はPK戦（ペナルティシュートアウト）に委ねられます。
+                </p>
+                <div className="text-[11px] text-slate-400">
+                  ※PK戦の得点は通常試合スコアや個人得点、得失点差には加算されず、別枠で記録されます。
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleStartPenaltyShootout}
+                  className="w-full sm:w-auto px-8 py-3 rounded-xl bg-rose-500 hover:bg-rose-400 active:scale-95 text-white font-black text-sm cursor-pointer shadow-lg shadow-rose-500/30 transition-all flex items-center justify-center gap-2"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>PK戦を開始する (Proceed to PK Shootout)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CHAMPIONSHIP VICTORY CELEBRATION MODAL (Requirement 8) */}
+        {showChampionshipCelebration && (
+          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-amber-950/30 border-2 border-amber-400 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-300">
+              <div className="w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center mx-auto text-amber-300 shadow-xl shadow-amber-500/30 animate-bounce">
+                <Trophy className="w-10 h-10" />
+              </div>
+
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-bold uppercase tracking-widest">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  CHAMPIONS · 大会制覇
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black text-white font-display">
+                  {state.userClubId ? state.clubs[state.userClubId]?.name : ''} 優勝決定！
+                </h2>
+                <div className="text-sm font-bold text-amber-400">
+                  {fixture.competition} 制覇
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-amber-500/30 space-y-2">
+                <div className="text-xs text-slate-400">決勝戦結果</div>
+                <div className="text-2xl font-black font-mono text-white">
+                  {homeClub?.name} {currentScore[0]} - {currentScore[1]} {awayClub?.name}
+                  {simulatedResult?.fixture?.penaltyShootout && (
+                    <span className="text-amber-400 text-base ml-2">
+                      (PK {simulatedResult.fixture.penaltyShootout.homeScore} - {simulatedResult.fixture.penaltyShootout.awayScore})
+                    </span>
+                  )}
+                </div>
+
+                {/* Season titles count */}
+                <div className="pt-2 border-t border-slate-800 text-xs text-emerald-400 font-bold">
+                  🏆 今シーズン獲得タイトル: {(state.userClubId && state.clubTitlesHistory?.[state.userClubId]?.length || 0) >= 3 ? '3冠（トレブル）の歴史的偉業達成！' : (state.userClubId && state.clubTitlesHistory?.[state.userClubId]?.length || 0) === 2 ? '今季2冠達成！' : '今季タイトル獲得！'}
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChampionshipCelebration(false);
+                    onOpenPressConference(fixture);
+                  }}
+                  className="w-full sm:w-auto px-7 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 cursor-pointer transition-all flex items-center justify-center gap-2"
+                >
+                  <span>優勝記者会見へ進む</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChampionshipCelebration(false);
+                    onClose();
+                  }}
+                  className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm cursor-pointer"
+                >
+                  閉じる (ダッシュボードへ)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RUNNER-UP MODAL (Requirement 8) */}
+        {showRunnerUpModal && (
+          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl max-w-lg w-full p-6 text-center space-y-4 animate-in zoom-in-95">
+              <div className="w-16 h-16 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center mx-auto text-slate-300">
+                🥈
+              </div>
+              <h3 className="text-xl font-bold text-white">
+                準優勝 (Runner-up)
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                惜しくも決勝で敗れ、タイトル獲得には届きませんでしたが、大会準優勝という素晴らしい足跡を残しました。
+              </p>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRunnerUpModal(false);
+                    onClose();
+                  }}
+                  className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs"
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MANUAL PRE-MATCH PLAYER REPLACEMENT MODAL (Requirement 1, 2, 3) */}
         {manualReplaceTarget && (
           <PlayerReplacementModal
@@ -1502,7 +2100,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                 newTactics.lineup.bench,
                 state.userClubId || '',
                 updatedPlayers,
-                state.currentDate
+                state.currentDate,
+                fixture.competition
               );
               setEligibilityResult(newCheck.isEligible ? null : newCheck);
               setManualReplaceTarget(null);

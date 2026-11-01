@@ -108,6 +108,7 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
   const [contractYears, setContractYears] = useState<number>(3);
   const [squadRole, setSquadRole] = useState<Player['squadRole']>('重要選手');
   const [signingBonus, setSigningBonus] = useState<number>(500000);
+  const [joinTimingChoice, setJoinTimingChoice] = useState<'immediate' | 'next_window' | 'next_season'>('immediate');
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [showSummaryModal, setShowSummaryModal] = useState<boolean>(false);
 
@@ -384,6 +385,7 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
 
       setBidFee(0);
       setWageOffer(Math.round(targetPlayer.wage * 1.05));
+      setJoinTimingChoice(state.isTransferWindowOpen ? 'immediate' : 'next_window');
       setActiveNegotiation(initialNegotiation);
       return;
     }
@@ -418,6 +420,7 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
 
     setBidFee(initialBid);
     setWageOffer(Math.round(targetPlayer.wage * 1.2));
+    setJoinTimingChoice(state.isTransferWindowOpen ? 'immediate' : 'next_window');
     setActiveNegotiation(initialNegotiation);
   };
 
@@ -509,8 +512,17 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     }
 
     if (res.isCompleted) {
-      // Finalize transfer atomically
-      const updatedState = executeTransferCompletion(state, res.updatedNegotiation);
+      // Finalize transfer atomically with selected joinTiming
+      const chosenTiming = state.isTransferWindowOpen
+        ? joinTimingChoice
+        : (joinTimingChoice === 'immediate' ? 'next_window' : joinTimingChoice);
+
+      const finalNegotiation: TransferNegotiation = {
+        ...res.updatedNegotiation,
+        joinTiming: chosenTiming
+      };
+
+      const updatedState = executeTransferCompletion(state, finalNegotiation);
       onUpdateState(updatedState);
     }
   };
@@ -1801,6 +1813,77 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                       onChange={e => setSigningBonus(Number(e.target.value))}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white"
                     />
+                  </div>
+
+                  {/* Join Timing Selection (Requirement 10) */}
+                  <div className="sm:col-span-2 pt-2 border-t border-slate-700/60">
+                    <label className="text-xs text-slate-300 font-bold block mb-1.5 flex items-center justify-between">
+                      <span>加入時期の選択 (Join Timing)</span>
+                      {!state.isTransferWindowOpen && (
+                        <span className="text-[10px] text-amber-400 font-normal">※現在は移籍期間外です（即時加入不可）</span>
+                      )}
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <label className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 cursor-pointer transition-all ${
+                        joinTimingChoice === 'immediate' 
+                          ? 'bg-emerald-950/60 border-emerald-500 text-emerald-200 shadow-sm' 
+                          : 'bg-slate-900 border-slate-700 text-slate-300'
+                      } ${!state.isTransferWindowOpen ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                        <input
+                          type="radio"
+                          name="joinTimingChoice"
+                          value="immediate"
+                          disabled={!state.isTransferWindowOpen}
+                          checked={joinTimingChoice === 'immediate'}
+                          onChange={() => setJoinTimingChoice('immediate')}
+                          className="text-emerald-500"
+                        />
+                        <div>
+                          <span className="font-bold block">即時加入</span>
+                          <span className="text-[10px] text-slate-400 block">
+                            {state.isTransferWindowOpen ? '成立後即座に合流' : '移籍期間外のため不可'}
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 cursor-pointer transition-all ${
+                        joinTimingChoice === 'next_window' 
+                          ? 'bg-emerald-950/60 border-emerald-500 text-emerald-200 shadow-sm' 
+                          : 'bg-slate-900 border-slate-700 text-slate-300'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="joinTimingChoice"
+                          value="next_window"
+                          checked={joinTimingChoice === 'next_window'}
+                          onChange={() => setJoinTimingChoice('next_window')}
+                          className="text-emerald-500"
+                        />
+                        <div>
+                          <span className="font-bold block">次の移籍期間に加入</span>
+                          <span className="text-[10px] text-slate-400 block">1月または7月に合流</span>
+                        </div>
+                      </label>
+
+                      <label className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 cursor-pointer transition-all ${
+                        joinTimingChoice === 'next_season' 
+                          ? 'bg-emerald-950/60 border-emerald-500 text-emerald-200 shadow-sm' 
+                          : 'bg-slate-900 border-slate-700 text-slate-300'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="joinTimingChoice"
+                          value="next_season"
+                          checked={joinTimingChoice === 'next_season'}
+                          onChange={() => setJoinTimingChoice('next_season')}
+                          className="text-emerald-500"
+                        />
+                        <div>
+                          <span className="font-bold block">次のシーズンに加入</span>
+                          <span className="text-[10px] text-slate-400 block">来年7月1日に合流</span>
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
 

@@ -143,16 +143,58 @@ function simulatePreAppointmentMatches(
     const homePlayerIds = homeClub.playerIds || [];
     const awayPlayerIds = awayClub.playerIds || [];
 
+    const homeStarters = homePlayerIds.slice(0, 11);
+    const awayStarters = awayPlayerIds.slice(0, 11);
+    const isHomeCleanSheet = awayGoals === 0;
+    const isAwayCleanSheet = homeGoals === 0;
+
+    homeStarters.forEach(pId => {
+      const p = players[pId];
+      if (p) {
+        p.stats.appearances += 1;
+        p.stats.starts += 1;
+        p.stats.minutes += 90;
+        if (isHomeCleanSheet && (p.position === 'GK' || ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position))) {
+          p.stats.cleanSheets += 1;
+        }
+      }
+    });
+
+    awayStarters.forEach(pId => {
+      const p = players[pId];
+      if (p) {
+        p.stats.appearances += 1;
+        p.stats.starts += 1;
+        p.stats.minutes += 90;
+        if (isAwayCleanSheet && (p.position === 'GK' || ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position))) {
+          p.stats.cleanSheets += 1;
+        }
+      }
+    });
+
     for (let g = 0; g < homeGoals; g++) {
       const min = Math.floor(pseudoRand(10 + g) * 88) + 2;
       const scorerId = homePlayerIds.length > 0 ? homePlayerIds[Math.floor(pseudoRand(20 + g) * homePlayerIds.length)] : undefined;
+      const assistId = homePlayerIds.length > 1 && pseudoRand(60 + g) > 0.3
+        ? homePlayerIds.filter(id => id !== scorerId)[Math.floor(pseudoRand(70 + g) * (homePlayerIds.length - 1))]
+        : undefined;
+
+      if (scorerId && players[scorerId]) {
+        players[scorerId].stats.goals += 1;
+      }
+      if (assistId && players[assistId]) {
+        players[assistId].stats.assists += 1;
+      }
+
       events.push({
         id: `ev_pre_${f.id}_h${g}`,
         minute: min,
         type: 'goal',
         clubId: homeClub.id,
         playerId: scorerId,
+        assistPlayerId: assistId,
         playerName: scorerId && players[scorerId] ? players[scorerId].name : `${homeClub.shortName}選手`,
+        assistPlayerName: assistId && players[assistId] ? players[assistId].name : undefined,
         description: `⚽ ゴール！ ${homeClub.shortName}が得点 (${min}分)`
       });
     }
@@ -160,18 +202,36 @@ function simulatePreAppointmentMatches(
     for (let g = 0; g < awayGoals; g++) {
       const min = Math.floor(pseudoRand(30 + g) * 88) + 2;
       const scorerId = awayPlayerIds.length > 0 ? awayPlayerIds[Math.floor(pseudoRand(40 + g) * awayPlayerIds.length)] : undefined;
+      const assistId = awayPlayerIds.length > 1 && pseudoRand(80 + g) > 0.3
+        ? awayPlayerIds.filter(id => id !== scorerId)[Math.floor(pseudoRand(90 + g) * (awayPlayerIds.length - 1))]
+        : undefined;
+
+      if (scorerId && players[scorerId]) {
+        players[scorerId].stats.goals += 1;
+      }
+      if (assistId && players[assistId]) {
+        players[assistId].stats.assists += 1;
+      }
+
       events.push({
         id: `ev_pre_${f.id}_a${g}`,
         minute: min,
         type: 'goal',
         clubId: awayClub.id,
         playerId: scorerId,
+        assistPlayerId: assistId,
         playerName: scorerId && players[scorerId] ? players[scorerId].name : `${awayClub.shortName}選手`,
+        assistPlayerName: assistId && players[assistId] ? players[assistId].name : undefined,
         description: `⚽ ゴール！ ${awayClub.shortName}が得点 (${min}分)`
       });
     }
 
     events.sort((a, b) => a.minute - b.minute);
+
+    const ratingsMap: Record<string, number> = {};
+    [...homeStarters, ...awayStarters].forEach((pId, idx) => {
+      ratingsMap[pId] = Number((6.2 + pseudoRand(idx + 50) * 1.6).toFixed(1));
+    });
 
     return {
       ...f,
@@ -193,7 +253,7 @@ function simulatePreAppointmentMatches(
         fouls: [Math.floor(pseudoRand(10) * 6) + 4, Math.floor(pseudoRand(11) * 6) + 4],
         passesCompleted: [420 + Math.floor(pseudoRand(14) * 80), 380 + Math.floor(pseudoRand(15) * 80)],
         passAccuracy: [82 + Math.floor(pseudoRand(16) * 8), 79 + Math.floor(pseudoRand(17) * 8)],
-        playerRatings: {}
+        playerRatings: ratingsMap
       }
     };
   });
@@ -575,15 +635,14 @@ export function validateGameWorldIntegrity(state: GameWorldState): {
     club.playerIds = validSquad;
   });
 
-  // 2. Ensure all players belong to their registered club
+  // 2. Ensure all players belong to their registered club (never dump into Arsenal)
   Object.values(state.players).forEach(p => {
     if (!p.clubId || !state.clubs[p.clubId]) {
-      const fallbackClub = Object.values(state.clubs)[0];
-      if (fallbackClub) {
-        p.clubId = fallbackClub.id;
-        if (!fallbackClub.playerIds.includes(p.id)) fallbackClub.playerIds.push(p.id);
-        issues.push(`孤立選手所属修復: ${p.name} ➔ ${fallbackClub.name}`);
+      p.clubId = 'free_agent';
+      if (state.clubs['free_agent'] && !state.clubs['free_agent'].playerIds.includes(p.id)) {
+        state.clubs['free_agent'].playerIds.push(p.id);
       }
+      issues.push(`孤立選手所属修復: ${p.name} ➔ フリーエージェント`);
     }
   });
 
