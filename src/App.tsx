@@ -40,6 +40,8 @@ import { MatchSimulationView } from './components/tabs/MatchSimulationView';
 import { PressConferenceModal } from './components/tabs/PressConferenceModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
 import { SackedDismissalModal } from './components/SackedDismissalModal';
+import { UnexpectedEventModal } from './components/UnexpectedEventModal';
+import { resolveUnexpectedEvent } from './engine/unexpectedEventsEngine';
 import { Bell, AlertCircle, CheckCircle, Database } from 'lucide-react';
 
 export default function App() {
@@ -578,6 +580,18 @@ export default function App() {
             setActiveMatchFixture(null);
           }}
           onClose={() => setActiveMatchFixture(null)}
+        />
+      )}
+
+      {/* UNEXPECTED EVENTS MODAL (Requirement 10: 「予期せぬ出来事」) */}
+      {gameState.activeUnexpectedEvent && !gameState.activeUnexpectedEvent.resolvedChoiceId && (
+        <UnexpectedEventModal
+          event={gameState.activeUnexpectedEvent}
+          onSelectChoice={(eventId, choiceId) => {
+            const next = resolveUnexpectedEvent(gameState, eventId, choiceId);
+            saveGameState(next);
+            setGameState(next);
+          }}
         />
       )}
 

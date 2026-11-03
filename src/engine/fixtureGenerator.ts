@@ -228,9 +228,29 @@ export function generateEuropeanCompetitionsFixtures(
   );
   eligibleClubs.sort((a, b) => (b.reputation || 50) - (a.reputation || 50));
 
+  // STRICT RULE: ZERO duplicate participation between UCL, UEL, and UECL!
+  // In Year 1 (2026/27): 36 clubs for UCL, 36 distinct clubs for UEL, and remaining distinct clubs for UECL.
   const uclClubs = eligibleClubs.slice(0, 36);
-  const uelClubs = eligibleClubs.slice(18, 54);
-  const ueclClubs = eligibleClubs.slice(36, 72);
+  const uelClubs = eligibleClubs.slice(36, 72);
+  const ueclClubs = eligibleClubs.slice(72);
+
+  // Fallback rollover safety: ensure Set intersection across all 3 is strictly empty
+  const uclIds = new Set(uclClubs.map(c => c.id));
+  const uelIds = new Set<string>();
+  const filteredUelClubs: Club[] = [];
+  uelClubs.forEach(c => {
+    if (!uclIds.has(c.id)) {
+      uelIds.add(c.id);
+      filteredUelClubs.push(c);
+    }
+  });
+
+  const filteredUeclClubs: Club[] = [];
+  ueclClubs.forEach(c => {
+    if (!uclIds.has(c.id) && !uelIds.has(c.id)) {
+      filteredUeclClubs.push(c);
+    }
+  });
 
   // UCL 8 Matchdays
   const uclDates = [
@@ -494,13 +514,14 @@ export function generateDomesticCupFixtures(
     }
   };
 
-  // 1. FA Cup (England)
+  // 1. FA Cup (England) - Aligned with official 2026/27 English Calendar
   const engClubs = Object.values(clubs).filter(c => c.league === 'premier-league' || c.league === 'championship').map(c => c.id);
   addCupTournament('fa-cup', 'FAカップ', engClubs, [
     { name: '3回戦', round: 'Round of 64', date: `${seasonYear + 1}-01-09`, count: 16 },
     { name: '4回戦', round: 'Round of 32', date: `${seasonYear + 1}-01-30`, count: 8 },
     { name: '5回戦 (ベスト16)', round: 'Round of 16', date: `${seasonYear + 1}-02-27`, count: 4 },
-    { name: '準決勝', round: 'Semi-Final', date: `${seasonYear + 1}-04-17`, count: 2 },
+    { name: '準々決勝', round: 'Quarter-Final', date: `${seasonYear + 1}-03-27`, count: 4 },
+    { name: '準決勝 (ウェンブリー)', round: 'Semi-Final', date: `${seasonYear + 1}-04-24`, count: 2 },
     { name: '決勝 (ウェンブリー)', round: 'Final', date: `${seasonYear + 1}-05-15`, count: 1 }
   ]);
 

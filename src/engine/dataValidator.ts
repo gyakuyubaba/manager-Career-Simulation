@@ -207,6 +207,10 @@ export function INJURY_ELIGIBILITY_CHECK(
         violations.push(id);
         logs.push(`[INJURY_VIOLATION_BENCH] 負傷中の選手 "${p.name}" (${id}) がベンチに登録されています。`);
       }
+      if (p.suspension?.isSuspended) {
+        violations.push(id);
+        logs.push(`[SUSPENSION_VIOLATION_BENCH] 出場停止中の選手 "${p.name}" (${id}) がベンチに登録されています。`);
+      }
     }
   });
 
@@ -1092,6 +1096,37 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
         }
         repairsCount++;
         repairLogs.push(`[怪我復帰修復] 復帰予定日(${returnDate})を経過した${p.name}をHEALTHYに復帰させました。`);
+      }
+    }
+  });
+
+  // 3b-3. Suspension Integrity & Preseason Isolation Audit (Requirement 4 & 5)
+  Object.values(repairedPlayers).forEach(p => {
+    if (p.suspension) {
+      // Check if suspension derived from pre-season
+      const isPreseasonDerived = p.suspension.competitionCategory === 'preseason' ||
+        (p.suspension.reason && (p.suspension.reason.includes('プレシーズン') || p.suspension.reason.includes('親善試合')));
+      
+      if (isPreseasonDerived) {
+        p.suspension.isSuspended = false;
+        p.suspension.matchesRemaining = 0;
+        p.suspension.reason = undefined;
+        p.suspension.competitionCategory = undefined;
+        if (p.squadStatus === 'OUT_OF_SQUAD') {
+          p.squadStatus = 'RESERVE';
+        }
+        repairsCount++;
+        repairLogs.push(`[プレシーズン出場停止解除] ${p.name} のプレシーズン由来の出場停止処分を公式戦から完全に解除しました。`);
+      }
+
+      if (p.suspension.seasonSuspensionCount === undefined) {
+        p.suspension.seasonSuspensionCount = p.suspension.isSuspended ? 1 : 0;
+      }
+      if (p.suspension.careerSuspensionCount === undefined) {
+        p.suspension.careerSuspensionCount = p.suspension.seasonSuspensionCount;
+      }
+      if (!p.suspension.suspensionHistory) {
+        p.suspension.suspensionHistory = [];
       }
     }
   });

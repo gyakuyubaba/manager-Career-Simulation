@@ -151,7 +151,22 @@ export interface PlayerInjury {
   daysRemaining?: number;
 }
 
-export type CompetitionCategory = 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl';
+export type CompetitionCategory = 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl' | 'preseason';
+
+export interface DetailedSuspensionRecord {
+  id: string;
+  seasonId: string;
+  competitionId: string;
+  competitionCategory: CompetitionCategory;
+  cardType: 'yellow_accumulation' | 'red_card';
+  yellowCardCount: number;
+  redCardCount: number;
+  suspensionMatchesRemaining: number;
+  suspensionReason: string;
+  matchId?: string;
+  date: string;
+  processedMatchIds: string[];
+}
 
 export interface PlayerSuspension {
   isSuspended: boolean;
@@ -159,6 +174,9 @@ export interface PlayerSuspension {
   reason?: 'レッドカード' | '累積警告' | string;
   competitionCategory?: CompetitionCategory;
   competitionSuspensions?: Partial<Record<CompetitionCategory, number>>;
+  seasonSuspensionCount?: number;
+  careerSuspensionCount?: number;
+  suspensionHistory?: DetailedSuspensionRecord[];
 }
 
 export interface Player {
@@ -413,6 +431,22 @@ export interface MatchStats {
   playerRatings: Record<string, number>; // playerId -> rating 1.0 - 10.0
 }
 
+export interface PenaltyKickerResult {
+  round: number;
+  clubId: string;
+  playerId: string;
+  playerName: string;
+  scored: boolean;
+  scoreAfter: [number, number]; // [homeScore, awayScore]
+}
+
+export interface PenaltyShootoutResult {
+  homeScore: number;
+  awayScore: number;
+  winnerClubId?: string;
+  kickers?: PenaltyKickerResult[];
+}
+
 export interface MatchFixture {
   id: string; // matchId
   date: string;
@@ -436,7 +470,7 @@ export interface MatchFixture {
   motmPlayerId?: string;
   isUserMatch?: boolean;
   extraTimePlayed?: boolean;
-  penaltyShootout?: { homeScore: number; awayScore: number };
+  penaltyShootout?: PenaltyShootoutResult;
   isResultApplied?: boolean;
   isNeutralVenue?: boolean;
   isFinal?: boolean;
@@ -769,6 +803,41 @@ export interface GameWorldState {
   tournaments?: Record<CupKey, TournamentCompetition>;
   pendingTransfers?: PendingTransfer[];
   clubTitlesHistory?: Record<string, { year: number; competitionName: string; category: string }[]>;
+
+  // Unexpected Events System (「予期せぬ出来事」)
+  activeUnexpectedEvent?: UnexpectedEvent | null;
+  unexpectedEventsHistory?: UnexpectedEvent[];
+  lastUnexpectedEventDate?: string;
+}
+
+export type UnexpectedEventCategory = 'club_internal' | 'match_related' | 'transfer_related' | 'board_management' | 'manager_related';
+
+export interface UnexpectedEventChoice {
+  id: string;
+  label: string;
+  description: string;
+  effects: {
+    moraleDelta?: number;
+    managerTrustDelta?: number;
+    boardConfidenceDelta?: number;
+    budgetDelta?: number;
+    fatigueDelta?: number;
+    newsHeadline?: string;
+  };
+}
+
+export interface UnexpectedEvent {
+  id: string;
+  date: string;
+  category: UnexpectedEventCategory;
+  categoryLabel: string;
+  title: string;
+  description: string;
+  relatedPlayerId?: string;
+  relatedPlayerName?: string;
+  choices: UnexpectedEventChoice[];
+  resolvedChoiceId?: string;
+  resolvedDate?: string;
 }
 
 export interface ScoutProspect {

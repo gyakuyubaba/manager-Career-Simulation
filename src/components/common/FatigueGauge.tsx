@@ -24,27 +24,28 @@ export const FatigueGauge: React.FC<Props> = ({
   const { t } = useI18n();
   const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
 
-  // Color selection
+  // Qualitative label and color matching specification:
+  // 15% 良好, 50% 普通, 80% 疲労あり, 95% 非常に疲労
   let barColor = 'bg-emerald-500';
   let textColor = 'text-emerald-400';
-  let labelText = t.fatigueFresh;
+  let labelText = '良好';
 
-  if (clamped > 80) {
+  if (clamped > 85) {
     barColor = 'bg-red-500';
     textColor = 'text-red-400';
-    labelText = t.fatigueExhausted;
+    labelText = '非常に疲労';
   } else if (clamped > 60) {
     barColor = 'bg-orange-500';
     textColor = 'text-orange-400';
-    labelText = t.fatigueHigh;
-  } else if (clamped > 40) {
+    labelText = '疲労あり';
+  } else if (clamped > 25) {
     barColor = 'bg-amber-400';
     textColor = 'text-amber-300';
-    labelText = t.fatigueModerate;
-  } else if (clamped > 20) {
-    barColor = 'bg-teal-400';
-    textColor = 'text-teal-300';
-    labelText = t.fatigueLight;
+    labelText = '普通';
+  } else {
+    barColor = 'bg-emerald-500';
+    textColor = 'text-emerald-400';
+    labelText = '良好';
   }
 
   // Height sizing
@@ -62,9 +63,9 @@ export const FatigueGauge: React.FC<Props> = ({
           </div>
           <div className="flex items-center gap-2 font-mono">
             {showFraction ? (
-              <span className={`font-bold ${textColor}`}>{clamped} / 100</span>
+              <span className={`font-bold ${textColor}`}>{clamped} / 100 ({labelText})</span>
             ) : (
-              <span className={`font-bold ${textColor}`}>{clamped}%</span>
+              <span className={`font-bold ${textColor}`}>{clamped}% {labelText}</span>
             )}
 
             {/* Optional Condition Dot */}

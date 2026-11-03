@@ -30,6 +30,7 @@ export const PlayerDetailModal: React.FC<Props> = ({
   const { t } = useI18n();
   const [modalTab, setModalTab] = useState<'positions' | 'growth' | 'season_stats'>('positions');
   const [selectedSeasonScope, setSelectedSeasonScope] = useState<string>('current');
+  const [selectedCompScope, setSelectedCompScope] = useState<'total' | 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl'>('total');
   const [isEditingNumber, setIsEditingNumber] = useState(false);
   const [shirtNumInput, setShirtNumInput] = useState(player?.shirtNumber || 1);
   const [shirtMsg, setShirtMsg] = useState<string | null>(null);
@@ -235,8 +236,54 @@ export const PlayerDetailModal: React.FC<Props> = ({
               </div>
             </div>
 
+            {/* Competition Sub-Filter for Current Season (Requirement 6) */}
+            {selectedSeasonScope === 'current' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                <span className="font-bold text-slate-400 mr-1 shrink-0 text-[11px]">大会別絞り込み:</span>
+                {[
+                  { id: 'total', label: '今シーズン通算' },
+                  { id: 'league', label: 'リーグ戦' },
+                  { id: 'domestic_cup', label: '国内カップ戦' },
+                  { id: 'ucl', label: 'CL' },
+                  { id: 'uel', label: 'EL' },
+                  { id: 'uecl', label: 'ECL' },
+                ].map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedCompScope(c.id as any)}
+                    className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer text-xs ${
+                      selectedCompScope === c.id
+                        ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
+                        : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Resolved Stats Numbers */}
             {(() => {
+              const matchesCompFilter = (compId: string, filter: 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl'): boolean => {
+                const lower = compId.toLowerCase();
+                if (filter === 'ucl') return lower === 'ucl' || lower.includes('champions-league') || lower.includes('champions_league');
+                if (filter === 'uel') return lower === 'uel' || lower.includes('europa-league') || lower.includes('europa_league');
+                if (filter === 'uecl') return lower === 'uecl' || lower.includes('conference-league') || lower.includes('conference_league');
+                if (filter === 'domestic_cup') {
+                  return (
+                    !lower.includes('ucl') && !lower.includes('uel') && !lower.includes('uecl') &&
+                    !lower.includes('champions') && !lower.includes('conference') &&
+                    (lower.includes('cup') || lower.includes('pokal') || lower.includes('copa') || lower.includes('coppa') || lower.includes('coupe') || lower.includes('emperor') || lower.includes('trophy') || lower.includes('shield') || lower.includes('supercup'))
+                  );
+                }
+                if (filter === 'league') {
+                  return !matchesCompFilter(compId, 'ucl') && !matchesCompFilter(compId, 'uel') && !matchesCompFilter(compId, 'uecl') && !matchesCompFilter(compId, 'domestic_cup') && compId !== 'pre-season';
+                }
+                return true;
+              };
+
               let dispStats = {
                 appearances: player.stats?.appearances || 0,
                 starts: player.stats?.starts || 0,
@@ -252,7 +299,69 @@ export const PlayerDetailModal: React.FC<Props> = ({
                 clubName: club?.name || player.clubId
               };
 
-              if (selectedSeasonScope === 'career') {
+              if (selectedSeasonScope === 'current' && selectedCompScope !== 'total') {
+                const compStatsMap = player.competitionStats || {};
+                let fApps = 0;
+                let fStarts = 0;
+                let fMins = 0;
+                let fGoals = 0;
+                let fAssists = 0;
+                let fCS = 0;
+                let fYellow = 0;
+                let fRed = 0;
+                let fRatingSum = 0;
+                let fSaves = 0;
+                let fConceded = 0;
+
+                Object.entries(compStatsMap).forEach(([cId, cs]) => {
+                  if (cs && matchesCompFilter(cId, selectedCompScope)) {
+                    fApps += cs.appearances || 0;
+                    fStarts += cs.starts || 0;
+                    fMins += cs.minutes || 0;
+                    fGoals += cs.goals || 0;
+                    fAssists += cs.assists || 0;
+                    fCS += cs.cleanSheets || 0;
+                    fYellow += cs.yellowCards || 0;
+                    fRed += cs.redCards || 0;
+                    fSaves += cs.saves || 0;
+                    fConceded += cs.goalsConceded || 0;
+                    fRatingSum += (cs.avgRating || 0) * (cs.appearances || 0);
+                  }
+                });
+
+                if (Object.keys(compStatsMap).length === 0 && selectedCompScope === 'league' && (player.stats?.appearances || 0) > 0) {
+                  // Fallback to overall stats for league if not fragmented yet
+                  dispStats = {
+                    appearances: player.stats?.appearances || 0,
+                    starts: player.stats?.starts || 0,
+                    minutes: player.stats?.minutes || 0,
+                    goals: player.stats?.goals || 0,
+                    assists: player.stats?.assists || 0,
+                    cleanSheets: player.stats?.cleanSheets || 0,
+                    yellowCards: player.stats?.yellowCards || 0,
+                    redCards: player.stats?.redCards || 0,
+                    avgRating: player.stats?.avgRating || 0,
+                    saves: player.stats?.saves || 0,
+                    goalsConceded: player.stats?.goalsConceded || 0,
+                    clubName: club?.name || player.clubId
+                  };
+                } else {
+                  dispStats = {
+                    appearances: fApps,
+                    starts: fStarts,
+                    minutes: fMins,
+                    goals: fGoals,
+                    assists: fAssists,
+                    cleanSheets: fCS,
+                    yellowCards: fYellow,
+                    redCards: fRed,
+                    avgRating: fApps > 0 ? +(fRatingSum / fApps).toFixed(2) : 0,
+                    saves: fSaves,
+                    goalsConceded: fConceded,
+                    clubName: club?.name || player.clubId
+                  };
+                }
+              } else if (selectedSeasonScope === 'career') {
                 const historyList = player.seasonHistory || [];
                 const totApps = (player.stats?.appearances || 0) + historyList.reduce((acc, h) => acc + (h.appearances || 0), 0);
                 const totStarts = (player.stats?.starts || 0) + historyList.reduce((acc, h) => acc + (h.starts || 0), 0);
@@ -416,6 +525,99 @@ export const PlayerDetailModal: React.FC<Props> = ({
                         </tbody>
                       </table>
                     </div>
+                  </div>
+
+                  {/* Suspension Tracking & History Breakdown (Requirement 5) */}
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold text-white">大会別出場停止ステータス・処分履歴</span>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-slate-400">
+                        今季停止: {player.suspension?.seasonSuspensionCount || 0}回 · 通算: {player.suspension?.careerSuspensionCount || 0}回
+                      </span>
+                    </div>
+
+                    {/* Active Suspension Alert or Healthy Status */}
+                    <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                      {player.suspension && (
+                        (player.suspension.matchesRemaining > 0 && player.suspension.isSuspended) ||
+                        (player.suspension.competitionSuspensions && Object.values(player.suspension.competitionSuspensions).some(v => (v || 0) > 0))
+                      ) ? (
+                        <div className="space-y-1.5 text-red-300">
+                          <div className="font-bold flex items-center gap-1.5 text-red-400">
+                            <span>⚠️ 現在消化中の出場停止処分があります</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-300">
+                            対象大会カテゴリ: <strong className="text-white">{player.suspension.competitionCategory || '公式戦'}</strong>
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-300">
+                            残り消化試合数: <strong className="text-red-400">{player.suspension.matchesRemaining || 1} 試合</strong>
+                          </div>
+                          {player.suspension.reason && (
+                            <div className="text-[11px] text-slate-400">
+                              処分事由: {player.suspension.reason}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <UserCheck className="w-4 h-4" />
+                          <span>現在消化中の出場停止処分はありません（公式戦出場可能）</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Competition-Specific Suspensions Breakdown */}
+                    {player.suspension?.competitionSuspensions && Object.keys(player.suspension.competitionSuspensions).length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
+                        {[
+                          { key: 'league', label: 'リーグ戦' },
+                          { key: 'domestic_cup', label: '国内カップ' },
+                          { key: 'ucl', label: 'CL' },
+                          { key: 'uel', label: 'EL' },
+                          { key: 'uecl', label: 'ECL' }
+                        ].map(c => {
+                          const remaining = (player.suspension?.competitionSuspensions as any)?.[c.key] || 0;
+                          return (
+                            <div key={c.key} className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                              <span className="text-[10px] text-slate-400 block">{c.label}</span>
+                              <span className={`text-xs font-mono font-bold ${remaining > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                                {remaining > 0 ? `残${remaining}試合` : '出場可'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Detailed Suspension History Log */}
+                    {player.suspension?.suspensionHistory && player.suspension.suspensionHistory.length > 0 ? (
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[11px] text-slate-400 font-bold block">出場停止処分履歴 (今シーズン)</span>
+                        <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                          {player.suspension.suspensionHistory.map((h, i) => (
+                            <div key={i} className="flex items-center justify-between text-[11px] p-2 rounded-lg bg-slate-900 border border-slate-800/80">
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-500 font-mono">{h.date}</span>
+                                <span className="px-1.5 py-0.2 rounded text-[9px] bg-slate-800 text-slate-300 font-bold">
+                                  {h.competitionCategory}
+                                </span>
+                                <span className="text-slate-200">{h.suspensionReason}</span>
+                              </div>
+                              <span className="font-mono text-slate-400 text-[10px]">
+                                {h.suspensionMatchesRemaining > 0 ? `残${h.suspensionMatchesRemaining}試合` : '消化済'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-500 italic">
+                        ※ 過去の処分履歴はありません。
+                      </div>
+                    )}
                   </div>
                 </div>
               );

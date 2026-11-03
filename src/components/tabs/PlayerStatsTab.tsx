@@ -23,11 +23,129 @@ const STATS_LEAGUES: { key: LeagueKey | 'all'; label: string }[] = [
   { key: 'championship', label: 'Championship' }
 ];
 
+export type CompetitionScope = 'total' | 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl' | 'past' | 'career';
+
+interface StatsRankTableProps {
+  title: string;
+  subtitle?: string;
+  players: any[];
+  highlight: 'goals' | 'assists' | 'rating' | 'minutes' | 'cards' | 'cs' | 'saves';
+  onInspect: (p: Player) => void;
+  userClubId?: string;
+  clubs: Record<string, any>;
+}
+
+const StatsRankTable: React.FC<StatsRankTableProps> = ({
+  title,
+  subtitle,
+  players,
+  highlight,
+  onInspect,
+  userClubId,
+  clubs
+}) => {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+      <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-xs font-bold text-slate-300">
+        <span>{title}</span>
+        <span className="text-slate-500 font-mono">{subtitle || '選手をクリックして詳細プロフィール表示'}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs text-left">
+          <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
+            <tr>
+              <th className="py-3 px-2 text-center w-12">順位</th>
+              <th className="py-3 px-3">選手名</th>
+              <th className="py-3 px-3">所属クラブ</th>
+              <th className="py-3 px-2 text-center">Pos</th>
+              <th className="py-3 px-2 text-center" title="出場試合数">出場</th>
+              <th className="py-3 px-2 text-center" title="先発出場数">先発</th>
+              <th className="py-3 px-2 text-center" title="途中出場数">途中</th>
+              <th className="py-3 px-2 text-center" title="総出場時間">時間</th>
+              <th className={`py-3 px-2 text-center ${highlight === 'goals' ? 'text-emerald-400 font-bold' : ''}`} title="ゴール数">得点</th>
+              <th className={`py-3 px-2 text-center ${highlight === 'assists' ? 'text-blue-400 font-bold' : ''}`} title="アシスト数">アシスト</th>
+              <th className={`py-3 px-2 text-center ${highlight === 'rating' ? 'text-amber-300 font-bold' : ''}`} title="平均採点">評価</th>
+              <th className="py-3 px-1.5 text-center text-amber-300" title="警告数">🟨</th>
+              <th className="py-3 px-1.5 text-center text-rose-400" title="退場数">🟥</th>
+              <th className={`py-3 px-2 text-center ${highlight === 'cs' ? 'text-teal-400 font-bold' : 'text-teal-300'}`} title="クリーンシート">CS</th>
+              <th className={`py-3 px-2 text-center ${highlight === 'saves' ? 'text-indigo-400 font-bold' : 'text-indigo-300'}`} title="セーブ数">SV</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/60">
+            {players.map((p, idx) => {
+              const club = clubs[p.clubId];
+              const isUserPlayer = p.clubId === userClubId;
+              const st = p.currentScopedStats || {};
+              const subs = Math.max(0, (st.appearances || 0) - (st.starts || 0));
+
+              return (
+                <tr
+                  key={p.id}
+                  onClick={() => onInspect(p)}
+                  className={`cursor-pointer transition-colors ${
+                    isUserPlayer ? 'bg-emerald-950/20 text-emerald-300 font-semibold' : 'hover:bg-slate-800/30 text-slate-300'
+                  }`}
+                >
+                  <td className="py-2.5 px-2 text-center font-mono font-bold">
+                    {idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : idx + 1}
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-white hover:text-emerald-400 transition-colors whitespace-nowrap">
+                        {p.name}
+                      </span>
+                      {p.isLoaned && (
+                        <span className="px-1 py-0.2 rounded text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                          ローン
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3 text-slate-300 truncate max-w-[130px]">
+                    {club?.name || p.clubId}
+                  </td>
+                  <td className="py-2.5 px-2 text-center font-mono font-bold text-slate-400">{p.position}</td>
+                  <td className="py-2.5 px-2 text-center font-mono font-bold">{st.appearances || 0}</td>
+                  <td className="py-2.5 px-2 text-center font-mono text-slate-400">{st.starts || 0}</td>
+                  <td className="py-2.5 px-2 text-center font-mono text-slate-500">{subs}</td>
+                  <td className={`py-2.5 px-2 text-center font-mono ${highlight === 'minutes' ? 'font-black text-emerald-400 text-sm' : 'text-slate-300'}`}>
+                    {st.minutes || 0}分
+                  </td>
+                  <td className={`py-2.5 px-2 text-center font-mono font-black ${highlight === 'goals' ? 'text-emerald-400 text-sm' : 'text-slate-200'}`}>
+                    {st.goals || 0}
+                  </td>
+                  <td className={`py-2.5 px-2 text-center font-mono font-black ${highlight === 'assists' ? 'text-blue-400 text-sm' : 'text-slate-200'}`}>
+                    {st.assists || 0}
+                  </td>
+                  <td className={`py-2.5 px-2 text-center font-mono font-bold ${highlight === 'rating' ? 'text-amber-300 text-sm' : 'text-slate-300'}`}>
+                    {st.avgRating && st.avgRating > 0 ? st.avgRating.toFixed(2) : '-'}
+                  </td>
+                  <td className={`py-2.5 px-1.5 text-center font-mono font-bold ${highlight === 'cards' ? 'text-amber-300 text-sm' : 'text-amber-300/80'}`}>
+                    {st.yellowCards || 0}
+                  </td>
+                  <td className={`py-2.5 px-1.5 text-center font-mono font-bold ${highlight === 'cards' ? 'text-rose-400 text-sm' : 'text-rose-400/80'}`}>
+                    {st.redCards || 0}
+                  </td>
+                  <td className={`py-2.5 px-2 text-center font-mono font-bold ${highlight === 'cs' ? 'text-teal-400 text-sm' : 'text-teal-300'}`}>
+                    {st.cleanSheets || 0}
+                  </td>
+                  <td className={`py-2.5 px-2 text-center font-mono font-bold ${highlight === 'saves' ? 'text-indigo-400 text-sm' : 'text-indigo-300'}`}>
+                    {st.saves || 0}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
   const [selectedLeague, setSelectedLeague] = useState<LeagueKey | 'all'>('all');
   const [activeCategory, setActiveCategory] = useState<'scorers' | 'assists' | 'gk' | 'ratings' | 'minutes' | 'cards' | 'ballondor'>('scorers');
-  const [statType, setStatType] = useState<'league' | 'cup' | 'total'>('total');
-  const [seasonScope, setSeasonScope] = useState<'current' | 'past' | 'career'>('current');
+  const [competitionScope, setCompetitionScope] = useState<CompetitionScope>('total');
   const [selectedPastSeason, setSelectedPastSeason] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectingPlayer, setInspectingPlayer] = useState<Player | null>(null);
@@ -50,13 +168,50 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
     }
   }, [availablePastSeasons, selectedPastSeason]);
 
-  const LEAGUE_COMPETITION_KEYS = useMemo(() => new Set([
-    'premier-league', 'championship', 'laliga', 'segunda-division',
-    'bundesliga', '2-bundesliga', 'serie-a', 'serie-b',
-    'ligue-1', 'ligue-2', 'j1-league', 'j2-league', 'j3-league'
-  ]), []);
+  const matchesCompetitionFilter = (compId: string, filter: 'league' | 'domestic_cup' | 'ucl' | 'uel' | 'uecl'): boolean => {
+    const lower = compId.toLowerCase();
+    if (filter === 'ucl') {
+      return lower === 'ucl' || lower.includes('champions-league') || lower.includes('champions_league');
+    }
+    if (filter === 'uel') {
+      return lower === 'uel' || lower.includes('europa-league') || lower.includes('europa_league');
+    }
+    if (filter === 'uecl') {
+      return lower === 'uecl' || lower.includes('conference-league') || lower.includes('conference_league');
+    }
+    if (filter === 'domestic_cup') {
+      return (
+        !lower.includes('ucl') &&
+        !lower.includes('uel') &&
+        !lower.includes('uecl') &&
+        !lower.includes('champions') &&
+        !lower.includes('conference') &&
+        (
+          lower.includes('cup') ||
+          lower.includes('pokal') ||
+          lower.includes('copa') ||
+          lower.includes('coppa') ||
+          lower.includes('coupe') ||
+          lower.includes('emperor') ||
+          lower.includes('trophy') ||
+          lower.includes('shield') ||
+          lower.includes('supercup')
+        )
+      );
+    }
+    if (filter === 'league') {
+      return (
+        !matchesCompetitionFilter(compId, 'ucl') &&
+        !matchesCompetitionFilter(compId, 'uel') &&
+        !matchesCompetitionFilter(compId, 'uecl') &&
+        !matchesCompetitionFilter(compId, 'domestic_cup') &&
+        compId !== 'pre-season'
+      );
+    }
+    return true;
+  };
 
-  // Helper to extract stats according to seasonScope and statType
+  // Helper to extract stats according to competitionScope
   const getScopedPlayerStats = (p: Player) => {
     let rawStats: {
       appearances: number;
@@ -72,75 +227,18 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
       goalsConceded: number;
     };
 
-    if (seasonScope === 'current') {
-      if (statType === 'total') {
-        rawStats = p.stats
-          ? {
-              ...p.stats,
-              saves: p.stats.saves || 0,
-              goalsConceded: p.stats.goalsConceded || 0
-            }
-          : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
-      } else {
-        const compStatsMap = p.competitionStats || {};
-        let filteredApps = 0;
-        let filteredStarts = 0;
-        let filteredMins = 0;
-        let filteredGoals = 0;
-        let filteredAssists = 0;
-        let filteredCS = 0;
-        let filteredYellow = 0;
-        let filteredRed = 0;
-        let weightedRating = 0;
-        let filteredSaves = 0;
-        let filteredConceded = 0;
-
-        Object.entries(compStatsMap).forEach(([compId, cs]) => {
-          const isLeague = LEAGUE_COMPETITION_KEYS.has(compId);
-          const matches = statType === 'league' ? isLeague : !isLeague;
-          if (matches && cs) {
-            filteredApps += cs.appearances || 0;
-            filteredStarts += cs.starts || 0;
-            filteredMins += cs.minutes || 0;
-            filteredGoals += cs.goals || 0;
-            filteredAssists += cs.assists || 0;
-            filteredCS += cs.cleanSheets || 0;
-            filteredYellow += cs.yellowCards || 0;
-            filteredRed += cs.redCards || 0;
-            filteredSaves += cs.saves || 0;
-            filteredConceded += cs.goalsConceded || 0;
-            weightedRating += (cs.avgRating || 0) * (cs.appearances || 0);
+    if (competitionScope === 'total') {
+      rawStats = p.stats
+        ? {
+            ...p.stats,
+            saves: p.stats.saves || 0,
+            goalsConceded: p.stats.goalsConceded || 0
           }
-        });
-
-        if (Object.keys(compStatsMap).length === 0 && (p.stats?.appearances || 0) > 0) {
-          rawStats = statType === 'league'
-            ? {
-                ...p.stats,
-                saves: p.stats.saves || 0,
-                goalsConceded: p.stats.goalsConceded || 0
-              }
-            : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
-        } else {
-          rawStats = {
-            appearances: filteredApps,
-            starts: filteredStarts,
-            minutes: filteredMins,
-            goals: filteredGoals,
-            assists: filteredAssists,
-            cleanSheets: filteredCS,
-            yellowCards: filteredYellow,
-            redCards: filteredRed,
-            avgRating: filteredApps > 0 ? +(weightedRating / filteredApps).toFixed(2) : 0,
-            saves: filteredSaves,
-            goalsConceded: filteredConceded
-          };
-        }
-      }
+        : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
       return rawStats;
     }
 
-    if (seasonScope === 'past') {
+    if (competitionScope === 'past') {
       const hist = (p.seasonHistory || []).find(h => h.seasonId === (selectedPastSeason || availablePastSeasons[0]));
       return hist ? {
         appearances: hist.appearances || 0,
@@ -152,38 +250,94 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
         yellowCards: hist.yellowCards || 0,
         redCards: hist.redCards || 0,
         avgRating: hist.avgRating || 0,
-        saves: 0,
-        goalsConceded: 0
+        saves: hist.saves || 0,
+        goalsConceded: hist.goalsConceded || 0
       } : { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
     }
 
-    // Career Totals: sum of current season + all archived past seasons
-    const historyList = p.seasonHistory || [];
-    const totApps = (p.stats?.appearances || 0) + historyList.reduce((acc, h) => acc + (h.appearances || 0), 0);
-    const totStarts = (p.stats?.starts || 0) + historyList.reduce((acc, h) => acc + (h.starts || 0), 0);
-    const totMinutes = (p.stats?.minutes || 0) + historyList.reduce((acc, h) => acc + (h.minutes || 0), 0);
-    const totGoals = (p.stats?.goals || 0) + historyList.reduce((acc, h) => acc + (h.goals || 0), 0);
-    const totAssists = (p.stats?.assists || 0) + historyList.reduce((acc, h) => acc + (h.assists || 0), 0);
-    const totClean = (p.stats?.cleanSheets || 0) + historyList.reduce((acc, h) => acc + (h.cleanSheets || 0), 0);
-    const totYellow = (p.stats?.yellowCards || 0) + historyList.reduce((acc, h) => acc + (h.yellowCards || 0), 0);
-    const totRed = (p.stats?.redCards || 0) + historyList.reduce((acc, h) => acc + (h.redCards || 0), 0);
-    const weightedSum = ((p.stats?.avgRating || 0) * (p.stats?.appearances || 0)) +
-      historyList.reduce((acc, h) => acc + ((h.avgRating || 0) * (h.appearances || 0)), 0);
-    const avgR = totApps > 0 ? +(weightedSum / totApps).toFixed(2) : 0;
+    if (competitionScope === 'career') {
+      const historyList = p.seasonHistory || [];
+      const totApps = (p.stats?.appearances || 0) + historyList.reduce((acc, h) => acc + (h.appearances || 0), 0);
+      const totStarts = (p.stats?.starts || 0) + historyList.reduce((acc, h) => acc + (h.starts || 0), 0);
+      const totMinutes = (p.stats?.minutes || 0) + historyList.reduce((acc, h) => acc + (h.minutes || 0), 0);
+      const totGoals = (p.stats?.goals || 0) + historyList.reduce((acc, h) => acc + (h.goals || 0), 0);
+      const totAssists = (p.stats?.assists || 0) + historyList.reduce((acc, h) => acc + (h.assists || 0), 0);
+      const totClean = (p.stats?.cleanSheets || 0) + historyList.reduce((acc, h) => acc + (h.cleanSheets || 0), 0);
+      const totYellow = (p.stats?.yellowCards || 0) + historyList.reduce((acc, h) => acc + (h.yellowCards || 0), 0);
+      const totRed = (p.stats?.redCards || 0) + historyList.reduce((acc, h) => acc + (h.redCards || 0), 0);
+      const weightedSum = ((p.stats?.avgRating || 0) * (p.stats?.appearances || 0)) +
+        historyList.reduce((acc, h) => acc + ((h.avgRating || 0) * (h.appearances || 0)), 0);
+      const avgR = totApps > 0 ? +(weightedSum / totApps).toFixed(2) : 0;
+      const totSaves = (p.stats?.saves || 0) + historyList.reduce((acc, h) => acc + (h.saves || 0), 0);
+      const totConceded = (p.stats?.goalsConceded || 0) + historyList.reduce((acc, h) => acc + (h.goalsConceded || 0), 0);
 
-    return {
-      appearances: totApps,
-      starts: totStarts,
-      minutes: totMinutes,
-      goals: totGoals,
-      assists: totAssists,
-      cleanSheets: totClean,
-      yellowCards: totYellow,
-      redCards: totRed,
-      avgRating: avgR,
-      saves: p.stats?.saves || 0,
-      goalsConceded: p.stats?.goalsConceded || 0
-    };
+      return {
+        appearances: totApps,
+        starts: totStarts,
+        minutes: totMinutes,
+        goals: totGoals,
+        assists: totAssists,
+        cleanSheets: totClean,
+        yellowCards: totYellow,
+        redCards: totRed,
+        avgRating: avgR,
+        saves: totSaves,
+        goalsConceded: totConceded
+      };
+    }
+
+    // Specific Competition Category (league, domestic_cup, ucl, uel, uecl)
+    const compStatsMap = p.competitionStats || {};
+    let filteredApps = 0;
+    let filteredStarts = 0;
+    let filteredMins = 0;
+    let filteredGoals = 0;
+    let filteredAssists = 0;
+    let filteredCS = 0;
+    let filteredYellow = 0;
+    let filteredRed = 0;
+    let weightedRating = 0;
+    let filteredSaves = 0;
+    let filteredConceded = 0;
+
+    Object.entries(compStatsMap).forEach(([compId, cs]) => {
+      if (cs && matchesCompetitionFilter(compId, competitionScope)) {
+        filteredApps += cs.appearances || 0;
+        filteredStarts += cs.starts || 0;
+        filteredMins += cs.minutes || 0;
+        filteredGoals += cs.goals || 0;
+        filteredAssists += cs.assists || 0;
+        filteredCS += cs.cleanSheets || 0;
+        filteredYellow += cs.yellowCards || 0;
+        filteredRed += cs.redCards || 0;
+        filteredSaves += cs.saves || 0;
+        filteredConceded += cs.goalsConceded || 0;
+        weightedRating += (cs.avgRating || 0) * (cs.appearances || 0);
+      }
+    });
+
+    if (Object.keys(compStatsMap).length === 0 && competitionScope === 'league' && (p.stats?.appearances || 0) > 0) {
+      rawStats = {
+        ...p.stats,
+        saves: p.stats.saves || 0,
+        goalsConceded: p.stats.goalsConceded || 0
+      };
+    } else {
+      rawStats = {
+        appearances: filteredApps,
+        starts: filteredStarts,
+        minutes: filteredMins,
+        goals: filteredGoals,
+        assists: filteredAssists,
+        cleanSheets: filteredCS,
+        yellowCards: filteredYellow,
+        redCards: filteredRed,
+        avgRating: filteredApps > 0 ? +(weightedRating / filteredApps).toFixed(2) : 0,
+        saves: filteredSaves,
+        goalsConceded: filteredConceded
+      };
+    }
+    return rawStats;
   };
 
   // Filter players by league & search with scoped stats
@@ -214,7 +368,7 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
         ...p,
         currentScopedStats: getScopedPlayerStats(p)
       }));
-  }, [state.players, state.clubs, selectedLeague, searchQuery, seasonScope, selectedPastSeason, availablePastSeasons, statType]);
+  }, [state.players, state.clubs, selectedLeague, searchQuery, competitionScope, selectedPastSeason, availablePastSeasons]);
 
   // Rankings using currentScopedStats
   const topScorers = useMemo(() => {
@@ -320,62 +474,61 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
         </div>
       </div>
 
-      {/* Scope Toggle: 今季の成績 / 過去シーズンの成績 / 通算成績 */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-          <span className="text-xs font-bold text-slate-400 mr-1 shrink-0">集計スコープ:</span>
-          <button
-            type="button"
-            onClick={() => setSeasonScope('current')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              seasonScope === 'current'
-                ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
-                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            今季の成績 ({state.season} 架空シーズン)
-          </button>
-          <button
-            type="button"
-            onClick={() => setSeasonScope('past')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              seasonScope === 'past'
-                ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
-                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            過去シーズンの成績
-          </button>
-          <button
-            type="button"
-            onClick={() => setSeasonScope('career')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              seasonScope === 'career'
-                ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
-                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            通算成績 (生涯累計)
-          </button>
+      {/* 8 Competition Scopes */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md space-y-2.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-bold text-slate-400 mr-1 shrink-0">大会別成績:</span>
+            {[
+              { key: 'total', label: '今シーズン通算' },
+              { key: 'league', label: 'リーグ戦' },
+              { key: 'domestic_cup', label: '国内カップ戦' },
+              { key: 'ucl', label: 'CL' },
+              { key: 'uel', label: 'EL' },
+              { key: 'uecl', label: 'ECL' },
+              { key: 'past', label: '過去シーズン' },
+              { key: 'career', label: 'キャリア通算' }
+            ].map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setCompetitionScope(tab.key as CompetitionScope)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                  competitionScope === tab.key
+                    ? 'bg-emerald-500 text-slate-950 shadow-md ring-1 ring-emerald-400'
+                    : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {competitionScope === 'past' && availablePastSeasons.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 font-mono">シーズン選択:</span>
+              <select
+                value={selectedPastSeason}
+                onChange={(e) => setSelectedPastSeason(e.target.value)}
+                className="bg-slate-950 border border-slate-700 text-white text-xs font-mono font-bold rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-emerald-500"
+              >
+                {availablePastSeasons.map(s => (
+                  <option key={s} value={s}>{s} シーズン</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
-        {seasonScope === 'past' && availablePastSeasons.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-mono">シーズン選択:</span>
-            <select
-              value={selectedPastSeason}
-              onChange={(e) => setSelectedPastSeason(e.target.value)}
-              className="bg-slate-950 border border-slate-700 text-white text-xs font-mono font-bold rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-emerald-500"
-            >
-              {availablePastSeasons.map(s => (
-                <option key={s} value={s}>{s} シーズン</option>
-              ))}
-            </select>
-          </div>
-        )}
-
         <div className="text-[11px] text-slate-400 font-mono">
-          {seasonScope === 'current' ? '※ プレシーズンは除外された公式戦記録' : seasonScope === 'past' ? '※ 過去シーズン確定アーカイブ' : '※ 全キャリア公式戦の合算記録'}
+          {competitionScope === 'total' && '※ 今季の全公式戦（リーグ戦・国内カップ戦・欧州カップ戦）の合算個人スタッツ（プレシーズンは除外）'}
+          {competitionScope === 'league' && '※ 国内リーグ戦のみの個人スタッツ'}
+          {competitionScope === 'domestic_cup' && '※ 国内カップ戦（FAカップ、カラバオ杯、コパ等）のみの個人スタッツ'}
+          {competitionScope === 'ucl' && '※ UEFAチャンピオンズリーグ（CL）のみの個人スタッツ'}
+          {competitionScope === 'uel' && '※ UEFAヨーロッパリーグ（EL）のみの個人スタッツ'}
+          {competitionScope === 'uecl' && '※ UEFAカンファレンスリーグ（ECL）のみの個人スタッツ'}
+          {competitionScope === 'past' && '※ 過去シーズン確定アーカイブスタッツ'}
+          {competitionScope === 'career' && '※ 全キャリア通算公式戦の累計個人スタッツ'}
         </div>
       </div>
 
@@ -467,241 +620,55 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
               </button>
             ))}
           </div>
-
-          {/* Stat Type Toggle */}
-          <div className="flex items-center gap-1 p-0.5 bg-slate-900 rounded-lg border border-slate-800 self-start sm:self-auto text-[11px]">
-            <button
-              type="button"
-              onClick={() => setStatType('total')}
-              className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
-                statType === 'total' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              通算
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatType('league')}
-              className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
-                statType === 'league' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              リーグ戦
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatType('cup')}
-              className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
-                statType === 'cup' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              カップ戦
-            </button>
-          </div>
         </div>
       )}
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {/* 1. TOP SCORERS (得点ランキング) */}
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* 1. TOP SCORERS (得点ランキング) */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {activeCategory === 'scorers' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-xs font-bold text-slate-300">
-            <span>得点ランキング TOP 30 (ゴール数・決定力)</span>
-            <span className="text-slate-500 font-mono">選手をクリックして詳細プロフィール表示</span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-3 text-center w-12">順位</th>
-                  <th className="py-3 px-4">選手名</th>
-                  <th className="py-3 px-4">所属クラブ</th>
-                  <th className="py-3 px-3 text-center">Pos</th>
-                  <th className="py-3 px-3 text-center">年齢</th>
-                  <th className="py-3 px-3 text-center">出場</th>
-                  <th className="py-3 px-4 text-center font-bold text-emerald-400 text-sm">ゴール</th>
-                  <th className="py-3 px-3 text-center">アシスト</th>
-                  <th className="py-3 px-3 text-center">平均採点</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {topScorers.map((p, idx) => {
-                  const club = state.clubs[p.clubId];
-                  const isUserPlayer = p.clubId === state.userClubId;
-
-                  return (
-                    <tr
-                      key={p.id}
-                      onClick={() => setInspectingPlayer(p)}
-                      className={`cursor-pointer transition-colors ${
-                        isUserPlayer ? 'bg-emerald-950/20 text-emerald-300 font-semibold' : 'hover:bg-slate-800/30 text-slate-300'
-                      }`}
-                    >
-                      <td className="py-3 px-3 text-center font-mono font-bold">
-                        {idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : idx + 1}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white hover:text-emerald-400 transition-colors">
-                            {p.name}
-                          </span>
-                          {p.isLoaned && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                              ローン中
-                            </span>
-                          )}
-                          {p.isType2Registered && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                              2種登録
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">
-                        {club?.name || p.clubId}
-                        {p.parentClubId && (
-                          <span className="block text-[10px] text-slate-500">
-                            (元所属: {state.clubs[p.parentClubId]?.name || p.parentClubId})
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                      <td className="py-3 px-3 text-center font-mono">{p.age}</td>
-                      <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.appearances || 0}</td>
-                      <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                        {p.currentScopedStats.goals || 0}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono text-slate-300">{p.currentScopedStats.assists || 0}</td>
-                      <td className="py-3 px-3 text-center font-mono font-semibold">
-                        {p.currentScopedStats.avgRating && p.currentScopedStats.avgRating > 0 ? p.currentScopedStats.avgRating.toFixed(2) : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <StatsRankTable
+          title="得点ランキング TOP 30 (ゴール数・決定力)"
+          subtitle="選手をクリックして詳細プロフィール表示"
+          players={topScorers}
+          highlight="goals"
+          onInspect={setInspectingPlayer}
+          userClubId={state.userClubId}
+          clubs={state.clubs}
+        />
       )}
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {/* 2. TOP ASSISTS (アシストランキング) */}
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {activeCategory === 'assists' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-xs font-bold text-slate-300">
-            <span>アシストランキング TOP 30 (チャンスメイク・パス配給)</span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-3 text-center w-12">順位</th>
-                  <th className="py-3 px-4">選手名</th>
-                  <th className="py-3 px-4">所属クラブ</th>
-                  <th className="py-3 px-3 text-center">Pos</th>
-                  <th className="py-3 px-3 text-center">出場</th>
-                  <th className="py-3 px-4 text-center font-bold text-emerald-400 text-sm">アシスト</th>
-                  <th className="py-3 px-3 text-center">ゴール</th>
-                  <th className="py-3 px-3 text-center">平均採点</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {topAssists.map((p, idx) => {
-                  const club = state.clubs[p.clubId];
-                  return (
-                    <tr
-                      key={p.id}
-                      onClick={() => setInspectingPlayer(p)}
-                      className="cursor-pointer hover:bg-slate-800/30 text-slate-300"
-                    >
-                      <td className="py-3 px-3 text-center font-mono font-bold">
-                        {idx + 1}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-white">
-                        {p.name}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">{club?.name}</td>
-                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                      <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.appearances || 0}</td>
-                      <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                        {p.currentScopedStats.assists || 0}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono text-slate-400">{p.currentScopedStats.goals || 0}</td>
-                      <td className="py-3 px-3 text-center font-mono">
-                        {p.currentScopedStats.avgRating && p.currentScopedStats.avgRating > 0 ? p.currentScopedStats.avgRating.toFixed(2) : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <StatsRankTable
+          title="アシストランキング TOP 30 (チャンスメイク・パス配給)"
+          subtitle="選手をクリックして詳細プロフィール表示"
+          players={topAssists}
+          highlight="assists"
+          onInspect={setInspectingPlayer}
+          userClubId={state.userClubId}
+          clubs={state.clubs}
+        />
       )}
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/* 3. GK RANKING (ゴールキーパー・クリーンシート・セーブ数・失点率) */}
+      {/* 3. GK RANKING (ゴールキーパー・クリーンシート・セーブ数) */}
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {activeCategory === 'gk' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-xs font-bold text-slate-300">
-            <span>GKランキング (クリーンシート数・セーブ数・失点数・1試合平均失点率)</span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-3 text-center w-12">順位</th>
-                  <th className="py-3 px-4">GK名</th>
-                  <th className="py-3 px-4">所属クラブ</th>
-                  <th className="py-3 px-3 text-center">出場試合</th>
-                  <th className="py-3 px-4 text-center font-bold text-amber-300 text-sm">無失点 (CS)</th>
-                  <th className="py-3 px-3 text-center text-blue-400 font-bold">セーブ数</th>
-                  <th className="py-3 px-3 text-center text-rose-400">失点数</th>
-                  <th className="py-3 px-3 text-center font-mono">1試合平均失点</th>
-                  <th className="py-3 px-3 text-center">評価点</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {topGKs.map((gk, idx) => {
-                  const club = state.clubs[gk.clubId];
-                  return (
-                    <tr
-                      key={gk.id}
-                      onClick={() => setInspectingPlayer(gk)}
-                      className="cursor-pointer hover:bg-slate-800/30 text-slate-300"
-                    >
-                      <td className="py-3 px-3 text-center font-mono font-bold">{idx + 1}</td>
-                      <td className="py-3 px-4 font-bold text-white">{gk.name}</td>
-                      <td className="py-3 px-4 text-slate-300">{club?.name}</td>
-                      <td className="py-3 px-3 text-center font-mono">{gk.currentScopedStats.appearances || 0}</td>
-                      <td className="py-3 px-4 text-center font-mono font-black text-amber-300 text-sm">
-                        {gk.currentScopedStats.cleanSheets || 0}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono font-bold text-blue-400">
-                        {gk.derivedSaves}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono text-rose-400">
-                        {gk.derivedConceded}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-200">
-                        {gk.derivedConcededRate}
-                      </td>
-                      <td className="py-3 px-3 text-center font-mono">
-                        {gk.currentScopedStats.avgRating && gk.currentScopedStats.avgRating > 0 ? gk.currentScopedStats.avgRating.toFixed(2) : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <StatsRankTable
+          title="GKランキング TOP 30 (クリーンシート数・セーブ数・守護神)"
+          subtitle="選手をクリックして詳細プロフィール表示"
+          players={topGKs}
+          highlight="cs"
+          onInspect={setInspectingPlayer}
+          userClubId={state.userClubId}
+          clubs={state.clubs}
+        />
       )}
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
@@ -1019,18 +986,24 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
             {/* Stats Breakdown */}
             {(() => {
               const curStats = getScopedPlayerStats(inspectingPlayer);
-              const scopeTitle = seasonScope === 'current' 
-                ? '2026/27 シーズン公式戦スタッツ' 
-                : seasonScope === 'past' 
-                ? `${selectedPastSeason || availablePastSeasons[0] || '過去'} シーズン公式戦アーカイブ` 
-                : '生涯通算スタッツ (全シーズン公式戦累計)';
+              const scopeTitles: Record<CompetitionScope, string> = {
+                total: '2026/27 今シーズン全公式戦通算',
+                league: '国内リーグ戦',
+                domestic_cup: '国内カップ戦',
+                ucl: 'UEFA チャンピオンズリーグ (CL)',
+                uel: 'UEFA ヨーロッパリーグ (EL)',
+                uecl: 'UEFA カンファレンスリーグ (ECL)',
+                past: `${selectedPastSeason || availablePastSeasons[0] || '過去'} シーズン公式戦アーカイブ`,
+                career: '生涯通算スタッツ (全シーズン公式戦累計)'
+              };
+              const scopeTitle = scopeTitles[competitionScope] || '公式戦スタッツ';
 
               return (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold text-slate-300">{scopeTitle}</h4>
                     <span className="text-[10px] text-slate-500 font-mono">
-                      {seasonScope === 'current' ? '今季記録' : seasonScope === 'past' ? 'アーカイブ' : '通算'}
+                      {competitionScope}
                     </span>
                   </div>
 

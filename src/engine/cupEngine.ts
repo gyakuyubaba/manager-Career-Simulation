@@ -18,7 +18,7 @@
  * - NO matches, winners, finalists, or completed rounds are fabricated before scheduled dates.
  */
 
-import { Club, MatchFixture, CupKey, GameWorldState, StandingsRow, TournamentCompetition, TournamentRound, TournamentStatus } from '../types/game';
+import { Club, MatchFixture, CupKey, GameWorldState, StandingsRow, TournamentCompetition, TournamentRound, TournamentStatus, PenaltyShootoutResult } from '../types/game';
 
 export interface CupTournamentMeta {
   id: CupKey;
@@ -254,7 +254,7 @@ export interface BracketMatchNode {
   secondLegScore?: string;
   aggregateScore?: string;
   extraTimePlayed?: boolean;
-  penaltyShootout?: { homeScore: number; awayScore: number };
+  penaltyShootout?: PenaltyShootoutResult;
 }
 
 /**
@@ -436,23 +436,34 @@ export function getTournamentBracket(
     const matchCount = counts[rIdx] || 1;
     const matches: BracketMatchNode[] = [];
 
+    // Collect all fixtures matching this tournament round in deterministic order
+    const roundFixtures = cupFixtures.filter(f => 
+      f.round?.includes(roundMeta.name) || 
+      f.competitionName?.includes(roundMeta.name) || 
+      f.roundId?.includes(`r${rIdx}`) ||
+      (roundMeta.name.includes('準々決勝') && (f.round?.includes('Quarter-Final') || f.round?.includes('準々決勝'))) ||
+      (roundMeta.name.includes('準決勝') && (f.round?.includes('Semi-Final') || f.round?.includes('準決勝'))) ||
+      (roundMeta.name.includes('決勝') && !roundMeta.name.includes('準') && (f.round === 'Final' || f.round?.includes('決勝')))
+    );
+
     for (let m = 0; m < matchCount; m++) {
-      // Find matching fixture in state.fixtures
-      const matchedFixture = cupFixtures.find(f => 
-        (f.round?.includes(roundMeta.name) || f.competitionName?.includes(roundMeta.name) || f.roundId?.includes(`r${rIdx}`)) &&
-        f.homeClubId !== 'tbd'
-      );
+      // Find matching fixture in state.fixtures by exact match index m
+      const matchedFixture = roundFixtures[m] || cupFixtures.find(f => f.id === `fix_${cupId}_r${rIdx + 1}_m${m}_2026`);
 
       let homeClub: Club | undefined;
       let awayClub: Club | undefined;
 
-      if (matchedFixture && state.clubs[matchedFixture.homeClubId] && state.clubs[matchedFixture.awayClubId]) {
+      if (matchedFixture && matchedFixture.homeClubId !== 'tbd' && matchedFixture.awayClubId !== 'tbd' && state.clubs[matchedFixture.homeClubId] && state.clubs[matchedFixture.awayClubId]) {
         homeClub = state.clubs[matchedFixture.homeClubId];
         awayClub = state.clubs[matchedFixture.awayClubId];
       } else if (rIdx === 0) {
         // First knockout round (e.g. R16 or Playoff): Seed from participating clubs
         homeClub = participatingClubs[(m * 2) % participatingClubs.length];
         awayClub = participatingClubs[(m * 2 + 1) % participatingClubs.length];
+        if (matchedFixture && homeClub && awayClub) {
+          if (!matchedFixture.homeClubId || matchedFixture.homeClubId === 'tbd') matchedFixture.homeClubId = homeClub.id;
+          if (!matchedFixture.awayClubId || matchedFixture.awayClubId === 'tbd') matchedFixture.awayClubId = awayClub.id;
+        }
       } else {
         // Subsequent rounds (QF, SF, Final): derive dynamically from previous round winners if finished
         const prevRound = resultRounds[rIdx - 1];
@@ -462,6 +473,10 @@ export function getTournamentBracket(
           if (m1?.winnerClubId && m2?.winnerClubId) {
             homeClub = state.clubs[m1.winnerClubId];
             awayClub = state.clubs[m2.winnerClubId];
+            if (matchedFixture && homeClub && awayClub) {
+              if (!matchedFixture.homeClubId || matchedFixture.homeClubId === 'tbd') matchedFixture.homeClubId = homeClub.id;
+              if (!matchedFixture.awayClubId || matchedFixture.awayClubId === 'tbd') matchedFixture.awayClubId = awayClub.id;
+            }
           }
         }
         // If previous round is not finished or winners not determined, leave as undefined -> shows "未定 (TBD)"!
@@ -509,9 +524,9 @@ export function getTournamentBracket(
 
           aggregateScoreStr = `合計: ${totalHome} - ${totalAway}`;
           if (leg2Fix.penaltyShootout) {
-            winnerId = leg2Fix.penaltyShootout.homeScore > leg2Fix.penaltyShootout.awayScore 
+            winnerId = leg2Fix.penaltyShootout.winnerClubId || (leg2Fix.penaltyShootout.homeScore > leg2Fix.penaltyShootout.awayScore 
               ? leg2Fix.homeClubId 
-              : leg2Fix.awayClubId;
+              : leg2Fix.awayClubId);
           } else if (totalHome > totalAway) {
             winnerId = homeClub.id;
           } else if (totalAway > totalHome) {
@@ -521,7 +536,7 @@ export function getTournamentBracket(
           }
         } else if (isFinished && homeScore !== undefined && awayScore !== undefined) {
           if (pk) {
-            winnerId = pk.homeScore > pk.awayScore ? homeClub.id : awayClub.id;
+            winnerId = pk.winnerClubId || (pk.homeScore > pk.awayScore ? homeClub.id : awayClub.id);
           } else if (homeScore > awayScore) {
             winnerId = homeClub.id;
           } else {
@@ -530,7 +545,7 @@ export function getTournamentBracket(
         }
       } else if (isFinished && homeScore !== undefined && awayScore !== undefined && homeClub && awayClub) {
         if (pk) {
-          winnerId = pk.homeScore > pk.awayScore ? homeClub.id : awayClub.id;
+          winnerId = pk.winnerClubId || (pk.homeScore > pk.awayScore ? homeClub.id : awayClub.id);
         } else if (homeScore > awayScore) {
           winnerId = homeClub.id;
         } else if (awayScore > homeScore) {

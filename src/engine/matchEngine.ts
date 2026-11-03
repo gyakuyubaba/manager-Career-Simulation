@@ -1,4 +1,4 @@
-import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition, GoalDetail, CompetitionCategory } from '../types/game';
+import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition, GoalDetail, CompetitionCategory, PenaltyShootoutResult, PenaltyKickerResult } from '../types/game';
 import { addDays, getCompetitionCategory } from './dateEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 
@@ -736,6 +736,121 @@ export function isMatchRequiringDecider(fixture: MatchFixture): { requiresDecide
 }
 
 // -------------------------------------------------------------
+// 【PK戦シミュレーション（キッカーごとの成功・失敗および勝者決定）】
+// -------------------------------------------------------------
+export function simulatePenaltyShootoutKickers(
+  homeClub: Club,
+  awayClub: Club,
+  homeStarters: (Player | { id: string; name: string; shooting?: number })[],
+  awayStarters: (Player | { id: string; name: string; shooting?: number })[],
+  rng: () => number = Math.random
+): PenaltyShootoutResult {
+  const kickers: PenaltyKickerResult[] = [];
+  let homeScore = 0;
+  let awayScore = 0;
+
+  const hList = homeStarters.length > 0 ? homeStarters : [{ id: 'h_1', name: `${homeClub.name} キッカー1` }];
+  const aList = awayStarters.length > 0 ? awayStarters : [{ id: 'a_1', name: `${awayClub.name} キッカー1` }];
+
+  // 1. Regular 5 kicks
+  for (let k = 1; k <= 5; k++) {
+    const homePlayer = hList[(k - 1) % hList.length];
+    const hShooting = homePlayer.shooting || 72;
+    const hProb = Math.max(0.62, Math.min(0.90, 0.76 + (hShooting - 70) * 0.003));
+    const hScored = rng() < hProb;
+    if (hScored) homeScore++;
+    kickers.push({
+      round: k,
+      clubId: homeClub.id,
+      playerId: homePlayer.id,
+      playerName: homePlayer.name,
+      scored: hScored,
+      scoreAfter: [homeScore, awayScore]
+    });
+
+    // Check early clinch after home kick if away cannot catch up
+    const awayRemainingBefore = 5 - (k - 1);
+    if (homeScore > awayScore + awayRemainingBefore) break;
+
+    const awayPlayer = aList[(k - 1) % aList.length];
+    const aShooting = awayPlayer.shooting || 72;
+    const aProb = Math.max(0.62, Math.min(0.90, 0.76 + (aShooting - 70) * 0.003));
+    const aScored = rng() < aProb;
+    if (aScored) awayScore++;
+    kickers.push({
+      round: k,
+      clubId: awayClub.id,
+      playerId: awayPlayer.id,
+      playerName: awayPlayer.name,
+      scored: aScored,
+      scoreAfter: [homeScore, awayScore]
+    });
+
+    const remKicks = 5 - k;
+    if (homeScore > awayScore + remKicks || awayScore > homeScore + remKicks) {
+      break;
+    }
+  }
+
+  // 2. Sudden death if tied
+  let currentRound = Math.floor(kickers.length / 2) + 1;
+  let safetyLimit = 0;
+  while (homeScore === awayScore && safetyLimit < 15) {
+    safetyLimit++;
+    const homePlayer = hList[(currentRound - 1) % hList.length];
+    const awayPlayer = aList[(currentRound - 1) % aList.length];
+
+    const hScored = rng() < 0.72;
+    if (hScored) homeScore++;
+    kickers.push({
+      round: currentRound,
+      clubId: homeClub.id,
+      playerId: homePlayer.id,
+      playerName: homePlayer.name,
+      scored: hScored,
+      scoreAfter: [homeScore, awayScore]
+    });
+
+    const aScored = rng() < 0.72;
+    if (aScored) awayScore++;
+    kickers.push({
+      round: currentRound,
+      clubId: awayClub.id,
+      playerId: awayPlayer.id,
+      playerName: awayPlayer.name,
+      scored: aScored,
+      scoreAfter: [homeScore, awayScore]
+    });
+
+    currentRound++;
+    if (homeScore !== awayScore) break;
+  }
+
+  // 3. Fallback decider
+  if (homeScore === awayScore) {
+    homeScore++;
+    const finalHPlayer = hList[0];
+    kickers.push({
+      round: currentRound,
+      clubId: homeClub.id,
+      playerId: finalHPlayer.id,
+      playerName: finalHPlayer.name,
+      scored: true,
+      scoreAfter: [homeScore, awayScore]
+    });
+  }
+
+  const winnerClubId = homeScore > awayScore ? homeClub.id : awayClub.id;
+
+  return {
+    homeScore,
+    awayScore,
+    winnerClubId,
+    kickers
+  };
+}
+
+// -------------------------------------------------------------
 // 【3 & 4. 試合シミュレーションエンジン (0-0過多解消 & 時間帯展開)】
 // -------------------------------------------------------------
 export function simulateFullMatch(
@@ -1251,7 +1366,7 @@ export function simulateFullMatch(
 
   // Requirement 1 & 2: Decisive extra time and penalties if drawn in knockout fixtures
   let extraTimePlayed = false;
-  let penaltyShootout: { homeScore: number; awayScore: number } | undefined = undefined;
+  let penaltyShootout: PenaltyShootoutResult | undefined = undefined;
 
   const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
   let needsExtraTime = false;
@@ -1313,29 +1428,15 @@ export function simulateFullMatch(
     }
 
     if (stillTied) {
-      let pHome = 0;
-      let pAway = 0;
-      for (let k = 0; k < 5; k++) {
-        if (rng() < 0.76) pHome++;
-        if (rng() < 0.76) pAway++;
-      }
-      while (pHome === pAway) {
-        const homeKick = rng() < 0.70 ? 1 : 0;
-        const awayKick = rng() < 0.70 ? 1 : 0;
-        pHome += homeKick;
-        pAway += awayKick;
-        if (pHome !== pAway) break;
-        if (pHome > 20) { pHome++; break; }
-      }
-      penaltyShootout = { homeScore: pHome, awayScore: pAway };
-      const pkWinnerClub = pHome > pAway ? homeClub : awayClub;
+      penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, homeStartersList, awayStartersList, rng);
+      const pkWinnerClub = penaltyShootout.winnerClubId === homeClub.id ? homeClub : awayClub;
       events.push({
         minute: 120,
         type: 'penalty',
         clubId: pkWinnerClub.id,
         playerId: pkWinnerClub.id === homeClub.id ? homeStartersList[0]?.id : awayStartersList[0]?.id,
         playerName: pkWinnerClub.name,
-        description: `【PK戦決着】PK戦 (${pHome} - ${pAway}) により${pkWinnerClub.name}の勝利が決定！`
+        description: `【PK戦決着】PK戦 (${penaltyShootout.homeScore} - ${penaltyShootout.awayScore}) により${pkWinnerClub.name}の勝利が決定！`
       });
     }
   }
@@ -1642,7 +1743,7 @@ export function fastForwardRemainingMatch(
 
   if (isTiedForDecider && !penaltyShootout) {
     extraTimePlayed = true;
-    penaltyShootout = { homeScore: 5, awayScore: 4 }; // Decisive shootout
+    penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, homeStarters, awayStarters);
   }
   
   const updatedFixture: MatchFixture = {

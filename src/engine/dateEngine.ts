@@ -10,9 +10,11 @@ import { updateClubVisionAfterSeason } from './clubVisionEngine';
 import { checkAndAdvanceBallonDor } from './ballonDorEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 import { initializeTournamentCompetitions } from './cupEngine';
+import { evaluateDailyUnexpectedEvent } from './unexpectedEventsEngine';
 
 // Get competition category for isolated disciplinary suspensions
 export function getCompetitionCategory(competition: string): CompetitionCategory {
+  if (competition === 'pre-season' || competition === 'preseason') return 'preseason';
   if (competition === 'ucl') return 'ucl';
   if (competition === 'uel') return 'uel';
   if (competition === 'uecl') return 'uecl';
@@ -221,7 +223,7 @@ export function applyMatchResultToWorld(
       finalFixture.aggregateScore = { homeScore: totalHome, awayScore: totalAway };
 
       if (finalFixture.penaltyShootout) {
-        winnerId = finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId;
+        winnerId = finalFixture.penaltyShootout.winnerClubId || (finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId);
       } else if (totalHome > totalAway) {
         winnerId = finalFixture.homeClubId;
       } else if (totalAway > totalHome) {
@@ -239,7 +241,7 @@ export function applyMatchResultToWorld(
         winnerId = finalFixture.awayClubId;
         loserId = finalFixture.homeClubId;
       } else if (finalFixture.penaltyShootout) {
-        winnerId = finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId;
+        winnerId = finalFixture.penaltyShootout.winnerClubId || (finalFixture.penaltyShootout.homeScore > finalFixture.penaltyShootout.awayScore ? finalFixture.homeClubId : finalFixture.awayClubId);
         loserId = winnerId === finalFixture.homeClubId ? finalFixture.awayClubId : finalFixture.homeClubId;
       } else {
         winnerId = finalFixture.homeClubId;
@@ -287,18 +289,39 @@ export function applyMatchResultToWorld(
       });
     } else {
       // Find if there is a next round fixture in this competition that needs teams
-      const nextRoundFixture = fixtures.find(f => 
-        f.competition === finalFixture.competition && 
-        f.status === 'upcoming' && 
-        f.date > finalFixture.date &&
-        (!f.homeClubId || !f.awayClubId || f.homeClubId === 'tbd' || f.awayClubId === 'tbd')
-      );
+      // Check for structured match index progression: e.g. fix_fa-cup_r1_m0_2026 -> fix_fa-cup_r2_m0_2026
+      let nextRoundFixture: MatchFixture | undefined;
+      const matchIdParts = finalFixture.id.match(/^fix_([a-z0-9_-]+)_r(\d+)_m(\d+)_(\d+)$/);
+      if (matchIdParts) {
+        const [, cupKey, rStr, mStr, yearStr] = matchIdParts;
+        const nextR = parseInt(rStr, 10) + 1;
+        const nextM = Math.floor(parseInt(mStr, 10) / 2);
+        const targetId = `fix_${cupKey}_r${nextR}_m${nextM}_${yearStr}`;
+        nextRoundFixture = fixtures.find(f => f.id === targetId);
+        if (nextRoundFixture) {
+          const isHomeSlot = parseInt(mStr, 10) % 2 === 0;
+          if (isHomeSlot) {
+            nextRoundFixture.homeClubId = winnerId;
+          } else {
+            nextRoundFixture.awayClubId = winnerId;
+          }
+        }
+      }
 
-      if (nextRoundFixture) {
-        if (!nextRoundFixture.homeClubId || nextRoundFixture.homeClubId === 'tbd') {
-          nextRoundFixture.homeClubId = winnerId;
-        } else if (!nextRoundFixture.awayClubId || nextRoundFixture.awayClubId === 'tbd') {
-          nextRoundFixture.awayClubId = winnerId;
+      if (!nextRoundFixture) {
+        nextRoundFixture = fixtures.find(f => 
+          f.competition === finalFixture.competition && 
+          f.status === 'upcoming' && 
+          f.date > finalFixture.date &&
+          (!f.homeClubId || !f.awayClubId || f.homeClubId === 'tbd' || f.awayClubId === 'tbd')
+        );
+
+        if (nextRoundFixture) {
+          if (!nextRoundFixture.homeClubId || nextRoundFixture.homeClubId === 'tbd') {
+            nextRoundFixture.homeClubId = winnerId;
+          } else if (!nextRoundFixture.awayClubId || nextRoundFixture.awayClubId === 'tbd') {
+            nextRoundFixture.awayClubId = winnerId;
+          }
         }
       }
 
@@ -780,6 +803,17 @@ export function advanceOneDay(
   if ((nextDate.endsWith('-08-31') || nextDate.endsWith('-01-31')) && !autoSimulateUserMatch) {
     state.showDeadlineSummary = true;
     stoppedReason = '【移籍市場最終日】夏の移籍ウィンドウのデッドラインデイを迎えました！';
+  }
+
+  // Unexpected Events System (Requirement 10: 「予期せぬ出来事」)
+  if (!state.activeUnexpectedEvent) {
+    const dailyEvent = evaluateDailyUnexpectedEvent(state);
+    if (dailyEvent) {
+      state.activeUnexpectedEvent = dailyEvent;
+      if (!autoSimulateUserMatch && !stoppedReason) {
+        stoppedReason = `【予期せぬ出来事】${dailyEvent.title}`;
+      }
+    }
   }
 
   return {

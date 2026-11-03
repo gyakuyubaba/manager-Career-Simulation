@@ -66,6 +66,8 @@ export const MatchSimulationView: React.FC<Props> = ({
 
   // Active view tab in match view
   const [activeTab, setActiveTab] = useState<'pitch' | 'events' | 'stats' | 'subs'>('pitch');
+  // Dedicated pre-match preparation tab
+  const [preMatchTab, setPreMatchTab] = useState<'formation' | 'squad' | 'tactics' | 'preview'>('formation');
 
   // In-match user tactical instructions
   const [tactics, setTactics] = useState<TeamTactics>(state.tactics);
@@ -828,6 +830,22 @@ export const MatchSimulationView: React.FC<Props> = ({
   const userStarters = tactics.lineup.starters.map(s => state.players[s.playerId]).filter(Boolean);
   const userBench = tactics.lineup.bench.map(id => state.players[id]).filter(Boolean);
 
+  const homeTactics = isUserHome ? tactics : getDefaultTacticsForClub(homeClub, state.players);
+  const awayTactics = !isUserHome ? tactics : getDefaultTacticsForClub(awayClub, state.players);
+
+  const homeStartersList = homeTactics.lineup.starters.map(s => ({
+    ...s,
+    player: state.players[s.playerId]
+  })).filter(s => Boolean(s.player));
+
+  const awayStartersList = awayTactics.lineup.starters.map(s => ({
+    ...s,
+    player: state.players[s.playerId]
+  })).filter(s => Boolean(s.player));
+
+  const homeBenchList = (homeTactics.lineup.bench || []).map(id => state.players[id]).filter(Boolean);
+  const awayBenchList = (awayTactics.lineup.bench || []).map(id => state.players[id]).filter(Boolean);
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/90 backdrop-blur-md flex flex-col text-slate-100">
       
@@ -1186,58 +1204,418 @@ export const MatchSimulationView: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* View Switcher Tabs: Pitch Lineup / Events Log / Live Stats / Substitutions */}
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab('pitch')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-              activeTab === 'pitch'
-                ? 'bg-emerald-500 text-slate-950'
-                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            📋 選手・疲労一覧
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('events')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer relative ${
-              activeTab === 'events'
-                ? 'bg-emerald-500 text-slate-950'
-                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            ⏱️ {t.matchEvents} ({revealedEvents.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('stats')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-              activeTab === 'stats'
-                ? 'bg-emerald-500 text-slate-950'
-                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            📊 試合スタッツ
-          </button>
-          {matchPhase !== 'finished' && (
+        {/* PRE-MATCH PREPARATION WORKSPACE (Requirement 9) */}
+        {matchPhase === 'pre' && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setPreMatchTab('formation')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  preMatchTab === 'formation'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                🏟️ 両チームフォーメーション図
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreMatchTab('squad')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  preMatchTab === 'squad'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                📋 メンバー表＆コンディション一覧
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreMatchTab('tactics')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  preMatchTab === 'tactics'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                ⚙️ チーム戦術情報
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreMatchTab('preview')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  preMatchTab === 'preview'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                ℹ️ 試合・会場情報
+              </button>
+            </div>
+
+            {/* PRE-MATCH TAB 1: DUAL FORMATIONS */}
+            {preMatchTab === 'formation' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Home Pitch */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
+                      <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                      {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                    </div>
+                    <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                      {homeTactics.formation}
+                    </span>
+                  </div>
+                  <div className="relative w-full h-80 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
+                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
+                    {homeStartersList.map((s, idx) => {
+                      const p = s.player;
+                      return (
+                        <div
+                          key={p.id || idx}
+                          style={{ left: `${s.x}%`, top: `${s.y}%` }}
+                          className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
+                        >
+                          <div
+                            className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md"
+                            style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
+                          >
+                            {p.shirtNumber || s.position}
+                          </div>
+                          <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
+                            {p.name.split(' ').pop()}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Away Pitch */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
+                      <span className="font-bold text-white text-sm">{awayClub?.name}</span>
+                      {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                    </div>
+                    <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
+                      {awayTactics.formation}
+                    </span>
+                  </div>
+                  <div className="relative w-full h-80 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
+                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
+                    {awayStartersList.map((s, idx) => {
+                      const p = s.player;
+                      return (
+                        <div
+                          key={p.id || idx}
+                          style={{ left: `${s.x}%`, top: `${s.y}%` }}
+                          className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
+                        >
+                          <div
+                            className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md"
+                            style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
+                          >
+                            {p.shirtNumber || s.position}
+                          </div>
+                          <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
+                            {p.name.split(' ').pop()}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PRE-MATCH TAB 2: SQUAD AND CONDITION LIST */}
+            {preMatchTab === 'squad' && (
+              <div className="space-y-4">
+                {/* Starters */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>⚽ {isUserHome ? homeClub?.name : awayClub?.name} 先発メンバー (11名)</span>
+                    </h3>
+                    <span className="text-xs font-mono text-emerald-400 font-bold">先発 XI</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {userStarters.map(p => {
+                      const isSuspended = p.suspension && (
+                        (p.suspension.competitionSuspensions && (p.suspension.competitionSuspensions[fixture.competition as any] || 0) > 0) ||
+                        (p.suspension.matchesRemaining > 0 && p.suspension.isSuspended)
+                      );
+                      const isInjured = p.injuryStatus === 'INJURED' || p.injury?.isInjured;
+
+                      return (
+                        <div key={p.id} className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-500 font-mono">#{p.shirtNumber}</span>
+                              <span className="text-xs font-bold text-blue-400 font-mono w-7">{p.position}</span>
+                              <span className="text-xs font-bold text-white">{p.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {isSuspended ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-900/80 text-red-200 border border-red-700 font-bold">
+                                  出場停止
+                                </span>
+                              ) : isInjured ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-900/80 text-rose-200 border border-rose-700 font-bold">
+                                  負傷
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
+                                  出場可
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setManualReplaceTarget(p)}
+                                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 cursor-pointer"
+                              >
+                                変更
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                            <div className="flex items-center gap-2">
+                              <span>OVR {p.ovr}</span>
+                              <span>STA {p.stamina || 75}</span>
+                            </div>
+                            <ConditionDot condition={p.condition} showLabel />
+                          </div>
+                          <FatigueGauge fatigue={p.fatigue} size="sm" showFraction />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Bench */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>💺 ベンチ入りメンバー ({userBench.length}名)</span>
+                    </h3>
+                    <span className="text-xs font-mono text-slate-400">控え</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {userBench.map(p => {
+                      const isSuspended = p.suspension && (
+                        (p.suspension.competitionSuspensions && (p.suspension.competitionSuspensions[fixture.competition as any] || 0) > 0) ||
+                        (p.suspension.matchesRemaining > 0 && p.suspension.isSuspended)
+                      );
+                      const isInjured = p.injuryStatus === 'INJURED' || p.injury?.isInjured;
+
+                      return (
+                        <div key={p.id} className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-500 font-mono">#{p.shirtNumber}</span>
+                              <span className="text-xs font-bold text-slate-400 font-mono w-7">{p.position}</span>
+                              <span className="text-xs font-bold text-slate-200">{p.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {isSuspended ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-900/80 text-red-200 border border-red-700 font-bold">
+                                  出場停止
+                                </span>
+                              ) : isInjured ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-900/80 text-rose-200 border border-rose-700 font-bold">
+                                  負傷
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold">
+                                  出場可
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setManualReplaceTarget(p)}
+                                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 cursor-pointer"
+                              >
+                                変更
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                            <div className="flex items-center gap-2">
+                              <span>OVR {p.ovr}</span>
+                              <span>STA {p.stamina || 75}</span>
+                            </div>
+                            <ConditionDot condition={p.condition} showLabel />
+                          </div>
+                          <FatigueGauge fatigue={p.fatigue} size="sm" showFraction />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PRE-MATCH TAB 3: TACTICS INFO */}
+            {preMatchTab === 'tactics' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                <div className="border-b border-slate-800 pb-2">
+                  <h3 className="text-sm font-bold text-white">チーム戦術詳細比較</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">両チームのフォーメーション、攻撃・守備スタイル、プレス強度です。</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Home Club */}
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                      <span className="text-xs font-mono font-bold text-emerald-400">{homeTactics.formation}</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between py-1 border-b border-slate-800/40">
+                        <span className="text-slate-400">攻撃スタイル</span>
+                        <span className="font-bold text-slate-200">{homeTactics.attackingStyle || 'ポゼッション'}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/40">
+                        <span className="text-slate-400">守備スタイル</span>
+                        <span className="font-bold text-slate-200">{homeTactics.defensiveStyle || 'ハイプレス'}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/40">
+                        <span className="text-slate-400">プレス強度</span>
+                        <span className="font-bold text-slate-200">{homeTactics.pressingIntensity || 'ハイプレス'}</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="text-slate-400">ディフェンスライン</span>
+                        <span className="font-bold text-slate-200">{homeTactics.defensiveLine || 'ハイライン'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Away Club */}
+                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="font-bold text-white text-sm">{awayClub?.name}</span>
+                      <span className="text-xs font-mono font-bold text-blue-400">{awayTactics.formation}</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between py-1 border-b border-slate-800/40">
+                        <span className="text-slate-400">攻撃スタイル</span>
+                        <span className="font-bold text-slate-200">{awayTactics.attackingStyle || 'カウンター'}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/40">
+                        <span className="text-slate-400">守備スタイル</span>
+                        <span className="font-bold text-slate-200">{awayTactics.defensiveStyle || 'リトリート'}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/40">
+                        <span className="text-slate-400">プレス強度</span>
+                        <span className="font-bold text-slate-200">{awayTactics.pressingIntensity || 'ミドルプレス'}</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="text-slate-400">ディフェンスライン</span>
+                        <span className="font-bold text-slate-200">{awayTactics.defensiveLine || '標準'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PRE-MATCH TAB 4: MATCH PREVIEW */}
+            {preMatchTab === 'preview' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                <div className="border-b border-slate-800 pb-2">
+                  <h3 className="text-sm font-bold text-white">試合・会場インフォメーション</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
+                    <span className="text-slate-500 font-mono text-[11px] block">大会 / ラウンド</span>
+                    <span className="text-white font-bold">{fixture.competitionName} · {fixture.round || '公式戦'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
+                    <span className="text-slate-500 font-mono text-[11px] block">試合日程</span>
+                    <span className="text-emerald-400 font-mono font-bold">{fixture.date} ({fixture.time || '15:00'})</span>
+                  </div>
+                  <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
+                    <span className="text-slate-500 font-mono text-[11px] block">スタジアム / 会場</span>
+                    <span className="text-white font-bold">
+                      {fixture.isNeutralVenue ? '中立地スタジアム' : (homeClub?.stadiumName || `${homeClub?.name} スタジアム`)}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
+                    <span className="text-slate-500 font-mono text-[11px] block">天候 / 主審</span>
+                    <span className="text-slate-200 font-medium">
+                      {fixture.weather || '晴れ (微風)'} · 主審: {fixture.referee || '公式担当審判'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* In-Match View Switcher Tabs: Pitch Lineup / Events Log / Live Stats / Substitutions */}
+        {matchPhase !== 'pre' && (
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
             <button
               type="button"
-              onClick={() => setActiveTab('subs')}
+              onClick={() => setActiveTab('pitch')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                activeTab === 'subs'
+                activeTab === 'pitch'
                   ? 'bg-emerald-500 text-slate-950'
                   : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
-              🔄 選手交代 ({subCount}/5)
+              📋 選手・疲労一覧
             </button>
-          )}
-        </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('events')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer relative ${
+                activeTab === 'events'
+                  ? 'bg-emerald-500 text-slate-950'
+                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              ⏱️ {t.matchEvents} ({revealedEvents.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('stats')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                activeTab === 'stats'
+                  ? 'bg-emerald-500 text-slate-950'
+                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              📊 試合スタッツ
+            </button>
+            {matchPhase !== 'finished' && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('subs')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'subs'
+                    ? 'bg-emerald-500 text-slate-950'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                🔄 選手交代 ({subCount}/5)
+              </button>
+            )}
+          </div>
+        )}
 
         {/* TAB 1: PITCH & SQUAD FATIGUE GAUGES (Requirements 6 & 7) */}
-        {activeTab === 'pitch' && (
+        {activeTab === 'pitch' && matchPhase !== 'pre' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
@@ -1528,13 +1906,88 @@ export const MatchSimulationView: React.FC<Props> = ({
         {/* FINISHED STATE OVERVIEW (Post-match summary, MOTM, Proceed to Press Conference) */}
         {matchPhase === 'finished' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-5">
-            <div className="text-center pb-4 border-b border-slate-800">
-              <div className="text-xs text-emerald-400 font-bold uppercase tracking-wider mb-1">
-                FULL TIME RESULT
+            <div className="text-center pb-4 border-b border-slate-800 space-y-2">
+              <div className="text-xs text-emerald-400 font-bold uppercase tracking-wider">
+                試合結果 (FULL TIME RESULT)
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white font-mono">
                 {homeClub?.name} {currentScore[0]} - {currentScore[1]} {awayClub?.name}
               </h2>
+
+              {/* Extra Time and Penalty Shootout Detailed Breakdown */}
+              {(fixture.extraTimePlayed || minute > 90 || simulatedResult?.fixture?.extraTimePlayed) && (
+                <div className="text-xs sm:text-sm font-semibold text-amber-300 font-mono">
+                  延長戦：{currentScore[0]} - {currentScore[1]}
+                </div>
+              )}
+
+              {simulatedResult?.fixture?.penaltyShootout && (
+                <div className="mt-3 p-4 bg-slate-950 rounded-2xl border border-rose-500/40 text-center space-y-2">
+                  <div className="text-lg sm:text-xl font-black text-rose-400 font-mono">
+                    PK戦：{simulatedResult.fixture.penaltyShootout.homeScore} - {simulatedResult.fixture.penaltyShootout.awayScore}
+                  </div>
+                  <div className="text-sm font-extrabold text-emerald-400">
+                    勝者：{
+                      simulatedResult.fixture.penaltyShootout.winnerClubId === homeClub?.id 
+                        ? `${homeClub?.name} (${homeClub?.shortName})`
+                        : `${awayClub?.name} (${awayClub?.shortName})`
+                    }
+                  </div>
+
+                  {/* Kicker by Kicker Results */}
+                  {simulatedResult.fixture.penaltyShootout.kickers && simulatedResult.fixture.penaltyShootout.kickers.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-800 text-left max-w-xl mx-auto">
+                      <div className="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
+                        <span>🎯 PK戦キッカー詳細</span>
+                        <span className="font-mono text-[11px] text-slate-400">
+                          {simulatedResult.fixture.penaltyShootout.homeScore} - {simulatedResult.fixture.penaltyShootout.awayScore}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        {/* Home Kickers */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                          <div className="font-bold text-slate-200 mb-1.5 flex items-center gap-1.5 border-b border-slate-800 pb-1">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
+                            <span>{homeClub?.shortName || homeClub?.name}</span>
+                          </div>
+                          <div className="space-y-1">
+                            {simulatedResult.fixture.penaltyShootout.kickers
+                              .filter((k: any) => k.clubId === homeClub?.id)
+                              .map((k: any, i: number) => (
+                                <div key={i} className="flex items-center justify-between text-[11px] font-mono py-0.5">
+                                  <span className="truncate pr-1 text-slate-300">{i + 1}. {k.playerName}</span>
+                                  <span className={k.scored ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                                    {k.scored ? '⭕ 成功' : '❌ 失敗'}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+
+                        {/* Away Kickers */}
+                        <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                          <div className="font-bold text-slate-200 mb-1.5 flex items-center gap-1.5 border-b border-slate-800 pb-1">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
+                            <span>{awayClub?.shortName || awayClub?.name}</span>
+                          </div>
+                          <div className="space-y-1">
+                            {simulatedResult.fixture.penaltyShootout.kickers
+                              .filter((k: any) => k.clubId === awayClub?.id)
+                              .map((k: any, i: number) => (
+                                <div key={i} className="flex items-center justify-between text-[11px] font-mono py-0.5">
+                                  <span className="truncate pr-1 text-slate-300">{i + 1}. {k.playerName}</span>
+                                  <span className={k.scored ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                                    {k.scored ? '⭕ 成功' : '❌ 失敗'}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Scorer Summary (Requirement 4) */}
