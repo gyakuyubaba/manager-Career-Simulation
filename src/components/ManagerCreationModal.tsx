@@ -75,8 +75,13 @@ export const ManagerCreationModal: React.FC<Props> = ({ onComplete }) => {
         <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-8 shadow-2xl my-4 sm:my-8 transition-all text-left pb-10">
           
           <div className="text-center mb-6 pt-2">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 mb-3 text-2xl">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 mb-2 text-2xl">
               {avatar}
+            </div>
+            <div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-xs font-bold mb-2 inline-block">
+                2026/27:manager Career Simulation
+              </span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white font-display">
               オリジナル監督プロファイル作成

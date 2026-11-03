@@ -1743,7 +1743,9 @@ export function fastForwardRemainingMatch(
 
   if (isTiedForDecider && !penaltyShootout) {
     extraTimePlayed = true;
-    penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, homeStarters, awayStarters);
+    const hStarters = (homeTactics.lineup?.starters || []).map(s => playersRegistry[s.playerId]).filter(Boolean);
+    const aStarters = (awayTactics.lineup?.starters || []).map(s => playersRegistry[s.playerId]).filter(Boolean);
+    penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, hStarters, aStarters);
   }
   
   const updatedFixture: MatchFixture = {

@@ -102,7 +102,7 @@ const TEMPLATES: EventTemplate[] = [
     titleTemplate: () => `【戦術分析】次節の対戦相手がこちらのシステムを徹底対策しているとの情報`,
     descriptionTemplate: () =>
       `分析アナリスト陣から緊急報告。「相手監督が直近3試合の我々のビルドアップとプレス回避の癖を徹底研究し、特効戦術を用意している疑いがある」とのことです。`,
-    choicesGenerator: () => [
+    choicesGenerator: (ctx) => [
       {
         id: 'stick_philosophy',
         label: 'A: 自分たちのスタイルを信じ、微調整にとどめて正面突破を図る',
@@ -222,34 +222,35 @@ const TEMPLATES: EventTemplate[] = [
 ];
 
 /**
- * Checks whether an unexpected event should trigger on this day.
- * - Minimum 7-day cooldown
- * - Low-to-medium probability (~15%)
+ * Generates an unexpected event for today if conditions are met.
+ * If forceProbability is provided (e.g. 1.0 in testing), skips cooldown and randomness.
  */
-export function evaluateDailyUnexpectedEvent(state: GameWorldState): UnexpectedEvent | null {
+export function generateUnexpectedEventDaily(state: GameWorldState, forceProbability?: number): UnexpectedEvent | null {
   if (!state.userClubId) return null;
   const userClub = state.clubs[state.userClubId];
   if (!userClub) return null;
 
-  // Check if there is already an unresolved active event
-  if (state.activeUnexpectedEvent && !state.activeUnexpectedEvent.resolvedChoiceId) {
-    return null;
-  }
-
-  // 7-day cooldown check
-  if (state.lastUnexpectedEventDate) {
-    const lastDate = new Date(state.lastUnexpectedEventDate).getTime();
-    const curDate = new Date(state.currentDate).getTime();
-    const diffDays = Math.floor((curDate - lastDate) / (1000 * 60 * 60 * 24));
-    if (diffDays < 7) {
+  if (forceProbability === undefined) {
+    // Check if there is already an unresolved active event
+    if (state.activeUnexpectedEvent && !state.activeUnexpectedEvent.resolvedChoiceId) {
       return null;
     }
-  }
 
-  // Low-to-medium probability (15% chance per eligible day)
-  const roll = Math.random();
-  if (roll > 0.15) {
-    return null;
+    // 7-day cooldown check
+    if (state.lastUnexpectedEventDate) {
+      const lastDate = new Date(state.lastUnexpectedEventDate).getTime();
+      const curDate = new Date(state.currentDate).getTime();
+      const diffDays = Math.floor((curDate - lastDate) / (1000 * 60 * 60 * 24));
+      if (diffDays < 7) {
+        return null;
+      }
+    }
+
+    // Low-to-medium probability (15% chance per eligible day)
+    const roll = Math.random();
+    if (roll > 0.15) {
+      return null;
+    }
   }
 
   // Find club players for context
@@ -373,6 +374,7 @@ export function resolveUnexpectedEvent(
   };
 
   const updatedHistory = [...(state.unexpectedEventsHistory || []), resolvedEvent];
+  const updatedProcessedEventIds = [...(state.processedEventIds || []), eventId];
 
   return {
     ...state,
@@ -382,6 +384,9 @@ export function resolveUnexpectedEvent(
     news: updatedNews,
     activeUnexpectedEvent: null,
     unexpectedEventsHistory: updatedHistory,
-    lastUnexpectedEventDate: state.currentDate
+    lastUnexpectedEventDate: state.currentDate,
+    processedEventIds: updatedProcessedEventIds
   };
 }
+
+export const evaluateDailyUnexpectedEvent = generateUnexpectedEventDaily;

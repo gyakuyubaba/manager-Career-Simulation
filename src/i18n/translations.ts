@@ -185,7 +185,7 @@ export interface Translations {
 
 export const TRANSLATIONS: Record<Language, Translations> = {
   ja: {
-    appTitle: 'フットボールマネージャー 2026/27',
+    appTitle: '2026/27:manager Career Simulation',
     season: '2026/27シーズン',
     date: '日付',
     nextDay: '次の日へ',
@@ -356,7 +356,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
   },
 
   en: {
-    appTitle: 'Football Manager 2026/27',
+    appTitle: '2026/27:manager Career Simulation',
     season: '2026/27 Season',
     date: 'Date',
     nextDay: 'Next Day',
@@ -527,7 +527,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
   },
 
   es: {
-    appTitle: 'Football Manager 2026/27',
+    appTitle: '2026/27:manager Career Simulation',
     season: 'Temporada 2026/27',
     date: 'Fecha',
     nextDay: 'Siguiente día',

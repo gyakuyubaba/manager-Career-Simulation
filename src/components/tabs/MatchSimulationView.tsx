@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player } from '../../types/game';
+import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player, CompetitionCategory } from '../../types/game';
 import { simulateFullMatch, generateAssistantCoachAdvice, finalMatchEligibilityCheck, MatchEligibilityCheckResult, fastForwardRemainingMatch, isMatchRequiringDecider } from '../../engine/matchEngine';
 import { autoReplaceIneligiblePlayers } from '../../engine/dataValidator';
 import { getDefaultTacticsForClub } from '../../data/squadPopulator';
@@ -1279,7 +1279,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                       return (
                         <div
                           key={p.id || idx}
-                          style={{ left: `${s.x}%`, top: `${s.y}%` }}
+                          style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
                           className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
                         >
                           <div
@@ -1319,7 +1319,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                       return (
                         <div
                           key={p.id || idx}
-                          style={{ left: `${s.x}%`, top: `${s.y}%` }}
+                          style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
                           className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
                         >
                           <div
@@ -1352,8 +1352,15 @@ export const MatchSimulationView: React.FC<Props> = ({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {userStarters.map(p => {
+                      const compId = (fixture.competition || '').toLowerCase();
+                      const compCat: CompetitionCategory = (compId.includes('pre-season') || compId.includes('preseason')) ? 'preseason' :
+                        (compId.includes('ucl') || compId.includes('champions')) ? 'ucl' :
+                        (compId.includes('uel') || (compId.includes('europa') && !compId.includes('conference'))) ? 'uel' :
+                        (compId.includes('uecl') || compId.includes('conference')) ? 'uecl' :
+                        (compId.includes('cup') || compId.includes('fa') || compId.includes('carabao') || compId.includes('copa') || compId.includes('coppa') || compId.includes('dfb')) ? 'domestic_cup' : 'league';
+                      const catRemaining = p.suspension?.competitionSuspensions ? p.suspension.competitionSuspensions[compCat] : undefined;
                       const isSuspended = p.suspension && (
-                        (p.suspension.competitionSuspensions && (p.suspension.competitionSuspensions[fixture.competition as any] || 0) > 0) ||
+                        ((catRemaining ?? 0) > 0) ||
                         (p.suspension.matchesRemaining > 0 && p.suspension.isSuspended)
                       );
                       const isInjured = p.injuryStatus === 'INJURED' || p.injury?.isInjured;
@@ -1414,7 +1421,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {userBench.map(p => {
                       const isSuspended = p.suspension && (
-                        (p.suspension.competitionSuspensions && (p.suspension.competitionSuspensions[fixture.competition as any] || 0) > 0) ||
+                        (((p.suspension.competitionSuspensions as any)?.[fixture.competition] || 0) > 0) ||
                         (p.suspension.matchesRemaining > 0 && p.suspension.isSuspended)
                       );
                       const isInjured = p.injuryStatus === 'INJURED' || p.injury?.isInjured;
@@ -1483,19 +1490,19 @@ export const MatchSimulationView: React.FC<Props> = ({
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span className="text-slate-400">攻撃スタイル</span>
-                        <span className="font-bold text-slate-200">{homeTactics.attackingStyle || 'ポゼッション'}</span>
+                        <span className="font-bold text-slate-200">{homeTactics.instructions?.attackingStyle || 'ポゼッション・パス'}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span className="text-slate-400">守備スタイル</span>
-                        <span className="font-bold text-slate-200">{homeTactics.defensiveStyle || 'ハイプレス'}</span>
+                        <span className="font-bold text-slate-200">{homeTactics.instructions?.defensiveStyle || 'ハイプレス'}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span className="text-slate-400">プレス強度</span>
-                        <span className="font-bold text-slate-200">{homeTactics.pressingIntensity || 'ハイプレス'}</span>
+                        <span className="font-bold text-slate-200">{homeTactics.instructions?.pressIntensity || '非常に激しい'}</span>
                       </div>
                       <div className="flex justify-between py-1">
                         <span className="text-slate-400">ディフェンスライン</span>
-                        <span className="font-bold text-slate-200">{homeTactics.defensiveLine || 'ハイライン'}</span>
+                        <span className="font-bold text-slate-200">{homeTactics.instructions?.defensiveLine || 'ハイライン'}</span>
                       </div>
                     </div>
                   </div>
@@ -1509,19 +1516,19 @@ export const MatchSimulationView: React.FC<Props> = ({
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span className="text-slate-400">攻撃スタイル</span>
-                        <span className="font-bold text-slate-200">{awayTactics.attackingStyle || 'カウンター'}</span>
+                        <span className="font-bold text-slate-200">{awayTactics.instructions?.attackingStyle || 'ダイレクト・カウンター'}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span className="text-slate-400">守備スタイル</span>
-                        <span className="font-bold text-slate-200">{awayTactics.defensiveStyle || 'リトリート'}</span>
+                        <span className="font-bold text-slate-200">{awayTactics.instructions?.defensiveStyle || 'ミドルブロック'}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span className="text-slate-400">プレス強度</span>
-                        <span className="font-bold text-slate-200">{awayTactics.pressingIntensity || 'ミドルプレス'}</span>
+                        <span className="font-bold text-slate-200">{awayTactics.instructions?.pressIntensity || '標準的'}</span>
                       </div>
                       <div className="flex justify-between py-1">
                         <span className="text-slate-400">ディフェンスライン</span>
-                        <span className="font-bold text-slate-200">{awayTactics.defensiveLine || '標準'}</span>
+                        <span className="font-bold text-slate-200">{awayTactics.instructions?.defensiveLine || '標準'}</span>
                       </div>
                     </div>
                   </div>

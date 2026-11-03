@@ -526,10 +526,26 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
   const benchIds = new Set(tactics.lineup.bench);
 
   // Requirement 4: 正式な所属選手からスタメン・ベンチ以外を抽出 (他クラブ移籍・他クラブレンタル・重複排除)
+  const isEuroClub = userClub && userClub.country !== '日本';
+  const INVALID_ARSENAL_JAPANESE = new Set(['矢野 貴章', '細川 淳矢', '端戸 仁', '浅川 隼人', '藤本 憲明']);
+
   const reservePlayers = Object.values(state.players).filter(p => {
     if (p.clubId !== state.userClubId) return false;
     if (p.isLoaned && p.loanClubId && p.loanClubId !== state.userClubId) return false;
     if (starterIds.has(p.id) || benchIds.has(p.id)) return false;
+    if (isEuroClub) {
+      const stripped = p.name ? p.name.replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') : '';
+      if (
+        INVALID_ARSENAL_JAPANESE.has(p.name) ||
+        stripped === '矢野貴章' ||
+        stripped === '細川淳矢' ||
+        stripped === '端戸仁' ||
+        stripped === '浅川隼人' ||
+        stripped === '藤本憲明'
+      ) {
+        return false;
+      }
+    }
     return true;
   });
 

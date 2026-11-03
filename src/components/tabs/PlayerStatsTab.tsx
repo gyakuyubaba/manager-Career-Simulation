@@ -31,7 +31,7 @@ interface StatsRankTableProps {
   players: any[];
   highlight: 'goals' | 'assists' | 'rating' | 'minutes' | 'cards' | 'cs' | 'saves';
   onInspect: (p: Player) => void;
-  userClubId?: string;
+  userClubId?: string | null;
   clubs: Record<string, any>;
 }
 
@@ -797,128 +797,43 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {/* 5. RATINGS / MINUTES / CARDS TABLES */}
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* 5. RATINGS / MINUTES / CARDS TABLES */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {activeCategory === 'ratings' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 text-xs font-bold text-slate-300">
-            平均評価点ランキング TOP 30 (安定した高パフォーマンス)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-3 text-center w-12">順位</th>
-                  <th className="py-3 px-4">選手名</th>
-                  <th className="py-3 px-4">所属クラブ</th>
-                  <th className="py-3 px-3 text-center">Pos</th>
-                  <th className="py-3 px-3 text-center">出場</th>
-                  <th className="py-3 px-3 text-center">得点</th>
-                  <th className="py-3 px-3 text-center">アシスト</th>
-                  <th className="py-3 px-4 text-center font-bold text-emerald-400 text-sm">平均評価点</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {topRatings.map((p, idx) => (
-                  <tr key={p.id} onClick={() => setInspectingPlayer(p)} className="cursor-pointer hover:bg-slate-800/30 text-slate-300">
-                    <td className="py-3 px-3 text-center font-mono font-bold">{idx + 1}</td>
-                    <td className="py-3 px-4 font-bold text-white">{p.name}</td>
-                    <td className="py-3 px-4 text-slate-300">{state.clubs[p.clubId]?.name}</td>
-                    <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.appearances || 0}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.goals || 0}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.assists || 0}</td>
-                    <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                      {p.currentScopedStats.avgRating && p.currentScopedStats.avgRating > 0 ? p.currentScopedStats.avgRating.toFixed(2) : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <StatsRankTable
+          title="平均評価点ランキング TOP 30 (安定した高パフォーマンス)"
+          subtitle="選手をクリックして詳細プロフィール表示"
+          players={topRatings}
+          highlight="rating"
+          onInspect={setInspectingPlayer}
+          userClubId={state.userClubId}
+          clubs={state.clubs}
+        />
       )}
 
       {activeCategory === 'minutes' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 text-xs font-bold text-slate-300">
-            総出場時間ランキング TOP 30 (鉄人・チームの中核)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-3 text-center w-12">順位</th>
-                  <th className="py-3 px-4">選手名</th>
-                  <th className="py-3 px-4">所属クラブ</th>
-                  <th className="py-3 px-3 text-center">Pos</th>
-                  <th className="py-3 px-3 text-center">スタメン</th>
-                  <th className="py-3 px-4 text-center font-bold text-emerald-400 text-sm">総出場時間 (分)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {topMinutes.map((p, idx) => (
-                  <tr key={p.id} onClick={() => setInspectingPlayer(p)} className="cursor-pointer hover:bg-slate-800/30 text-slate-300">
-                    <td className="py-3 px-3 text-center font-mono font-bold">{idx + 1}</td>
-                    <td className="py-3 px-4 font-bold text-white">{p.name}</td>
-                    <td className="py-3 px-4 text-slate-300">{state.clubs[p.clubId]?.name}</td>
-                    <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                    <td className="py-3 px-3 text-center font-mono">{p.currentScopedStats.starts || 0}</td>
-                    <td className="py-3 px-4 text-center font-mono font-black text-emerald-400 text-sm">
-                      {p.currentScopedStats.minutes || 0} 分
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <StatsRankTable
+          title="総出場時間ランキング TOP 30 (鉄人・チームの中核)"
+          subtitle="選手をクリックして詳細プロフィール表示"
+          players={topMinutes}
+          highlight="minutes"
+          onInspect={setInspectingPlayer}
+          userClubId={state.userClubId}
+          clubs={state.clubs}
+        />
       )}
 
       {activeCategory === 'cards' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-          <div className="p-4 bg-slate-950/60 border-b border-slate-800 text-xs font-bold text-slate-300">
-            警告・退場数ランキング TOP 30 (激しい守備・規律管理)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950/40 text-slate-400 font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-3 text-center w-12">順位</th>
-                  <th className="py-3 px-4">選手名</th>
-                  <th className="py-3 px-4">所属クラブ</th>
-                  <th className="py-3 px-3 text-center">Pos</th>
-                  <th className="py-3 px-3 text-center text-amber-300 font-bold">イエロー (🟨)</th>
-                  <th className="py-3 px-3 text-center text-rose-400 font-bold">レッド (🟥)</th>
-                  <th className="py-3 px-3 text-center">現在出場停止</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {topCards.map((p, idx) => (
-                  <tr key={p.id} onClick={() => setInspectingPlayer(p)} className="cursor-pointer hover:bg-slate-800/30 text-slate-300">
-                    <td className="py-3 px-3 text-center font-mono font-bold">{idx + 1}</td>
-                    <td className="py-3 px-4 font-bold text-white">{p.name}</td>
-                    <td className="py-3 px-4 text-slate-300">{state.clubs[p.clubId]?.name}</td>
-                    <td className="py-3 px-3 text-center font-mono font-bold text-slate-400">{p.position}</td>
-                    <td className="py-3 px-3 text-center font-mono font-bold text-amber-300">
-                      {p.currentScopedStats.yellowCards || 0}
-                    </td>
-                    <td className="py-3 px-3 text-center font-mono font-bold text-rose-400">
-                      {p.currentScopedStats.redCards || 0}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      {p.suspension?.isSuspended ? (
-                        <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/40 px-2 py-0.5 rounded-full font-bold">
-                          停止中 (残{p.suspension.matchesRemaining}戦)
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-500 font-mono">なし</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <StatsRankTable
+          title="警告・退場数ランキング TOP 30 (激しい守備・規律管理)"
+          subtitle="選手をクリックして詳細プロフィール表示"
+          players={topCards}
+          highlight="cards"
+          onInspect={setInspectingPlayer}
+          userClubId={state.userClubId}
+          clubs={state.clubs}
+        />
       )}
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}

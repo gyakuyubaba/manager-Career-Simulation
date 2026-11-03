@@ -808,6 +808,7 @@ export interface GameWorldState {
   activeUnexpectedEvent?: UnexpectedEvent | null;
   unexpectedEventsHistory?: UnexpectedEvent[];
   lastUnexpectedEventDate?: string;
+  processedEventIds?: string[];
 }
 
 export type UnexpectedEventCategory = 'club_internal' | 'match_related' | 'transfer_related' | 'board_management' | 'manager_related';

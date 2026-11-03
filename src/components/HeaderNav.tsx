@@ -49,6 +49,9 @@ export const HeaderNav: React.FC<Props> = ({ state, onAdvanceDay, onFastForward,
                 <span className="text-slate-300 font-semibold">{formatDateJP(state.currentDate)}</span>
                 <span className="text-slate-500">·</span>
                 <span className="text-slate-400">{state.season}</span>
+                <span className="hidden md:inline-block px-2 py-0.5 rounded-full bg-slate-800 text-[10px] font-bold text-slate-300 border border-slate-700/60 font-mono">
+                  2026/27:manager Career Simulation
+                </span>
               </div>
             </div>
           </div>
