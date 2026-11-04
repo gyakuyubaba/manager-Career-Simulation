@@ -319,3 +319,116 @@ export function evaluateMatchBoardConfidence(
     newsItem: specialNews
   };
 }
+
+/**
+ * Requirement 11: Evaluate season objective achievement for Elite / top clubs.
+ * Sacking & steep confidence drops when failing objectives (e.g. Arsenal/Real Madrid finishing 8th-10th).
+ */
+export function evaluateSeasonObjectivesBoardConfidence(
+  state: GameWorldState
+): {
+  updatedState: GameWorldState;
+  isSacked: boolean;
+  failedObjectives: boolean;
+  confidenceDelta: number;
+  reason: string;
+} {
+  if (!state.userClubId) {
+    return { updatedState: state, isSacked: false, failedObjectives: false, confidenceDelta: 0, reason: '' };
+  }
+
+  const userClub = state.clubs[state.userClubId];
+  if (!userClub) {
+    return { updatedState: state, isSacked: false, failedObjectives: false, confidenceDelta: 0, reason: '' };
+  }
+
+  const standings = state.standings[userClub.league] || [];
+  const rankIdx = standings.findIndex(r => r.clubId === userClub.id);
+  const finishRank = rankIdx !== -1 ? rankIdx + 1 : 10;
+
+  let failedObjectives = false;
+  let confidenceDelta = 0;
+  let reason = '';
+
+  // Elite clubs (Arsenal, Real Madrid, Bayern, Man City, PSG, Inter, etc.)
+  if (userClub.tier === 'Elite') {
+    // Objective is typically Top 4 / Champions League qualification
+    if (finishRank > 4) {
+      failedObjectives = true;
+      if (finishRank >= 8) {
+        // Severe failure (e.g. 8th to 10th or lower)
+        confidenceDelta = -35;
+        reason = `【重大な目標未達】名門${userClub.name}において今季リーグ${finishRank}位でフィニッシュ。CL出場権を逃し欧州カンファレンスリーグまたは大会圏外に沈む歴史的惨敗。`;
+      } else {
+        // 5th to 7th (EL / ECL)
+        confidenceDelta = -25;
+        reason = `【目標未達】${userClub.name}の至上命題であるチャンピオンズリーグ（トップ4）出場権を逃しリーグ${finishRank}位。`;
+      }
+    }
+  } else if (userClub.tier === 'Upper') {
+    if (finishRank > 7) {
+      failedObjectives = true;
+      confidenceDelta = -20;
+      reason = `【目標未達】欧州カップ戦出場権獲得ラインを大きく下回り、リーグ${finishRank}位で終了。`;
+    }
+  }
+
+  if (!failedObjectives) {
+    return {
+      updatedState: {
+        ...state,
+        consecutiveFailedObjectiveYears: 0
+      },
+      isSacked: false,
+      failedObjectives: false,
+      confidenceDelta: 0,
+      reason: '目標達成'
+    };
+  }
+
+  const consecutiveFailed = (state.consecutiveFailedObjectiveYears || 0) + 1;
+  const newConfidence = Math.max(0, Math.min(100, state.boardConfidence + confidenceDelta));
+
+  let isSacked = false;
+  let newsTitle = '';
+  let newsBody = '';
+
+  if (consecutiveFailed >= 2 || newConfidence <= 15) {
+    isSacked = true;
+    newsTitle = `【電撃解任】${userClub.name}、2期連続の目標未達を受け${state.manager.name}監督を解任！`;
+    newsBody = `${userClub.name}取締役会は緊急会合を開き、目標未達（リーグ${finishRank}位）および理事会信頼度の大幅低下（${newConfidence}%）を重く受け止め、${state.manager.name}監督の即時解任を正式決定しました。クラブは来季に向けた新指揮官選定に着手します。`;
+  } else {
+    newsTitle = `【理事会通告】${userClub.name}首脳陣、今季目標未達を受け${state.manager.name}監督へ厳重警告`;
+    newsBody = `リーグ${finishRank}位という不本意な成績を受け、理事会信頼度は${confidenceDelta}%低下し${newConfidence}%へ悪化。取締役会は「来季の序盤戦で確実な結果改善が示されない場合、即座の進退判断を下す」とする最後通告を指揮官に通達しました。`;
+  }
+
+  const newsItem: NewsItem = {
+    id: `news_board_obj_${Date.now()}`,
+    date: state.currentDate,
+    headline: newsTitle,
+    body: newsBody,
+    category: 'board',
+    relatedClubId: userClub.id,
+    importance: 'high'
+  };
+
+  const newStage: BoardConfidenceStage = getBoardConfidenceStage(newConfidence, isSacked);
+
+  const updatedState: GameWorldState = {
+    ...state,
+    boardConfidence: newConfidence,
+    isSacked: isSacked || state.isSacked,
+    consecutiveFailedObjectiveYears: consecutiveFailed,
+    objectiveWarningIssuedSeason: state.season,
+    boardConfidenceStage: newStage,
+    news: [newsItem, ...state.news]
+  };
+
+  return {
+    updatedState,
+    isSacked,
+    failedObjectives: true,
+    confidenceDelta,
+    reason
+  };
+}

@@ -189,8 +189,8 @@ export function checkAndAdvanceBallonDor(
     return { updatedState: {} };
   }
 
-  // Phase 1: Early November (Day 3 - 10) Nominees Announcement
-  if (day >= 3 && day <= 10 && !state.ballonDorNomineesAnnounced) {
+  // Phase 1: Early/Mid November Nominees Announcement (From Day 3 onwards)
+  if (day >= 3 && day < 25 && !state.ballonDorNomineesAnnounced) {
     const candidates = generateBallonDorCandidates(state);
     const topCandidate = candidates[0];
 
@@ -214,8 +214,8 @@ export function checkAndAdvanceBallonDor(
     };
   }
 
-  // Phase 2: Late November (Day 25 - 30) Winner Announcement Gala
-  if (day >= 25 && state.ballonDorNomineesAnnounced && !state.ballonDorWinnerAnnounced) {
+  // Phase 2: Late November (Day 25 onwards) Winner Announcement Gala
+  if (day >= 25 && !state.ballonDorWinnerAnnounced) {
     const candidates = state.ballonDorRankings && state.ballonDorRankings.length > 0 
       ? state.ballonDorRankings 
       : generateBallonDorCandidates(state);
@@ -245,8 +245,11 @@ export function checkAndAdvanceBallonDor(
 
     return {
       updatedState: {
+        ballonDorYear: year,
+        ballonDorNomineesAnnounced: true,
         ballonDorWinnerAnnounced: true,
         ballonDorWinnerId: winnerCandidate.playerId,
+        ballonDorRankings: candidates,
         fanApproval: Math.min(100, state.fanApproval + 8),
         players: updatedPlayers
       },

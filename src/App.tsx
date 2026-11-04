@@ -611,6 +611,62 @@ export default function App() {
           player={inspectingPlayer}
           club={stateClubForPlayer(gameState, inspectingPlayer.clubId)}
           isUserPlayer={inspectingPlayer.clubId === gameState.userClubId}
+          isShortlisted={Boolean(
+            (gameState.shortlistPlayerIds && gameState.shortlistPlayerIds.includes(inspectingPlayer.id)) || inspectingPlayer.isOnShortlist
+          )}
+          hasDeclaredInterest={Boolean(
+            (gameState.declaredInterestPlayerIds && gameState.declaredInterestPlayerIds.includes(inspectingPlayer.id)) || inspectingPlayer.userDeclaredInterest
+          )}
+          onToggleShortlist={(pId) => {
+            const currentList = gameState.shortlistPlayerIds || [];
+            const isNowIn = !currentList.includes(pId);
+            const nextList = isNowIn ? [...currentList, pId] : currentList.filter(id => id !== pId);
+            const target = gameState.players[pId];
+            const updatedPlayers = target ? { ...gameState.players, [pId]: { ...target, isOnShortlist: isNowIn } } : gameState.players;
+            setGameState({
+              ...gameState,
+              shortlistPlayerIds: nextList,
+              players: updatedPlayers
+            });
+            if (inspectingPlayer.id === pId) {
+              setInspectingPlayer(updatedPlayers[pId] || inspectingPlayer);
+            }
+          }}
+          onDeclareInterest={(pId) => {
+            const currentDeclared = gameState.declaredInterestPlayerIds || [];
+            if (currentDeclared.includes(pId)) return;
+            const target = gameState.players[pId];
+            if (!target) return;
+            const boost = 15;
+            const updatedInterest = Math.min(100, (target.clubInterestScore || 50) + boost);
+            const updatedPlayers = {
+              ...gameState.players,
+              [pId]: {
+                ...target,
+                userDeclaredInterest: true,
+                clubInterestScore: updatedInterest
+              }
+            };
+            const userClub = gameState.userClubId ? gameState.clubs[gameState.userClubId] : null;
+            const nextNews = [
+              {
+                id: `news_decl_${Date.now()}`,
+                title: `📢 ${userClub?.name || '自クラブ'}が${target.name}への強い獲得関心を公に表明！`,
+                summary: `${gameState.manager.name}監督は記者会見で「${target.name}は我々のフットボール哲学に完璧に合致する素晴らしいタレントだ」と公言しました。`,
+                date: gameState.currentDate,
+                category: 'transfer' as const,
+                read: false
+              },
+              ...gameState.news
+            ];
+            setGameState({
+              ...gameState,
+              declaredInterestPlayerIds: [...currentDeclared, pId],
+              players: updatedPlayers,
+              news: nextNews
+            });
+            setInspectingPlayer(updatedPlayers[pId]);
+          }}
           onToggleTransferList={handleToggleTransferList}
           onToggleLoanList={handleToggleLoanList}
           onExerciseBuyOption={handleExerciseBuyOption}

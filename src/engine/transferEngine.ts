@@ -756,8 +756,8 @@ export function evaluateAICounterProposal(
 
   const upperLimit = Math.min(maxAffordable, Math.round(fairMarketValue * (isRival ? 1.4 : 1.25)));
 
-  // If proposed exceeds affordable budget or greed threshold (>135% of upper limit)
-  if (effectiveProposed > upperLimit * 1.35 || proposedFee > maxAffordable || currentPatience <= 1) {
+  // If proposed exceeds affordable budget or greed threshold (>150% of upper limit) or patience exhausted
+  if (effectiveProposed > upperLimit * 1.50 || proposedFee > maxAffordable || currentPatience <= 0) {
     return {
       decision: 'reject',
       aiMessage: `「当クラブの予算と選手査定から著しく乖離しており、これ以上交渉を続ける価値がないと判断いたしました。オファーを正式に取り下げます。」`,
@@ -776,17 +776,113 @@ export function evaluateAICounterProposal(
     };
   }
 
-  // Counter proposal from AI
+  // Counter proposal from AI with multi-stage patience (Requirement 8)
   const compromiseFee = Math.round((offer.fee + proposedFee) / 2 / 500000) * 500000;
   const compromiseBonus = proposedBonus > 0 ? Math.round(proposedBonus * 0.8 / 500000) * 500000 : Math.round(fairMarketValue * 0.08 / 500000) * 500000;
+  const isFinalWarning = (currentPatience - 1) <= 1;
+
+  const warningText = isFinalWarning ? '【最終提示】' : '';
+  const aiMessage = isFinalWarning
+    ? `「これが当クラブからの最終提示です。移籍金 €${(compromiseFee / 1000000).toFixed(1)}M ＋ 活躍ボーナス €${(compromiseBonus / 1000000).toFixed(1)}M。これ以上の条件引き上げには応じられず、決裂となります。」`
+    : `「€${(proposedFee / 1000000).toFixed(1)}Mは要求が高すぎます。移籍金 €${(compromiseFee / 1000000).toFixed(1)}M ＋ 活躍ボーナス €${(compromiseBonus / 1000000).toFixed(1)}M なら合意可能です。これが当クラブからの再提案です。」`;
 
   return {
     decision: 'counter',
-    aiMessage: `「€${(proposedFee / 1000000).toFixed(1)}Mは要求が高すぎます。移籍金 €${(compromiseFee / 1000000).toFixed(1)}M ＋ 活躍ボーナス €${(compromiseBonus / 1000000).toFixed(1)}M なら合意可能です。これが当クラブからの再提案です。」`,
+    aiMessage,
     counterFee: compromiseFee,
     counterBonus: compromiseBonus,
-    newPatience: currentPatience - 1
+    newPatience: Math.max(0, currentPatience - 1)
   };
+}
+
+/**
+ * Requirement 7: Reject incoming offer and apply 30-day cooldown to prevent repeat bids
+ */
+export function rejectIncomingOffer(
+  state: GameWorldState,
+  offerId: string
+): GameWorldState {
+  const offer = (state.incomingOffers || []).find(o => o.id === offerId);
+  const updatedOffers = (state.incomingOffers || []).map(o => {
+    if (o.id === offerId) return { ...o, status: 'rejected' as const };
+    return o;
+  });
+
+  const cooldowns = { ...(state.recentOffersCooldown || {}) };
+  if (offer) {
+    cooldowns[`${offer.buyerClubId}_${offer.playerId}`] = addDays(state.currentDate, 30);
+  }
+
+  return {
+    ...state,
+    incomingOffers: updatedOffers,
+    recentOffersCooldown: cooldowns
+  };
+}
+
+/**
+ * Requirement 9: Calculate player interest level in user's club (0 - 100)
+ */
+export function calculatePlayerInterestInUserClub(
+  player: Player,
+  userClub: Club | null,
+  manager: { reputation: number },
+  isDeclaredInterest?: boolean
+): { score: number; level: '低い' | '普通' | '高い' | '非常に高い'; reason: string } {
+  if (!userClub) {
+    return { score: 35, level: '普通', reason: '所属クラブ未定' };
+  }
+
+  let score = 50;
+  const userRep = userClub.reputation || 50;
+  score += Math.round((userRep - 55) * 0.35);
+
+  if (userClub.tier === 'Elite') score += 20;
+  else if (userClub.tier === 'Upper') score += 10;
+  else if (userClub.tier === 'Lower') score -= 15;
+
+  if (player.personality === '野心的') {
+    if (userClub.tier === 'Elite' || userClub.tier === 'Upper') score += 15;
+    else score -= 15;
+  } else if (player.personality === 'タイトル至上主義') {
+    if (userRep >= 80) score += 15;
+    else score -= 10;
+  } else if (player.personality === 'クラブ愛') {
+    score -= 22;
+  } else if (player.personality === '出場機会重視') {
+    if (player.squadRole === '控え・バックアップ' || player.squadRole === 'ローテーション') {
+      score += 15;
+    }
+  } else if (player.personality === '給与重視') {
+    if (userClub.wageBudget > 1000000) score += 12;
+  }
+
+  score += Math.round(((manager?.reputation || 50) - 50) * 0.2);
+
+  if (isDeclaredInterest || player.userDeclaredInterest) {
+    score += 12;
+  }
+
+  score = Math.max(5, Math.min(98, score));
+
+  let level: '低い' | '普通' | '高い' | '非常に高い' = '普通';
+  let reason = '';
+
+  if (score >= 76) {
+    level = '非常に高い';
+    reason = `${userClub.name}でのプレーを強く熱望しており、移籍に極めて前向きです。`;
+  } else if (score >= 51) {
+    level = '高い';
+    reason = `好条件や魅力的なプロジェクトが提示されれば移籍に前向きな姿勢です。`;
+  } else if (score >= 30) {
+    level = '普通';
+    reason = `現在の環境にも一定の満足を感じており、条件次第での検討姿勢です。`;
+  } else {
+    level = '低い';
+    reason = `現所属クラブへの愛着や格差等により、現時点では移籍への関心は薄いです。`;
+  }
+
+  return { score, level, reason };
 }
 
 // AI clubs autonomous transfer simulation during window
@@ -795,7 +891,7 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
 
   let updatedState = { ...state };
 
-  // 1. Generate incoming AI offers to User's club (Requirements 16 & 17)
+  // 1. Generate incoming AI offers to User's club (Requirements 7, 16 & 17)
   if (updatedState.userClubId && Math.random() < 0.35) {
     const userClub = updatedState.clubs[updatedState.userClubId];
     if (userClub && userClub.playerIds.length > 15) {
@@ -813,7 +909,21 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
       }
 
       if (targetPlayer) {
-        const aiBuyers = Object.values(updatedState.clubs).filter(c => c.id !== userClub.id && c.transferBudget > targetPlayer.marketValue * 0.85);
+        const cooldowns = updatedState.recentOffersCooldown || {};
+        const aiBuyers = Object.values(updatedState.clubs).filter(c => {
+          if (c.id === userClub.id) return false;
+          if (c.transferBudget <= targetPlayer.marketValue * 0.85) return false;
+          // Requirement 7: 30-day cooldown prevents same AI club from repeating offers
+          const key = `${c.id}_${targetPlayer.id}`;
+          if (cooldowns[key] && cooldowns[key] > updatedState.currentDate) return false;
+          // Skip if there is already an active pending offer
+          const hasPending = (updatedState.incomingOffers || []).some(
+            o => o.buyerClubId === c.id && o.playerId === targetPlayer.id && o.status === 'pending'
+          );
+          if (hasPending) return false;
+          return true;
+        });
+
         if (aiBuyers.length > 0) {
           const buyer = aiBuyers[Math.floor(Math.random() * aiBuyers.length)];
           const isLoanOffer = targetPlayer.isLoanListed || (!targetPlayer.isTransferListed && targetPlayer.age <= 22 && Math.random() < 0.40);

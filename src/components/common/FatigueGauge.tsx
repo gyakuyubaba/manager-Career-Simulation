@@ -12,6 +12,44 @@ interface Props {
   className?: string;
 }
 
+export function getFatigueInfo(fatigue: number): { clamped: number; labelText: string; barColor: string; textColor: string } {
+  const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
+
+  // Requirement 3:
+  // - 0〜24%：疲労が少ない
+  // - 25〜49%：軽い疲労
+  // - 50〜74%：疲労あり
+  // - 75〜89%：かなり疲労
+  // - 90〜100%：非常に疲労
+  let barColor = 'bg-emerald-500';
+  let textColor = 'text-emerald-400';
+  let labelText = '疲労が少ない';
+
+  if (clamped >= 90) {
+    barColor = 'bg-red-500';
+    textColor = 'text-red-400';
+    labelText = '非常に疲労';
+  } else if (clamped >= 75) {
+    barColor = 'bg-orange-500';
+    textColor = 'text-orange-400';
+    labelText = 'かなり疲労';
+  } else if (clamped >= 50) {
+    barColor = 'bg-amber-400';
+    textColor = 'text-amber-300';
+    labelText = '疲労あり';
+  } else if (clamped >= 25) {
+    barColor = 'bg-teal-400';
+    textColor = 'text-teal-300';
+    labelText = '軽い疲労';
+  } else {
+    barColor = 'bg-emerald-500';
+    textColor = 'text-emerald-400';
+    labelText = '疲労が少ない';
+  }
+
+  return { clamped, labelText, barColor, textColor };
+}
+
 export const FatigueGauge: React.FC<Props> = ({
   fatigue,
   condition,
@@ -22,31 +60,7 @@ export const FatigueGauge: React.FC<Props> = ({
   className = ''
 }) => {
   const { t } = useI18n();
-  const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
-
-  // Qualitative label and color matching specification:
-  // 15% 良好, 50% 普通, 80% 疲労あり, 95% 非常に疲労
-  let barColor = 'bg-emerald-500';
-  let textColor = 'text-emerald-400';
-  let labelText = '良好';
-
-  if (clamped > 85) {
-    barColor = 'bg-red-500';
-    textColor = 'text-red-400';
-    labelText = '非常に疲労';
-  } else if (clamped > 60) {
-    barColor = 'bg-orange-500';
-    textColor = 'text-orange-400';
-    labelText = '疲労あり';
-  } else if (clamped > 25) {
-    barColor = 'bg-amber-400';
-    textColor = 'text-amber-300';
-    labelText = '普通';
-  } else {
-    barColor = 'bg-emerald-500';
-    textColor = 'text-emerald-400';
-    labelText = '良好';
-  }
+  const { clamped, labelText, barColor, textColor } = getFatigueInfo(fatigue);
 
   // Height sizing
   const hClass = size === 'xs' ? 'h-1.5' : size === 'sm' ? 'h-2' : size === 'md' ? 'h-2.5' : 'h-3';

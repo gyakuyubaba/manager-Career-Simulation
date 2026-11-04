@@ -1119,6 +1119,22 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
         repairLogs.push(`[プレシーズン出場停止解除] ${p.name} のプレシーズン由来の出場停止処分を公式戦から完全に解除しました。`);
       }
 
+      // Requirement 5: If matchesRemaining is <= 0 and no competition suspension remains, suspension MUST be cleared
+      const compSuspValues = p.suspension.competitionSuspensions ? Object.values(p.suspension.competitionSuspensions) : [];
+      const hasPositiveCompSusp = compSuspValues.some(v => (v ?? 0) > 0);
+      const isMatchesZero = (p.suspension.matchesRemaining ?? 0) <= 0;
+
+      if (isMatchesZero && !hasPositiveCompSusp && p.suspension.isSuspended) {
+        p.suspension.isSuspended = false;
+        p.suspension.matchesRemaining = 0;
+        p.suspension.reason = undefined;
+        if (p.squadStatus === 'OUT_OF_SQUAD') {
+          p.squadStatus = 'RESERVE';
+        }
+        repairsCount++;
+        repairLogs.push(`[消化済み出場停止解除] ${p.name} の消化済み出場停止(残0試合)を安全に解除しました。`);
+      }
+
       if (p.suspension.seasonSuspensionCount === undefined) {
         p.suspension.seasonSuspensionCount = p.suspension.isSuspended ? 1 : 0;
       }

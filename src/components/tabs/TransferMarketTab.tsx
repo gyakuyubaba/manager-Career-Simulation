@@ -80,6 +80,9 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
   // 15. Loan Listed Only
   const [loanListedOnly, setLoanListedOnly] = useState<boolean>(false);
 
+  // Shortlist (Favorites) Only filter
+  const [shortlistOnly, setShortlistOnly] = useState<boolean>(false);
+
   // 16. Contract Expiring
   const [expiringFilter, setExpiringFilter] = useState<'ALL' | '1year' | '6months'>('ALL');
 
@@ -231,6 +234,12 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
       // 15. Loan listed only
       if (loanListedOnly && !p.loanListed) {
         return false;
+      }
+
+      // Shortlist only
+      if (shortlistOnly) {
+        const isShortlisted = (state.shortlistPlayerIds && state.shortlistPlayerIds.includes(p.id)) || p.isOnShortlist;
+        if (!isShortlisted) return false;
       }
 
       // 16. Expiring contract
@@ -1307,6 +1316,18 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
 
             {/* Row 4: Status Toggles */}
             <div className="flex items-center flex-wrap gap-2 pt-1 text-xs">
+              <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border cursor-pointer transition-colors ${
+                shortlistOnly ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={shortlistOnly}
+                  onChange={e => setShortlistOnly(e.target.checked)}
+                  className="rounded text-amber-500 focus:ring-0"
+                />
+                <span className="font-semibold">★ 移籍リスト・お気に入り</span>
+              </label>
+
               <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer">
                 <input
                   type="checkbox"

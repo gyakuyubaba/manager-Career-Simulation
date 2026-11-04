@@ -265,6 +265,11 @@ export interface Player {
   type2HighSchool?: string;
   type2UnavailableDates?: string[];
   competitionStats?: Record<string, PlayerStats>;
+
+  // Scouting, Shortlist & Transfer Interest (Requirement 9)
+  userDeclaredInterest?: boolean;
+  clubInterestScore?: number; // 0 - 100
+  isOnShortlist?: boolean;
 }
 
 export type LeagueKey = 
@@ -809,6 +814,39 @@ export interface GameWorldState {
   unexpectedEventsHistory?: UnexpectedEvent[];
   lastUnexpectedEventDate?: string;
   processedEventIds?: string[];
+
+  // Transfer Shortlist & Interest Tracking (Requirement 9)
+  shortlistPlayerIds?: string[];
+  declaredInterestPlayerIds?: string[];
+
+  // AI Transfer Repeat Offer Cooldown (Requirement 7)
+  recentOffersCooldown?: Record<string, string>; // key: `${buyerClubId}_${playerId}`, value: ISO date string
+
+  // Board Objectives & Multi-Year Stature Tracking (Requirement 11)
+  consecutiveFailedObjectiveYears?: number;
+  objectiveWarningIssuedSeason?: string;
+
+  // Manager Career Resignation & Job Offers (Requirement 18)
+  isManagerFreeAgent?: boolean;
+  managerJobOffers?: ManagerJobOffer[];
+}
+
+export interface ManagerJobOffer {
+  id: string;
+  date: string;
+  clubId: string;
+  clubName: string;
+  leagueKey: LeagueKey;
+  leagueName: string;
+  tier: 'Elite' | 'Upper' | 'Mid' | 'Lower';
+  weeklyWage: number;
+  contractYears: number;
+  transferBudget: number;
+  wageBudget: number;
+  target: string;
+  fanExpectation: string;
+  status: 'pending' | 'accepted' | 'declined';
+  message: string;
 }
 
 export type UnexpectedEventCategory = 'club_internal' | 'match_related' | 'transfer_related' | 'board_management' | 'manager_related';

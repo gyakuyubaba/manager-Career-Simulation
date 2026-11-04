@@ -65,9 +65,12 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [activeHighlightEvent, setActiveHighlightEvent] = useState<MatchEvent | null>(null);
 
   // Active view tab in match view
-  const [activeTab, setActiveTab] = useState<'pitch' | 'events' | 'stats' | 'subs'>('pitch');
+  const [activeTab, setActiveTab] = useState<'formation' | 'pitch' | 'events' | 'stats' | 'subs'>('formation');
   // Dedicated pre-match preparation tab
   const [preMatchTab, setPreMatchTab] = useState<'formation' | 'squad' | 'tactics' | 'preview'>('formation');
+
+  // Track players who have already been subbed off to strictly forbid re-entry
+  const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
 
   // In-match user tactical instructions
   const [tactics, setTactics] = useState<TeamTactics>(state.tactics);
@@ -144,10 +147,21 @@ export const MatchSimulationView: React.FC<Props> = ({
     setMatchPhase('finished');
 
     if (simulatedResult) {
-      const isFinal = Boolean(
-        (fixture.round && fixture.round.includes('決勝') && !fixture.round.includes('準決勝')) ||
+      const isQuarterOrSemi = Boolean(
+        (fixture.round && (
+          fixture.round.includes('準') || 
+          fixture.round.includes('Quarter') || 
+          fixture.round.includes('Semi') || 
+          fixture.round.includes('Play-off') ||
+          fixture.round.includes('1/4') ||
+          fixture.round.includes('1/2')
+        ))
+      );
+      const isFinal = !isQuarterOrSemi && Boolean(
         fixture.isFinal ||
-        fixture.round === '決勝'
+        fixture.round === '決勝' ||
+        fixture.round === 'Final' ||
+        (fixture.round && fixture.round.endsWith('決勝') && !fixture.round.includes('準'))
       );
       const finalPk = customPenaltyShootout || simulatedResult.fixture.penaltyShootout;
       const finalFixture: MatchFixture = {
@@ -681,6 +695,7 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Perform substitution
   const handleExecuteSub = () => {
     if (!subPlayerOffId || !subPlayerOnId || subCount >= 5) return;
+    if (subbedOutPlayerIds.includes(subPlayerOnId)) return; // Strictly forbid re-entry of subbed off player
 
     const offPlayer = state.players[subPlayerOffId];
     const onPlayer = state.players[subPlayerOnId];
@@ -699,6 +714,7 @@ export const MatchSimulationView: React.FC<Props> = ({
 
     setRevealedEvents(prev => [...prev, subEvent]);
     setSubCount(c => c + 1);
+    setSubbedOutPlayerIds(prev => [...prev, subPlayerOffId]);
 
     // Swap in active tactics
     const newStarters = tactics.lineup.starters.map(s => {
@@ -1574,6 +1590,17 @@ export const MatchSimulationView: React.FC<Props> = ({
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
             <button
               type="button"
+              onClick={() => setActiveTab('formation')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'formation'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md'
+                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <span>🏟️ フォーメーション</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('pitch')}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                 activeTab === 'pitch'
@@ -1618,6 +1645,149 @@ export const MatchSimulationView: React.FC<Props> = ({
                 🔄 選手交代 ({subCount}/5)
               </button>
             )}
+          </div>
+        )}
+
+        {/* IN-MATCH TAB 0: REAL-TIME DUAL FORMATIONS (Requirements 1, 2, 3) */}
+        {activeTab === 'formation' && matchPhase !== 'pre' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-2xl p-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>🏟️ 試合中フォーメーション・配置図</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    {minute}&apos; リアルタイム連動
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  自クラブの選手をタップするとベンチ選手との即時交代メニューが開きます（交代枠: 残り {5 - subCount}名）
+                </p>
+              </div>
+              {matchPhase !== 'finished' && subCount < 5 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('subs')}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span>選手交代リストを開く</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Home Pitch */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
+                    <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                    {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                  </div>
+                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                    {homeTactics.formation}
+                  </span>
+                </div>
+                <div className="relative w-full h-84 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
+                  {homeStartersList.map((s, idx) => {
+                    const p = s.player;
+                    const dynamicFatigue = Math.min(100, Math.round((p.fatigue || 20) + (minute * 0.25)));
+                    const isUserPlayer = isUserHome;
+                    return (
+                      <div
+                        key={p.id || idx}
+                        style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
+                        onClick={() => {
+                          if (isUserPlayer && matchPhase !== 'finished') {
+                            setSubPlayerOffId(p.id);
+                            setActiveTab('subs');
+                          }
+                        }}
+                        className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 ${
+                          isUserPlayer && matchPhase !== 'finished' ? 'cursor-pointer group hover:scale-110 transition-transform' : ''
+                        }`}
+                      >
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md relative"
+                          style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
+                        >
+                          {p.shirtNumber || s.position}
+                          {isUserPlayer && matchPhase !== 'finished' && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
+                          )}
+                        </div>
+                        <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
+                          {p.name.split(' ').pop()}
+                        </div>
+                        <div className="w-12 mt-0.5">
+                          <FatigueGauge fatigue={dynamicFatigue} size="xs" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Away Pitch */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
+                    <span className="font-bold text-white text-sm">{awayClub?.name}</span>
+                    {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                  </div>
+                  <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
+                    {awayTactics.formation}
+                  </span>
+                </div>
+                <div className="relative w-full h-84 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
+                  {awayStartersList.map((s, idx) => {
+                    const p = s.player;
+                    const dynamicFatigue = Math.min(100, Math.round((p.fatigue || 20) + (minute * 0.25)));
+                    const isUserPlayer = !isUserHome;
+                    return (
+                      <div
+                        key={p.id || idx}
+                        style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
+                        onClick={() => {
+                          if (isUserPlayer && matchPhase !== 'finished') {
+                            setSubPlayerOffId(p.id);
+                            setActiveTab('subs');
+                          }
+                        }}
+                        className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 ${
+                          isUserPlayer && matchPhase !== 'finished' ? 'cursor-pointer group hover:scale-110 transition-transform' : ''
+                        }`}
+                      >
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md relative"
+                          style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
+                        >
+                          {p.shirtNumber || s.position}
+                          {isUserPlayer && matchPhase !== 'finished' && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
+                          )}
+                        </div>
+                        <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
+                          {p.name.split(' ').pop()}
+                        </div>
+                        <div className="w-12 mt-0.5">
+                          <FatigueGauge fatigue={dynamicFatigue} size="xs" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1855,7 +2025,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                     const isSelected = subPlayerOnId === p.id;
                     const isInjured = p.injury?.isInjured || p.injuryStatus === 'INJURED' || (state.currentDate && p.injuryReturnDate && p.injuryReturnDate > state.currentDate);
                     const isSuspended = p.suspension?.isSuspended;
-                    const isUnavailable = isInjured || isSuspended;
+                    const isSubbedOff = subbedOutPlayerIds.includes(p.id);
+                    const isUnavailable = isInjured || isSuspended || isSubbedOff;
 
                     return (
                       <button
@@ -1883,6 +2054,11 @@ export const MatchSimulationView: React.FC<Props> = ({
                             {isSuspended && (
                               <span className="px-1.5 py-0.2 rounded bg-amber-900 text-amber-200 text-[9px] font-bold">
                                 【停止】
+                              </span>
+                            )}
+                            {isSubbedOff && (
+                              <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[9px] font-bold">
+                                【交代済】
                               </span>
                             )}
                           </div>

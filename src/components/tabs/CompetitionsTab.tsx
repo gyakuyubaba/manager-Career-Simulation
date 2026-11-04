@@ -60,6 +60,22 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
   const bracketRounds = getTournamentBracket(selectedCup, state);
   const cupFixtures = state.fixtures.filter(f => f.competition === selectedCup);
 
+  // Requirement 10: Official league match recent 5 form (newest on left)
+  const getRecentLeagueForm = (clubId: string, league: LeagueKey): ('W' | 'D' | 'L')[] => {
+    const finishedLeagueFixtures = state.fixtures
+      .filter(f => f.competition === league && f.status === 'finished' && (f.homeClubId === clubId || f.awayClubId === clubId))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    return finishedLeagueFixtures.slice(0, 5).map(f => {
+      const isHome = f.homeClubId === clubId;
+      const myScore = isHome ? (f.homeScore ?? 0) : (f.awayScore ?? 0);
+      const oppScore = isHome ? (f.awayScore ?? 0) : (f.homeScore ?? 0);
+      if (myScore > oppScore) return 'W';
+      if (myScore === oppScore) return 'D';
+      return 'L';
+    });
+  };
+
   return (
     <div className="space-y-5 pb-20">
       
@@ -163,6 +179,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                     <th className="py-3 px-3 text-center">得点</th>
                     <th className="py-3 px-3 text-center">失点</th>
                     <th className="py-3 px-3 text-center">得失点差</th>
+                    <th className="py-3 px-3 text-center">直近5試合 (左が最新)</th>
                     <th className="py-3 px-4 text-center font-bold text-white">勝点</th>
                   </tr>
                 </thead>
@@ -316,6 +333,29 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                         <td className="py-3 px-3 text-center font-mono">{row.goalsAgainst}</td>
                         <td className="py-3 px-3 text-center font-mono font-semibold">
                           {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {(() => {
+                              const form = getRecentLeagueForm(row.clubId, selectedLeague);
+                              if (form.length === 0) return <span className="text-slate-600 font-mono text-[10px]">-</span>;
+                              return form.map((res, fIdx) => (
+                                <span
+                                  key={fIdx}
+                                  title={res === 'W' ? '勝利' : res === 'D' ? '引分' : '敗戦'}
+                                  className={`w-4 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center shadow-xs ${
+                                    res === 'W'
+                                      ? 'bg-emerald-600 text-white'
+                                      : res === 'D'
+                                      ? 'bg-amber-600 text-white'
+                                      : 'bg-rose-600 text-white'
+                                  }`}
+                                >
+                                  {res}
+                                </span>
+                              ));
+                            })()}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-bold text-white text-sm">
                           {row.points}

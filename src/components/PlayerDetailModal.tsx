@@ -10,6 +10,10 @@ interface Props {
   player: Player | null;
   club: Club | null;
   isUserPlayer?: boolean;
+  isShortlisted?: boolean;
+  hasDeclaredInterest?: boolean;
+  onToggleShortlist?: (playerId: string) => void;
+  onDeclareInterest?: (playerId: string) => void;
   onToggleTransferList?: (playerId: string) => void;
   onToggleLoanList?: (playerId: string) => void;
   onExerciseBuyOption?: (player: Player) => void;
@@ -21,6 +25,10 @@ export const PlayerDetailModal: React.FC<Props> = ({
   player, 
   club, 
   isUserPlayer = false,
+  isShortlisted = false,
+  hasDeclaredInterest = false,
+  onToggleShortlist,
+  onDeclareInterest,
   onToggleTransferList,
   onToggleLoanList,
   onExerciseBuyOption,
@@ -791,6 +799,67 @@ export const PlayerDetailModal: React.FC<Props> = ({
                   買取オプションを行使 (€{(player.loanOptionBuyFee / 1000000).toFixed(1)}M)
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* External Player Operations: Interest Gauge & Shortlist / Declare Interest (Requirement 9) */}
+        {!isUserPlayer && (
+          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>🎯 自クラブへの加入関心度</span>
+              </span>
+              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                (player.clubInterestScore ?? 50) >= 70
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : (player.clubInterestScore ?? 50) >= 40
+                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+              }`}>
+                {(player.clubInterestScore ?? 50) >= 70 ? '非常に高い (好意的)' : (player.clubInterestScore ?? 50) >= 40 ? '普通 (条件次第)' : '低い (加入に消極的)'} ({player.clubInterestScore ?? 50}%)
+              </span>
+            </div>
+
+            {/* Interest Bar */}
+            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  (player.clubInterestScore ?? 50) >= 70
+                    ? 'bg-emerald-500'
+                    : (player.clubInterestScore ?? 50) >= 40
+                    ? 'bg-blue-500'
+                    : 'bg-rose-500'
+                }`}
+                style={{ width: `${Math.max(5, Math.min(100, player.clubInterestScore ?? 50))}%` }}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => onToggleShortlist && onToggleShortlist(player.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  isShortlisted
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                }`}
+              >
+                <span>{isShortlisted ? '★ 移籍リスト(お気に入り)から解除' : '☆ 移籍リスト(お気に入り)に追加'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={hasDeclaredInterest}
+                onClick={() => onDeclareInterest && onDeclareInterest(player.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  hasDeclaredInterest
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 cursor-default'
+                    : 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer shadow-xs'
+                }`}
+              >
+                <span>{hasDeclaredInterest ? '✓ 関心を表明済み (+15%好感度)' : '📢 獲得への関心を公に表明する'}</span>
+              </button>
             </div>
           </div>
         )}

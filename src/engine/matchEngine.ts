@@ -42,6 +42,9 @@ export function finalMatchEligibilityCheck(
   const isPlayerSuspendedForCompetition = (p: Player): { isSuspended: boolean; reason: string } => {
     if (!p.suspension) return { isSuspended: false, reason: '' };
 
+    // Requirement 5: If matchesRemaining is explicitly <= 0, player has finished serving suspension
+    const matchesRem = p.suspension.matchesRemaining ?? 0;
+
     if (compCategory) {
       if (p.suspension.competitionSuspensions && p.suspension.competitionSuspensions[compCategory] !== undefined) {
         const remaining = p.suspension.competitionSuspensions[compCategory] || 0;
@@ -55,11 +58,10 @@ export function finalMatchEligibilityCheck(
       }
       if (p.suspension.competitionCategory) {
         if (p.suspension.competitionCategory === compCategory) {
-          const remaining = p.suspension.matchesRemaining || 1;
-          if (remaining > 0 || p.suspension.isSuspended) {
+          if (matchesRem > 0 && p.suspension.isSuspended) {
             return {
               isSuspended: true,
-              reason: `出場停止処分中 (${compCategory} 残${remaining}試合)`
+              reason: `出場停止処分中 (${compCategory} 残${matchesRem}試合)`
             };
           }
         }
@@ -67,10 +69,10 @@ export function finalMatchEligibilityCheck(
       }
     }
 
-    if (p.suspension.isSuspended || (p.suspension.matchesRemaining || 0) > 0) {
+    if (p.suspension.isSuspended && matchesRem > 0) {
       return {
         isSuspended: true,
-        reason: `出場停止処分中 (残${p.suspension.matchesRemaining || 1}試合)`
+        reason: `出場停止処分中 (残${matchesRem}試合)`
       };
     }
 
@@ -693,26 +695,39 @@ export function generateGoalDetail(
   };
 }
 
-// Requirement 1: Check whether a fixture requires a decider (ET / PK)
+// Requirement 1, 13 & 14: Check whether a fixture requires a decider (ET / PK)
 export function isMatchRequiringDecider(fixture: MatchFixture): { requiresDecider: boolean; isTwoLeggedSecondLeg: boolean } {
   if (fixture.needsDecider) {
     return { requiresDecider: true, isTwoLeggedSecondLeg: false };
   }
-  if (['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1', 'j1-league', 'j2-league', 'j3-league'].includes(fixture.competition)) {
+  if (['premier-league', 'championship', 'laliga', 'segunda-division', 'serie-a', 'serie-b', 'bundesliga', '2-bundesliga', 'ligue-1', 'ligue-2', 'j1-league', 'j2-league', 'j3-league'].includes(fixture.competition)) {
     return { requiresDecider: false, isTwoLeggedSecondLeg: false };
   }
   if (fixture.competition === 'pre-season' || fixture.competitionType === 'preseason') {
     return { requiresDecider: false, isTwoLeggedSecondLeg: false };
   }
-  if (fixture.leg === 1) {
+  // League phase of European competitions or matchday fixtures
+  if (fixture.round?.includes('リーグフェーズ') || fixture.round?.includes('League Phase') || (fixture.round && /第\d+節/.test(fixture.round))) {
     return { requiresDecider: false, isTwoLeggedSecondLeg: false };
   }
-  if (fixture.leg === 2) {
+
+  // 2-legged ties (Requirements 13 & 14)
+  const isLeg1 = fixture.leg === 1 ||
+                 fixture.round?.includes('Leg 1') ||
+                 fixture.round?.includes('第1戦') ||
+                 fixture.competitionName?.includes('第1戦');
+  if (isLeg1) {
+    return { requiresDecider: false, isTwoLeggedSecondLeg: false };
+  }
+
+  const isLeg2 = fixture.leg === 2 ||
+                 fixture.round?.includes('Leg 2') ||
+                 fixture.round?.includes('第2戦') ||
+                 fixture.competitionName?.includes('第2戦');
+  if (isLeg2) {
     return { requiresDecider: true, isTwoLeggedSecondLeg: true };
   }
-  if (fixture.round && /第\d+節/.test(fixture.round)) {
-    return { requiresDecider: false, isTwoLeggedSecondLeg: false };
-  }
+
   const isCup = (fixture.competitionType as string) === 'cup' || 
                 (fixture.competitionType as string) === 'tournament' ||
                 fixture.competitionType === 'domestic_cup' ||

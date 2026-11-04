@@ -251,9 +251,25 @@ export function applyMatchResultToWorld(
 
     const winnerClub = state.clubs[winnerId];
     const loserClub = state.clubs[loserId];
-    const isFinal = (finalFixture.round && finalFixture.round.toLowerCase().includes('final')) || 
-                    finalFixture.competitionName.includes('決勝') || 
-                    (finalFixture.round && finalFixture.round.includes('決勝'));
+    
+    // Requirement 15: Strictly distinguish true Final from Quarter-Final and Semi-Final!
+    const roundLower = (finalFixture.round || '').toLowerCase();
+    const compLower = (finalFixture.competitionName || '').toLowerCase();
+    const isSemiOrQuarter = roundLower.includes('semi') || 
+                           roundLower.includes('quarter') || 
+                           roundLower.includes('play-off') ||
+                           roundLower.includes('playoff') ||
+                           finalFixture.round?.includes('準') || 
+                           finalFixture.round?.includes('プレーオフ') || 
+                           compLower.includes('準') || 
+                           compLower.includes('プレーオフ');
+
+    const isFinal = !isSemiOrQuarter && Boolean(
+      finalFixture.isFinal ||
+      roundLower === 'final' ||
+      finalFixture.round === '決勝' ||
+      (finalFixture.competitionName && finalFixture.competitionName.endsWith('決勝') && !finalFixture.competitionName.includes('準'))
+    );
     const isUserInvolved = winnerId === state.userClubId || loserId === state.userClubId;
     const isWinnerUser = winnerId === state.userClubId;
 

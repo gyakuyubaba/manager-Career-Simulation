@@ -456,13 +456,148 @@ export const ManagerCareerTab: React.FC<Props> = ({
                 </span>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 block mb-1">理事会解任危険度</span>
-                <span className="text-base sm:text-lg font-bold text-emerald-400 font-mono">
-                  安全（連敗数: {state.consecutiveLosses}）
+                <span className="text-slate-500 block mb-1">理事会支持率 (Confidence)</span>
+                <span className={`text-base sm:text-lg font-bold font-mono ${
+                  state.boardConfidence >= 65 ? 'text-emerald-400' : state.boardConfidence >= 40 ? 'text-amber-400' : 'text-rose-400'
+                }`}>
+                  {state.boardConfidence}% ({state.boardConfidence >= 65 ? '極めて強固' : state.boardConfidence >= 40 ? '注視中' : '解任寸前・危機'})
                 </span>
               </div>
             </div>
+
+            {/* Manager Resignation Action */}
+            <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-white">監督ポストの辞任 (Resign from Club)</h4>
+                <p className="text-[11px] text-slate-400">
+                  現在のクラブ監督を退任してフリーエージェントとなり、他クラブからの就任オファーを待つことができます。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`${userClub?.name || '現在のクラブ'}の監督を辞任してフリーエージェントになりますか？`)) {
+                    // Generate realistic offers from other clubs
+                    const otherClubs = Object.values(state.clubs).filter(c => c.id !== state.userClubId && c.id !== 'free_agent');
+                    const shuffled = [...otherClubs].sort(() => 0.5 - Math.random()).slice(0, 3);
+                    const generatedOffers = shuffled.map(c => ({
+                      id: `job_offer_${c.id}_${Date.now()}`,
+                      clubId: c.id,
+                      clubName: c.name,
+                      league: c.league,
+                      weeklySalary: Math.max(15000, Math.round(c.reputation * 500)),
+                      contractYears: 2,
+                      transferBudget: c.transferBudget,
+                      wageBudget: c.wageBudget,
+                      seasonTarget: c.reputation > 80 ? 'UEFAチャンピオンズリーグ出場' : c.reputation > 70 ? '欧州カップ戦出場権獲得' : 'リーグ1桁順位確保',
+                      expiryDate: '2026-12-31'
+                    }));
+
+                    const resignationNews = {
+                      id: `news_res_${Date.now()}`,
+                      title: `🚨 速報: ${state.manager.name}監督が${userClub?.name || '所属クラブ'}の監督を電撃辞任！`,
+                      summary: `${state.manager.name}監督がクラブ首脳陣に辞意を申し入れ、双方合意のもとで契約が解除されました。現在フリーの身となり、各クラブからの招聘を待っています。`,
+                      date: state.currentDate,
+                      category: 'club' as const,
+                      read: false
+                    };
+
+                    onUpdateState({
+                      ...state,
+                      userClubId: '',
+                      isManagerFreeAgent: true,
+                      managerJobOffers: generatedOffers,
+                      news: [resignationNews, ...state.news]
+                    });
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-amber-950/60 hover:bg-amber-900 text-amber-300 border border-amber-800 text-xs font-bold transition-all cursor-pointer"
+              >
+                監督を辞任する (フリーになる)
+              </button>
+            </div>
           </div>
+
+          {/* Free Agent Manager Job Offers (Requirement 18) */}
+          {(state.isManagerFreeAgent || !state.userClubId) && (
+            <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+                <Globe className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>💼 新監督就任打診・オファー一覧</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      フリーエージェント中
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    世界各国のクラブから届いている新監督就任オファーです。受諾すると即座にそのクラブの指揮官に就任します。
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(state.managerJobOffers || []).map((offer) => {
+                  const targetClub = state.clubs[offer.clubId];
+                  return (
+                    <div key={offer.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-white">{offer.clubName}</h4>
+                          <span className="text-[11px] text-slate-400 font-mono">{offer.league}</span>
+                        </div>
+                        <span className="text-xs font-bold text-emerald-400 font-mono">
+                          €{(offer.weeklySalary / 1000).toFixed(0)}k/週
+                        </span>
+                      </div>
+
+                      <div className="space-y-1 text-xs text-slate-300 border-t border-slate-800/60 pt-2">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">理事会目標:</span>
+                          <span className="font-semibold text-amber-300">{offer.seasonTarget}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">補強予算:</span>
+                          <span className="font-mono text-emerald-400">€{(offer.transferBudget / 1000000).toFixed(1)}M</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">契約期間:</span>
+                          <span className="font-semibold text-slate-200">{offer.contractYears}年契約</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const appointmentNews = {
+                            id: `news_app_${Date.now()}`,
+                            title: `✍️ 公式発表: ${offer.clubName}が新監督に${state.manager.name}氏の就任を発表！`,
+                            summary: `${offer.clubName}は本日、新指揮官として${state.manager.name}監督と正式契約を結んだことを発表しました。目標である「${offer.seasonTarget}」に向けて手腕が期待されます。`,
+                            date: state.currentDate,
+                            category: 'club' as const,
+                            read: false
+                          };
+
+                          onUpdateState({
+                            ...state,
+                            userClubId: offer.clubId,
+                            isManagerFreeAgent: false,
+                            managerJobOffers: [],
+                            boardConfidence: 80,
+                            consecutiveLosses: 0,
+                            news: [appointmentNews, ...state.news]
+                          });
+                        }}
+                        className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md cursor-pointer"
+                      >
+                        このクラブの監督に就任する (受諾)
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Save & Reset Controls */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">

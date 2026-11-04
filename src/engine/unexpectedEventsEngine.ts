@@ -13,19 +13,21 @@ interface EventContext {
   state: GameWorldState;
   userClub: any;
   starPlayer?: Player;
+  disgruntledPlayer?: Player;
   youngPlayer?: Player;
   veteranPlayer?: Player;
   captain?: Player;
 }
 
 const TEMPLATES: EventTemplate[] = [
-  // 1. Club Internal: Playing time dispute
+  // 1. Club Internal: Playing time dispute (Requirement 12: only low minutes/starts players complain)
   {
     category: 'club_internal',
     categoryLabel: 'クラブ内部・選手関係',
-    titleTemplate: (ctx) => `【選手面談】${ctx.starPlayer?.name || '主力選手'}が出場機会への不満を表明`,
+    isEligible: (ctx) => Boolean(ctx.disgruntledPlayer),
+    titleTemplate: (ctx) => `【選手面談】${ctx.disgruntledPlayer?.name || '選手'}が出場機会への不満を表明`,
     descriptionTemplate: (ctx) => 
-      `主力格の${ctx.starPlayer?.name || '選手'}が監督室を訪れ、「自分のキャリアにとって今が最も重要な時期。もっと先発で起用されるべきだ」と強い語気で出場機会の確約を求めてきました。`,
+      `主力格でありながら出番が限られている${ctx.disgruntledPlayer?.name || '選手'}が監督室を訪れ、「自分のキャリアにとって今が最も重要な時期。もっと先発で起用されるべきだ」と強い語気で出場機会の確約を求めてきました。`,
     choicesGenerator: (ctx) => [
       {
         id: 'promise_start',
@@ -34,7 +36,7 @@ const TEMPLATES: EventTemplate[] = [
         effects: {
           managerTrustDelta: +6,
           moraleDelta: +4,
-          newsHeadline: `【チーム内動向】${ctx.userClub?.name}の指揮官、${ctx.starPlayer?.name || '選手'}の強い直訴に応え起用を明言`
+          newsHeadline: `【チーム内動向】${ctx.userClub?.name}の指揮官、${ctx.disgruntledPlayer?.name || '選手'}の強い直訴に応え起用を明言`
         }
       },
       {
@@ -56,7 +58,7 @@ const TEMPLATES: EventTemplate[] = [
           managerTrustDelta: -10,
           moraleDelta: -5,
           boardConfidenceDelta: -2,
-          newsHeadline: `【移籍の噂】${ctx.starPlayer?.name || '主力選手'}と指揮官に不協和音か？${ctx.userClub?.name}内に緊張走る`
+          newsHeadline: `【移籍の噂】${ctx.disgruntledPlayer?.name || '主力選手'}と指揮官に不協和音か？${ctx.userClub?.name}内に緊張走る`
         }
       }
     ]
@@ -230,25 +232,25 @@ export function generateUnexpectedEventDaily(state: GameWorldState, forceProbabi
   const userClub = state.clubs[state.userClubId];
   if (!userClub) return null;
 
-  if (forceProbability === undefined) {
-    // Check if there is already an unresolved active event
-    if (state.activeUnexpectedEvent && !state.activeUnexpectedEvent.resolvedChoiceId) {
+  // Check if there is already an unresolved active event
+  if (state.activeUnexpectedEvent && !state.activeUnexpectedEvent.resolvedChoiceId) {
+    return null;
+  }
+
+  // 14-day minimum cooldown check (Requirement 6)
+  if (state.lastUnexpectedEventDate) {
+    const lastDate = new Date(state.lastUnexpectedEventDate).getTime();
+    const curDate = new Date(state.currentDate).getTime();
+    const diffDays = Math.floor((curDate - lastDate) / (1000 * 60 * 60 * 24));
+    if (diffDays < 14) {
       return null;
     }
+  }
 
-    // 7-day cooldown check
-    if (state.lastUnexpectedEventDate) {
-      const lastDate = new Date(state.lastUnexpectedEventDate).getTime();
-      const curDate = new Date(state.currentDate).getTime();
-      const diffDays = Math.floor((curDate - lastDate) / (1000 * 60 * 60 * 24));
-      if (diffDays < 7) {
-        return null;
-      }
-    }
-
-    // Low-to-medium probability (15% chance per eligible day)
+  if (forceProbability === undefined) {
+    // Low-to-moderate realistic probability (4% chance per eligible day)
     const roll = Math.random();
-    if (roll > 0.15) {
+    if (roll > 0.04) {
       return null;
     }
   }
@@ -264,17 +266,43 @@ export function generateUnexpectedEventDaily(state: GameWorldState, forceProbabi
   const veteranPlayer = clubPlayers.filter(p => p.age >= 31)[0] || clubPlayers[0];
   const captain = clubPlayers[0];
 
+  // Requirement 12: Find player who genuinely has high stature but low playing time
+  const matchesPlayedByClub = (state.fixtures || []).filter(
+    f => f.status === 'finished' && (f.homeClubId === userClub.id || f.awayClubId === userClub.id)
+  ).length;
+
+  const disgruntledCandidates = clubPlayers.filter(p => {
+    if (p.injuryStatus === 'INJURED' || p.injury?.isInjured || p.suspension?.isSuspended) return false;
+    const isHighRole = p.ovr >= 76 || p.squadRole === '絶対的主力' || p.squadRole === '重要選手';
+    if (!isHighRole) return false;
+
+    const starts = p.stats?.starts || 0;
+    if (matchesPlayedByClub >= 3) {
+      return (starts / matchesPlayedByClub) < 0.40;
+    }
+    const isCurrentlyStarting = state.tactics?.lineup?.starters?.some(s => s.playerId === p.id);
+    return !isCurrentlyStarting;
+  });
+
+  const disgruntledPlayer = disgruntledCandidates.length > 0
+    ? disgruntledCandidates.sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0]
+    : undefined;
+
   const context: EventContext = {
     state,
     userClub,
     starPlayer,
+    disgruntledPlayer,
     youngPlayer,
     veteranPlayer,
     captain
   };
 
-  // Pick a random template
-  const template = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
+  // Pick a random eligible template (Requirement 12)
+  const eligibleTemplates = TEMPLATES.filter(t => !t.isEligible || t.isEligible(context));
+  if (eligibleTemplates.length === 0) return null;
+
+  const template = eligibleTemplates[Math.floor(Math.random() * eligibleTemplates.length)];
 
   const eventId = `uevent_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   const title = template.titleTemplate(context);
