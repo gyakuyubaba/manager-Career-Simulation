@@ -558,6 +558,7 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     managerAppointmentDate: state.currentDate,
     isMidSeasonAppointment: isMidSeason,
     userClubId: chosenClubId,
+    isManagerFreeAgent: false,
     clubs: updatedClubs,
     players: updatedPlayers,
     tactics: userTactics,

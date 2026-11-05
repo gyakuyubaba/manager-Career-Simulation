@@ -262,14 +262,24 @@ export interface Player {
   accumulatedRedCards?: Record<string, number>;
   // Type 2 High School Player Registration (2種登録選手)
   isType2Registered?: boolean;
+  isType2?: boolean;
   type2HighSchool?: string;
   type2UnavailableDates?: string[];
   competitionStats?: Record<string, PlayerStats>;
 
-  // Scouting, Shortlist & Transfer Interest (Requirement 9)
+  // Scouting, Shortlist & Transfer Interest (Requirement 7 & 9)
   userDeclaredInterest?: boolean;
   clubInterestScore?: number; // 0 - 100
   isOnShortlist?: boolean;
+  clubInterestMap?: Record<string, number>; // clubId -> 0-100 interest score
+
+  // Aging, Retirement & Long-term injury retirement recommendation (Requirement 8, 18, 19)
+  isRetired?: boolean;
+  retirementAnnounced?: boolean;
+  retirementDate?: string; // e.g. "2027-06-30"
+  retirementReason?: string;
+  recommendedRetirementOffered?: boolean;
+  isYouthRegen?: boolean; // Generated youth player (Requirement 18)
 }
 
 export type LeagueKey = 
@@ -324,6 +334,8 @@ export interface Club {
   rivalClubIds?: string[];
   isUserClub?: boolean;
   tactics?: TeamTactics;
+  youthFacility?: number;
+  trophies?: number;
 }
 
 export type FormationName = 
@@ -826,9 +838,29 @@ export interface GameWorldState {
   consecutiveFailedObjectiveYears?: number;
   objectiveWarningIssuedSeason?: string;
 
-  // Manager Career Resignation & Job Offers (Requirement 18)
+  // Transfer Deadline Day Hourly Ticking (Requirement 17)
+  deadlineHoursRemaining?: number; // e.g. 12, 10, 8... 0
+  deadlineCurrentHour?: number;    // e.g. 10 (10:00), 12, 14, 23 (23:00)
   isManagerFreeAgent?: boolean;
-  managerJobOffers?: ManagerJobOffer[];
+  managerJobOffers?: any[];
+
+  // Dedicated Ballon d'Or Ceremony Event (Requirement 2)
+  activeBallonDorCeremony?: {
+    year: number;
+    date: string;
+    stage: 'nominees' | 'gala' | 'awarded';
+    nominees: BallonDorCandidate[];
+    winner: BallonDorCandidate;
+    rankings: BallonDorCandidate[];
+  } | null;
+  ballonDorHistory?: {
+    year: number;
+    winnerId: string;
+    winnerName: string;
+    winnerClubName: string;
+    points: number;
+    rankings: BallonDorCandidate[];
+  }[];
 }
 
 export interface ManagerJobOffer {
@@ -867,6 +899,7 @@ export interface UnexpectedEventChoice {
 
 export interface UnexpectedEvent {
   id: string;
+  templateId?: string;
   date: string;
   category: UnexpectedEventCategory;
   categoryLabel: string;
@@ -924,4 +957,5 @@ export interface BallonDorCandidate {
   trophiesCount: number;
   winProbability: number;
   summary: string;
+  points?: number;
 }

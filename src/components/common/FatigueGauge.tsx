@@ -12,7 +12,7 @@ interface Props {
   className?: string;
 }
 
-export function getFatigueInfo(fatigue: number): { clamped: number; labelText: string; barColor: string; textColor: string } {
+export function getFatigueInfo(fatigue: number): { clamped: number; labelText: string; label: string; barColor: string; textColor: string } {
   const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
 
   // Requirement 3:
@@ -47,7 +47,7 @@ export function getFatigueInfo(fatigue: number): { clamped: number; labelText: s
     labelText = '疲労が少ない';
   }
 
-  return { clamped, labelText, barColor, textColor };
+  return { clamped, labelText, label: labelText, barColor, textColor };
 }
 
 export const FatigueGauge: React.FC<Props> = ({

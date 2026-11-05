@@ -203,12 +203,22 @@ export function checkAndAdvanceBallonDor(
       importance: 'high'
     };
 
+    const ceremonyData = {
+      year,
+      date: currentDate,
+      stage: 'nominees' as const,
+      nominees: candidates,
+      winner: topCandidate,
+      rankings: candidates
+    };
+
     return {
       updatedState: {
         ballonDorYear: year,
         ballonDorNomineesAnnounced: true,
         ballonDorWinnerAnnounced: false,
-        ballonDorRankings: candidates
+        ballonDorRankings: candidates,
+        activeBallonDorCeremony: ceremonyData
       },
       newsItem
     };
@@ -243,6 +253,29 @@ export function checkAndAdvanceBallonDor(
       importance: 'high'
     };
 
+    const ceremonyData = {
+      year,
+      date: currentDate,
+      stage: 'gala' as const,
+      nominees: candidates,
+      winner: winnerCandidate,
+      rankings: candidates
+    };
+
+    const newHistoryEntry = {
+      year,
+      winnerId: winnerCandidate.playerId,
+      winnerName: winnerCandidate.playerName,
+      winnerClubName: winnerCandidate.clubName,
+      points: winnerCandidate.points || 850,
+      rankings: candidates
+    };
+
+    const prevHistory = state.ballonDorHistory || [];
+    const updatedHistory = prevHistory.some(h => h.year === year)
+      ? prevHistory.map(h => h.year === year ? newHistoryEntry : h)
+      : [newHistoryEntry, ...prevHistory];
+
     return {
       updatedState: {
         ballonDorYear: year,
@@ -251,7 +284,9 @@ export function checkAndAdvanceBallonDor(
         ballonDorWinnerId: winnerCandidate.playerId,
         ballonDorRankings: candidates,
         fanApproval: Math.min(100, state.fanApproval + 8),
-        players: updatedPlayers
+        players: updatedPlayers,
+        activeBallonDorCeremony: ceremonyData,
+        ballonDorHistory: updatedHistory
       },
       newsItem,
       winnerPlayer: updatedPlayers[winnerCandidate.playerId]

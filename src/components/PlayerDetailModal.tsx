@@ -18,6 +18,7 @@ interface Props {
   onToggleLoanList?: (playerId: string) => void;
   onExerciseBuyOption?: (player: Player) => void;
   onUpdateShirtNumber?: (playerId: string, newNumber: number, forceSwap: boolean) => { success: boolean; message: string; conflictPlayer?: Player };
+  onRecommendRetirement?: (playerId: string) => { accepted: boolean; message: string };
   onClose: () => void;
 }
 
@@ -33,6 +34,7 @@ export const PlayerDetailModal: React.FC<Props> = ({
   onToggleLoanList,
   onExerciseBuyOption,
   onUpdateShirtNumber,
+  onRecommendRetirement,
   onClose 
 }) => {
   const { t } = useI18n();
@@ -43,6 +45,7 @@ export const PlayerDetailModal: React.FC<Props> = ({
   const [shirtNumInput, setShirtNumInput] = useState(player?.shirtNumber || 1);
   const [shirtMsg, setShirtMsg] = useState<string | null>(null);
   const [conflict, setConflict] = useState<Player | null>(null);
+  const [retirementMsg, setRetirementMsg] = useState<string | null>(null);
 
   if (!player) return null;
 
@@ -800,6 +803,35 @@ export const PlayerDetailModal: React.FC<Props> = ({
                 </button>
               )}
             </div>
+
+            {/* Requirement 19: Long-term Injury Retirement Recommendation */}
+            {isUserPlayer && !player.isRetired && (player.injuryStatus === 'INJURED' || (player.injuryDaysRemaining || 0) >= 180 || (player.injury?.recoveryDays || 0) >= 180 || player.injuryType?.includes('前十字') || player.injuryType?.includes('アキレス腱')) && onRecommendRetirement && (
+              <div className="w-full mt-4 p-4 bg-rose-950/40 border border-rose-500/40 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-rose-300 text-xs font-bold">
+                  <AlertTriangle className="w-4 h-4 text-rose-400" />
+                  <span>🏥 長期離脱に伴うキャリア面談（引退勧告・セカンドキャリア相談）</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  選手は全治長期（180日〜365日以上）の深刻な負傷（{player.injuryType || '重傷'}）を負っています。監督として現役引退およびセカンドキャリアへの移行を打診することができます（ベテラン選手ほど受諾率が高くなります）。
+                </p>
+                {retirementMsg ? (
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white">
+                    {retirementMsg}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const res = onRecommendRetirement(player.id);
+                      setRetirementMsg(res.message);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md shadow-rose-600/20 cursor-pointer"
+                  >
+                    現役引退を推奨する (打診)
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 

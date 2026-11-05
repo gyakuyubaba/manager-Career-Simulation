@@ -124,13 +124,8 @@ export function finalMatchEligibilityCheck(
     }
 
     if (p.squadStatus === 'OUT_OF_SQUAD') {
-      const reason = 'ベンチ外登録';
-      const badge = '【登録外】';
-      errors.push(`【ベンチ外登録】${p.name}選手はベンチ外に設定されているため出場できません。`);
-      ineligibleStarters.push({ player: p, reason, badge });
-      ineligibleAll.push({ player: p, reason, badge, role: 'STARTER' });
-      ineligiblePlayerIds.push(pId);
-      return;
+      // Player was marked OUT_OF_SQUAD from prior injury/suspension but is now healthy and picked by manager
+      p.squadStatus = 'STARTING';
     }
 
     // Type 2 High School availability check
@@ -714,6 +709,8 @@ export function isMatchRequiringDecider(fixture: MatchFixture): { requiresDecide
   // 2-legged ties (Requirements 13 & 14)
   const isLeg1 = fixture.leg === 1 ||
                  fixture.round?.includes('Leg 1') ||
+                 fixture.round?.includes('1st Leg') ||
+                 fixture.round?.includes('1st') ||
                  fixture.round?.includes('第1戦') ||
                  fixture.competitionName?.includes('第1戦');
   if (isLeg1) {
@@ -722,6 +719,8 @@ export function isMatchRequiringDecider(fixture: MatchFixture): { requiresDecide
 
   const isLeg2 = fixture.leg === 2 ||
                  fixture.round?.includes('Leg 2') ||
+                 fixture.round?.includes('2nd Leg') ||
+                 fixture.round?.includes('2nd') ||
                  fixture.round?.includes('第2戦') ||
                  fixture.competitionName?.includes('第2戦');
   if (isLeg2) {
@@ -1475,8 +1474,35 @@ export function simulateFullMatch(
   [...homeStartersList, ...awayStartersList].forEach(p => {
     const updated = updatedPlayers[p.id];
     if (updated) {
-      // Natural fatigue accumulation (+14 to +20 depending on playing tempo)
-      updated.fatigue = Math.min(100, updated.fatigue + 16);
+      // Requirement 3: 選手ごとに異なるスタミナ消費・疲労蓄積システム
+      // - スタミナ能力（高いほど疲れにくい）
+      // - ポジション（WB/MF/FW/CB/GKの運動量差）
+      // - プレス・戦術強度
+      // - 出場時間および延長戦（120分）の有無
+      const playerStamina = p.stamina || p.physical || 75;
+      const staminaFactor = Math.max(0.65, Math.min(1.35, 1.0 - ((playerStamina - 75) * 0.012))); // high stamina = lower fatigue
+      
+      let positionWorkrate = 1.0;
+      if (['LWB', 'RWB', 'LM', 'RM'].includes(p.position)) {
+        positionWorkrate = 1.25; // 激しいアップダウン
+      } else if (['CM', 'CDM', 'CAM'].includes(p.position)) {
+        positionWorkrate = 1.15; // 豊富な中盤走行距離
+      } else if (['ST', 'CF', 'LW', 'RW'].includes(p.position)) {
+        positionWorkrate = 1.05; // スプリント・プレス頻度
+      } else if (['CB', 'LB', 'RB'].includes(p.position)) {
+        positionWorkrate = 0.90; // ディフェンスライン
+      } else if (p.position === 'GK') {
+        positionWorkrate = 0.35; // GKは疲労蓄積が極めて少ない
+      }
+
+      // Tactics intensity
+      const matchMinutes = extraTimePlayed ? 120 : 90;
+      const timeFactor = matchMinutes / 90; // 1.0 or 1.33 for ET
+      const tacticsPress = (p.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
+      const pressMultiplier = tacticsPress === '非常に激しい' ? 1.20 : tacticsPress === '自陣引き気味' ? 0.85 : 1.0;
+
+      const calculatedFatigueDelta = Math.round(15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier);
+      updated.fatigue = Math.max(0, Math.min(100, updated.fatigue + calculatedFatigueDelta));
 
       const scored = events.filter(e => e.type === 'goal' && e.playerId === p.id).length;
       const assisted = events.filter(e => e.type === 'goal' && e.assistPlayerId === p.id).length;

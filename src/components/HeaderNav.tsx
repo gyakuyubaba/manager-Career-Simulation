@@ -8,12 +8,23 @@ interface Props {
   state: GameWorldState;
   onAdvanceDay: () => void;
   onFastForward: (type: 'next_match' | 'transfer_deadline' | 'days_7' | 'end_of_month') => void;
+  onOpenCalendar?: () => void;
+  onAdvanceDeadlineHours?: (hours: 1 | 2) => void;
   onRequestReset?: () => void;
   onResetCareer?: () => void;
   isSimulating: boolean;
 }
 
-export const HeaderNav: React.FC<Props> = ({ state, onAdvanceDay, onFastForward, onRequestReset, onResetCareer, isSimulating }) => {
+export const HeaderNav: React.FC<Props> = ({ 
+  state, 
+  onAdvanceDay, 
+  onFastForward, 
+  onOpenCalendar,
+  onAdvanceDeadlineHours,
+  onRequestReset, 
+  onResetCareer, 
+  isSimulating 
+}) => {
   const [showSkipMenu, setShowSkipMenu] = useState(false);
   const { language, setLanguage, t } = useI18n();
 
@@ -91,6 +102,45 @@ export const HeaderNav: React.FC<Props> = ({ state, onAdvanceDay, onFastForward,
 
           {/* Zone 3: Date Advance & Skip Controls */}
           <div className="flex items-center gap-2 relative shrink-0">
+            {/* If Deadline Day, show hourly advance buttons! */}
+            {state.isTransferWindowOpen && state.transferWindowClosingDays === 0 && onAdvanceDeadlineHours && (
+              <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl p-1">
+                <span className="text-[10px] font-bold text-amber-300 font-mono px-1">
+                  ⏱️ 残り{state.deadlineHoursRemaining ?? 14}h
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onAdvanceDeadlineHours(1)}
+                  disabled={isSimulating}
+                  className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] cursor-pointer"
+                  title="デッドラインを1時間進める"
+                >
+                  +1h
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAdvanceDeadlineHours(2)}
+                  disabled={isSimulating}
+                  className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] cursor-pointer"
+                  title="デッドラインを2時間進める"
+                >
+                  +2h
+                </button>
+              </div>
+            )}
+
+            {/* Calendar Schedule Modal Button */}
+            {onOpenCalendar && (
+              <button
+                type="button"
+                onClick={onOpenCalendar}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center justify-center cursor-pointer"
+                title="日程・カレンダー"
+              >
+                <Calendar className="w-4 h-4 text-indigo-400" />
+              </button>
+            )}
+
             {/* Advance 1 Day Primary CTA */}
             <button
               type="button"

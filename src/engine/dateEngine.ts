@@ -189,14 +189,32 @@ export function applyMatchResultToWorld(
   let clubTitlesHistory = { ...(state.clubTitlesHistory || {}) };
 
   // Handle 2-legged ties
-  if (finalFixture.leg === 1) {
+  const isLeg1Fixture = finalFixture.leg === 1 || finalFixture.round?.includes('Leg 1') || finalFixture.round?.includes('第1戦');
+  if (isLeg1Fixture) {
     // Leg 1: Store score into paired Leg 2 fixture; do NOT advance winners yet!
-    const leg2 = fixtures.find(f => 
+    // Requirement 13: Guarantee paired 2nd leg matches the exact same opponent inverted (home <-> away)
+    let leg2 = fixtures.find(f => 
       f.competition === finalFixture.competition &&
-      (f.leg === 2 || f.round?.includes('Leg 2')) &&
-      ((f.homeClubId === finalFixture.awayClubId && f.awayClubId === finalFixture.homeClubId) || 
-       (f.round?.replace('Leg 2', '') === finalFixture.round?.replace('Leg 1', '')))
+      (f.leg === 2 || f.round?.includes('Leg 2') || f.round?.includes('第2戦')) &&
+      f.homeClubId === finalFixture.awayClubId && f.awayClubId === finalFixture.homeClubId
     );
+
+    if (!leg2) {
+      // Find matching round leg 2 fixture by match index
+      const leg1MatchIndex = finalFixture.id.match(/_m(\d+)_/)?.[1];
+      leg2 = fixtures.find(f => 
+        f.competition === finalFixture.competition &&
+        (f.leg === 2 || f.round?.includes('Leg 2') || f.round?.includes('第2戦')) &&
+        (!leg1MatchIndex || f.id.includes(`_m${leg1MatchIndex}_`)) &&
+        (!f.homeClubId || f.homeClubId === 'tbd' || f.homeClubId === finalFixture.awayClubId)
+      );
+      if (leg2) {
+        // Enforce exact reversal of home and away
+        leg2.homeClubId = finalFixture.awayClubId;
+        leg2.awayClubId = finalFixture.homeClubId;
+      }
+    }
+
     if (leg2) {
       leg2.leg1Score = { homeScore: finalFixture.homeScore ?? 0, awayScore: finalFixture.awayScore ?? 0 };
     }
@@ -454,6 +472,7 @@ export function advanceOneDay(
   const updatedPlayers = { ...state.players };
   let injuryNews: NewsItem | null = null;
   const recoveryNewsList: NewsItem[] = [];
+  const retirementNewsList: NewsItem[] = [];
   const todayFixtures = state.fixtures.filter(f => f.date === nextDate);
 
   // Exact Birthday & Age Recalculation (Requirement 9: 全選手が毎年確実に歳を取る)
@@ -584,14 +603,63 @@ export function advanceOneDay(
       }
     }
 
-    // Young player gradual growth scaled by playerGrowthRate (Requirement 13)
+    // Requirements 8, 9, 10: 全選手の適切な成長・POT予測値化・高齢衰退・引退表明
     const diffSettings = state.difficultySettings || DEFAULT_DIFFICULTY_SETTINGS;
     const growthRateMod = diffSettings.playerGrowthRate === 'slow' ? 0.01 : diffSettings.playerGrowthRate === 'fast' ? 0.045 : 0.02;
-    if (p.age <= 21 && p.potential > p.ovr && Math.random() < growthRateMod) {
-      p.ovr += 1;
-      p.pace = Math.min(99, p.pace + 1);
-      p.passing = Math.min(99, p.passing + 1);
-      p.shooting = Math.min(99, p.shooting + 1);
+
+    // A. Growth Processing (All players, especially active starters)
+    if (p.age <= 28) {
+      const isStarter = p.squadStatus === 'STARTING' || (p.stats && p.stats.starts >= 5);
+      const starterBoost = isStarter ? 1.5 : 0.8;
+      // POT is an estimate, not a strict ceiling (Requirement 10: POTを超えて成長する選手も存在)
+      const canExceedPot = Math.random() < 0.15; // 15% chance to break through POT ceiling
+      const ceiling = canExceedPot ? Math.min(99, p.potential + 4) : p.potential;
+
+      if (p.ovr < ceiling && Math.random() < (growthRateMod * starterBoost)) {
+        p.ovr += 1;
+        p.exactOvr = (p.exactOvr || p.ovr) + 1;
+        p.pace = Math.min(99, p.pace + (Math.random() < 0.5 ? 1 : 0));
+        p.passing = Math.min(99, p.passing + (Math.random() < 0.5 ? 1 : 0));
+        p.shooting = Math.min(99, p.shooting + (Math.random() < 0.5 ? 1 : 0));
+        p.dribbling = Math.min(99, p.dribbling + (Math.random() < 0.5 ? 1 : 0));
+        p.defending = Math.min(99, p.defending + (Math.random() < 0.5 ? 1 : 0));
+        p.physical = Math.min(99, p.physical + (Math.random() < 0.5 ? 1 : 0));
+      }
+    } else if (p.age >= 34) {
+      // B. Aging Decline for 34+ players (Requirement 8)
+      // Gradual and realistic decline; active starters decline slower
+      const isStarter = p.squadStatus === 'STARTING' || (p.stats && p.stats.starts >= 10);
+      const declineChance = (p.age >= 37 ? 0.03 : 0.012) * (isStarter ? 0.6 : 1.2);
+      if (Math.random() < declineChance && p.ovr > 58) {
+        p.ovr = Math.max(55, p.ovr - 1);
+        p.exactOvr = Math.max(55, (p.exactOvr || p.ovr) - 1);
+        p.pace = Math.max(40, p.pace - 1);
+        p.physical = Math.max(45, p.physical - 1);
+      }
+
+      // C. Retirement Announcement (Requirement 8: 30代後半〜40代の引退表明)
+      if (p.age >= 35 && !p.retirementAnnounced && !p.isRetired) {
+        // Chance of announcing retirement between December and April
+        const currentMonth = parseInt(nextDate.split('-')[1], 10);
+        if ([12, 1, 2, 3, 4].includes(currentMonth) && Math.random() < (p.age >= 38 ? 0.05 : 0.015)) {
+          p.retirementAnnounced = true;
+          const seasonEndYear = parseInt(state.season?.split('/')[0], 10) + 1 || 2027;
+          p.retirementDate = `${seasonEndYear}-06-30`;
+          p.retirementReason = p.age >= 38 ? '年齢による体力の限界とキャリアの節目' : '新世代へのバトンタッチと指導者への転身';
+
+          const retNews: NewsItem = {
+            id: `news_ret_ann_${Date.now()}_${p.id}`,
+            date: nextDate,
+            headline: `【現役引退表明】${p.name}（${p.age}歳）、今シーズン限りでの現役引退を発表`,
+            body: `長年にわたりフットボール界を牽引してきた名手${p.name}が記者会見を開き、今季終了（${p.retirementDate}）をもってプロ現役生活に終止符を打つことを正式表明しました。「最後までクラブのために全力を尽くす」と語り、サポーターから温かい拍手が送られました。`,
+            category: 'press',
+            relatedClubId: p.clubId,
+            relatedPlayerId: p.id,
+            importance: p.clubId === state.userClubId ? 'high' : 'medium'
+          };
+          retirementNewsList.push(retNews);
+        }
+      }
     }
   });
 
@@ -653,6 +721,9 @@ export function advanceOneDay(
   state.players = updatedPlayers;
   if (recoveryNewsList.length > 0) {
     state.news = [...recoveryNewsList, ...state.news];
+  }
+  if (retirementNewsList.length > 0) {
+    state.news = [...retirementNewsList, ...state.news];
   }
   if (loanReturnNews.length > 0) {
     state.news = [...loanReturnNews, ...state.news];
@@ -1724,3 +1795,168 @@ export function calculateEuropeanQualifications(state: GameWorldState): {
 
   return { uclClubs, uelClubs, ueclClubs, news };
 }
+
+// Requirement 1 & 9: Dynamic accurate age calculation from birth date
+export const calculatePlayerAgeFromBirthDate = calculateAge;
+
+// Requirement 10: Official league recent 5 form helper
+export function getRecentLeagueForm(clubId: string, league: LeagueKey, fixtures: MatchFixture[] = []): ('W' | 'D' | 'L')[] {
+  const finishedLeagueFixtures = (fixtures || [])
+    .filter(f => f.competition === league && f.status === 'finished' && (f.homeClubId === clubId || f.awayClubId === clubId))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  return finishedLeagueFixtures.slice(0, 5).map(f => {
+    const isHome = f.homeClubId === clubId;
+    const myScore = isHome ? (f.homeScore ?? 0) : (f.awayScore ?? 0);
+    const oppScore = isHome ? (f.awayScore ?? 0) : (f.homeScore ?? 0);
+    if (myScore > oppScore) return 'W';
+    if (myScore === oppScore) return 'D';
+    return 'L';
+  });
+}
+
+// Requirement 17: Transfer Deadline Day 1h / 2h Hourly Ticking
+export function advanceDeadlineHours(
+  currentState: GameWorldState,
+  hours: 1 | 2 = 1
+): { updatedState: GameWorldState; isFinished: boolean } {
+  let state = { ...currentState };
+  const currentHour = state.deadlineCurrentHour || 9;
+  const nextHour = Math.min(24, currentHour + hours);
+  const remainingHours = Math.max(0, 24 - nextHour);
+
+  state.deadlineCurrentHour = nextHour;
+  state.deadlineHoursRemaining = remainingHours;
+
+  // Accelerate transfer bids during deadline countdown
+  state = simulateAITransfers(state);
+  if (remainingHours <= 6) {
+    state = simulateAITransfers(state);
+  }
+
+  const news: NewsItem[] = [...state.news];
+  if (remainingHours > 0) {
+    news.unshift({
+      id: `news_deadline_${Date.now()}_${nextHour}`,
+      date: state.currentDate,
+      headline: `【デッドラインデイ】移籍市場閉幕まで残り${remainingHours}時間！`,
+      body: `時計は${nextHour}:00を回りました。各クラブの強化責任者が駆け込みオファーと最終交渉に奔走しています！`,
+      category: 'transfer',
+      importance: 'high'
+    });
+  } else {
+    // Window closed
+    state.isTransferWindowOpen = false;
+    state.transferWindowClosingDays = 0;
+    news.unshift({
+      id: `news_deadline_close_${Date.now()}`,
+      date: state.currentDate,
+      headline: '【移籍市場閉幕】白熱のデッドラインデイが終了！全移籍ウィンドウがクローズ',
+      body: '移籍市場の締め切り時刻を迎え、選手登録手続きが終了しました。各クラブの陣容が確定し、後半戦への戦いが本格化します。',
+      category: 'transfer',
+      importance: 'high'
+    });
+  }
+  state.news = news.slice(0, 100);
+
+  return {
+    updatedState: state,
+    isFinished: remainingHours <= 0
+  };
+}
+
+// Requirement 18: Multi-club AI Youth Academy Regens
+export function generateAIClubsYouthPromotions(currentState: GameWorldState): GameWorldState {
+  const state = { ...currentState };
+  const players = { ...state.players };
+  const clubs = { ...state.clubs };
+  const news = [...state.news];
+
+  const positions: ('GK' | 'CB' | 'LB' | 'RB' | 'CDM' | 'CM' | 'CAM' | 'LM' | 'RM' | 'LW' | 'RW' | 'ST' | 'CF')[] = [
+    'GK', 'CB', 'LB', 'RB', 'CDM', 'CM', 'CAM', 'LM', 'RM', 'LW', 'RW', 'ST', 'CF'
+  ];
+  const firstNames = ['Lucas', 'Mateo', 'Enzo', 'Liam', 'Noah', 'Leo', 'Max', 'Kai', 'Alex', 'Theo', 'Ken', 'Ren', 'Haruto', 'Sota', 'Yuto', 'Gabriel', 'Julian', 'Felix', 'Arthur', 'Oliver'];
+  const lastNames = ['Silva', 'Santos', 'Garcia', 'Fernandez', 'Muller', 'Schmidt', 'Dubois', 'Laurent', 'Rossi', 'Bianchi', 'Tanaka', 'Sato', 'Suzuki', 'Smith', 'Jones', 'Davies', 'Moreno', 'Alvarez', 'Costa', 'Pereira'];
+
+  Object.values(clubs).forEach(club => {
+    // 1-2 youth players per club
+    const count = 1 + (Math.random() < 0.4 ? 1 : 0);
+    for (let i = 0; i < count; i++) {
+      const pos = positions[Math.floor(Math.random() * positions.length)];
+      const fName = firstNames[Math.floor(Math.random() * firstNames.length)];
+      const lName = lastNames[Math.floor(Math.random() * lastNames.length)];
+      const name = `${fName} ${lName}`;
+      const regenId = `regen_${club.id}_${Date.now()}_${i}_${Math.floor(Math.random() * 1000)}`;
+
+      const youthFac = club.youthFacility || 3;
+      const baseOvr = 60 + Math.floor(youthFac * 1.5) + Math.floor(Math.random() * 6);
+      const potBonus = Math.floor(youthFac * 2) + Math.floor(Math.random() * 10);
+      const potential = Math.min(93, baseOvr + 12 + potBonus);
+      const age = 16 + Math.floor(Math.random() * 3);
+
+      const isGK = pos === 'GK';
+      const regenPlayer: Player = {
+        id: regenId,
+        name,
+        age,
+        birthDate: `${2026 - age}-03-15`,
+        nationality: club.country === 'jp' ? '日本' : (club.country === 'es' ? 'スペイン' : (club.country === 'de' ? 'ドイツ' : (club.country === 'it' ? 'イタリア' : (club.country === 'fr' ? 'フランス' : 'イングランド')))),
+        position: pos,
+        altPositions: [],
+        preferredFoot: Math.random() < 0.75 ? '右' : '左',
+        ovr: baseOvr,
+        initialOvr: baseOvr,
+        exactOvr: baseOvr,
+        ovrGrowthProgress: 0,
+        potential,
+        pace: isGK ? 50 : 65 + Math.floor(Math.random() * 15),
+        shooting: isGK ? 30 : 60 + Math.floor(Math.random() * 15),
+        passing: 60 + Math.floor(Math.random() * 15),
+        dribbling: isGK ? 40 : 62 + Math.floor(Math.random() * 15),
+        defending: isGK ? 40 : (['CB', 'LB', 'RB', 'CDM'].includes(pos) ? 68 + Math.floor(Math.random() * 10) : 50),
+        physical: 62 + Math.floor(Math.random() * 12),
+        gk: isGK ? baseOvr : 20,
+        marketValue: Math.round(baseOvr * 30000 * (potential / 70)),
+        wage: 1500 + Math.floor(Math.random() * 2000),
+        contractYears: 3,
+        clubId: club.id,
+        currentClubId: club.id,
+        squadRole: '若手・育成枠',
+        playstyle: 'バランス型',
+        personality: '努力家',
+        managerTrust: 70,
+        relationships: [],
+        injury: { isInjured: false, recoveryDays: 0 },
+        suspension: { isSuspended: false, matchesRemaining: 0 },
+        isLoaned: false,
+        fatigue: 0,
+        condition: 'yellow',
+        squadStatus: 'RESERVE',
+        shirtNumber: 30 + Math.floor(Math.random() * 69),
+        stats: { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 },
+        isYouthRegen: true,
+        isType2: false
+      };
+
+      players[regenId] = regenPlayer;
+      if (!club.playerIds.includes(regenId)) {
+        club.playerIds = [...club.playerIds, regenId];
+      }
+    }
+  });
+
+  state.players = players;
+  state.clubs = clubs;
+  news.unshift({
+    id: `news_youth_grad_${Date.now()}`,
+    date: state.currentDate,
+    headline: '【アカデミー昇格】各クラブのアカデミーから将来有望なユース選手がトップ昇格！',
+    body: '各クラブの育成組織から選抜された新星若手選手たちがトップチーム昇格を果たしました。次世代のスター候補たちの成長に注目です。',
+    category: 'youth',
+    importance: 'medium'
+  });
+  state.news = news.slice(0, 100);
+
+  return state;
+}
+

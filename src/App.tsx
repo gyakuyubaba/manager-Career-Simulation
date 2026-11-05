@@ -21,7 +21,7 @@ import {
   saveGameToStorage,
   clearAllGameStorage
 } from './engine/gameState';
-import { advanceOneDay, fastForwardUntil, applyMatchResultToWorld, simulatePendingAIFixturesForDate } from './engine/dateEngine';
+import { advanceOneDay, fastForwardUntil, applyMatchResultToWorld, simulatePendingAIFixturesForDate, advanceDeadlineHours } from './engine/dateEngine';
 import { exerciseLoanBuyOption } from './engine/transferEngine';
 import { updatePlayerShirtNumber } from './engine/dataValidator';
 import { generatePreSeasonTourOptions, generatePreSeasonFixtures, createPreSeasonScheduleNews } from './engine/preSeasonEngine';
@@ -41,6 +41,8 @@ import { PressConferenceModal } from './components/tabs/PressConferenceModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
 import { SackedDismissalModal } from './components/SackedDismissalModal';
 import { UnexpectedEventModal } from './components/UnexpectedEventModal';
+import { BallonDorCeremonyModal } from './components/common/BallonDorCeremonyModal';
+import { CalendarScheduleModal } from './components/common/CalendarScheduleModal';
 import { resolveUnexpectedEvent } from './engine/unexpectedEventsEngine';
 import { Bell, AlertCircle, CheckCircle, Database } from 'lucide-react';
 
@@ -50,6 +52,7 @@ export default function App() {
   const [storageToast, setStorageToast] = useState<{ message: string; type: 'info' | 'success' | 'warn' } | null>(null);
   const [activeTab, setActiveTab] = useState<MainTab>('home');
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
+  const [showCalendar, setShowCalendar] = useState<boolean>(false);
 
   // Modal overlays
   const [activeMatchFixture, setActiveMatchFixture] = useState<MatchFixture | null>(null);
@@ -479,6 +482,17 @@ export default function App() {
         state={gameState}
         onAdvanceDay={handleAdvanceDay}
         onFastForward={handleFastForward}
+        onOpenCalendar={() => setShowCalendar(true)}
+        onAdvanceDeadlineHours={(hours) => {
+          if (!gameState || isSimulating) return;
+          setIsSimulating(true);
+          const res = advanceDeadlineHours(gameState, hours);
+          setGameState(res.updatedState);
+          setIsSimulating(false);
+          if (res.isFinished) {
+            setDayAlertMessage('移籍市場のデッドラインデイが終了しました！全移籍ウィンドウがクローズされました。');
+          }
+        }}
         onRequestReset={handleOpenResetModal}
         onResetCareer={handleOpenResetModal}
         isSimulating={isSimulating}
@@ -648,14 +662,14 @@ export default function App() {
               }
             };
             const userClub = gameState.userClubId ? gameState.clubs[gameState.userClubId] : null;
-            const nextNews = [
+            const nextNews: NewsItem[] = [
               {
                 id: `news_decl_${Date.now()}`,
-                title: `📢 ${userClub?.name || '自クラブ'}が${target.name}への強い獲得関心を公に表明！`,
-                summary: `${gameState.manager.name}監督は記者会見で「${target.name}は我々のフットボール哲学に完璧に合致する素晴らしいタレントだ」と公言しました。`,
+                headline: `【獲得関心】${userClub?.name || '自クラブ'}が${target.name}への強い獲得関心を公に表明！`,
+                body: `${gameState.manager.name}監督は記者会見で「${target.name}は我々のフットボール哲学に完璧に合致する素晴らしいタレントだ」と公言しました。`,
                 date: gameState.currentDate,
-                category: 'transfer' as const,
-                read: false
+                category: 'transfer',
+                importance: 'medium'
               },
               ...gameState.news
             ];
@@ -684,7 +698,91 @@ export default function App() {
             }
             return res;
           }}
+          onRecommendRetirement={(playerId) => {
+            if (!gameState) return { accepted: false, message: 'ゲーム状態が無効です' };
+            const p = gameState.players[playerId];
+            if (!p) return { accepted: false, message: '選手が見つかりません' };
+
+            const acceptProb = p.age >= 33 ? 0.85 : p.age >= 29 ? 0.45 : 0.15;
+            const isAccepted = Math.random() < acceptProb;
+
+            if (isAccepted) {
+              const updatedPlayer: Player = {
+                ...p,
+                isRetired: true,
+                retirementAnnounced: true,
+                retirementDate: gameState.currentDate,
+                retirementReason: `度重なる重傷（${p.injuryType || '長期離脱'}）に伴う現役引退`,
+                squadStatus: 'OUT_OF_SQUAD'
+              };
+              const userClub = gameState.userClubId ? gameState.clubs[gameState.userClubId] : null;
+              const retirementNews: NewsItem = {
+                id: `news_retire_inj_${Date.now()}`,
+                date: gameState.currentDate,
+                headline: `【現役引退】${p.name}が度重なる怪我と戦い抜いた末、現役引退を表明`,
+                body: `${userClub?.name}所属の${p.name}（${p.age}歳）が、クラブ・監督との面談を経て現役引退を正式に決断しました。${gameState.manager.name}監督は「彼のこれまでの献身と勇気ある戦いに最大の敬意を表する」とコメントしています。`,
+                category: 'board',
+                relatedClubId: userClub?.id,
+                relatedPlayerId: p.id,
+                importance: 'high'
+              };
+              setGameState({
+                ...gameState,
+                players: {
+                  ...gameState.players,
+                  [playerId]: updatedPlayer
+                },
+                news: [retirementNews, ...gameState.news].slice(0, 100)
+              });
+              setInspectingPlayer(updatedPlayer);
+              return {
+                accepted: true,
+                message: `${p.name}選手は熟考の末、監督の言葉を受け入れて現役引退を決断しました。クラブのレジェンドとして功績が称えられます。`
+              };
+            } else {
+              return {
+                accepted: false,
+                message: `${p.name}選手は「まだピッチを諦めたくない。過酷なリハビリを乗り越えて必ず復帰してみせる」と語り、現役続行への強い意志を示しました。`
+              };
+            }
+          }}
           onClose={() => setInspectingPlayer(null)}
+        />
+      )}
+
+      {/* BALLON D'OR CEREMONY MODAL */}
+      {gameState?.activeBallonDorCeremony && (
+        <BallonDorCeremonyModal
+          ceremony={gameState.activeBallonDorCeremony}
+          onClose={() => {
+            setGameState({
+              ...gameState,
+              activeBallonDorCeremony: null
+            });
+          }}
+        />
+      )}
+
+      {/* CALENDAR SCHEDULE MODAL */}
+      {showCalendar && gameState && (
+        <CalendarScheduleModal
+          state={gameState}
+          onFastForwardToDate={(targetDate) => {
+            setShowCalendar(false);
+            if (!gameState || isSimulating) return;
+            setIsSimulating(true);
+            let cur = gameState;
+            let daysLimit = 60;
+            while (cur.currentDate < targetDate && daysLimit > 0) {
+              const res = advanceOneDay(cur, true);
+              cur = res.updatedState;
+              daysLimit--;
+              if (res.hasUserMatchToday && !res.userSimulatedFixture) break;
+            }
+            setGameState(cur);
+            setIsSimulating(false);
+          }}
+          onClose={() => setShowCalendar(false)}
         />
       )}
 

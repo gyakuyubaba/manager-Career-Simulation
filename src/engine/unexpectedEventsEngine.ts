@@ -159,36 +159,87 @@ const TEMPLATES: EventTemplate[] = [
     ]
   },
 
-  // 5. Board & Management: Sponsor Special Bonus
+  // 5. Board & Management: Major Sponsor Investment or Financial Audit (Requirement 11: 50M〜150M & <50M 5M rescue)
   {
     category: 'board_management',
     categoryLabel: 'クラブ経営・理事会',
-    titleTemplate: (ctx) => `【臨時予算】グローバルスポンサー企業からの特別支援金の交付`,
+    isEligible: (ctx) => (ctx.userClub?.transferBudget || 0) >= 50000000,
+    titleTemplate: (ctx) => `【大型財政投資】グローバルコンソーシアムからの特別追加資本注入`,
     descriptionTemplate: (ctx) =>
-      `クラブの好調な露出と監督の手腕を評価し、メジャースポンサーが緊急で特別支援金€2.5M（約4億円）のクラブ予算追加交付を理事会に承認しました。`,
+      `クラブのブランド価値向上と国際競争力強化のため、国際戦略パートナーから€80.0M（約130億円）の追加補強資金の特別割当が理事会で正式可決されました。`,
     choicesGenerator: () => [
       {
-        id: 'invest_transfer',
-        label: 'A: 移籍・補強予算に全額を回す',
-        description: '市場での戦力補強に直結させます。',
+        id: 'invest_transfer_major',
+        label: 'A: 移籍・大型補強予算に全額（€80.0M）を組み入れる',
+        description: '世界トップクラスのスーパースター獲得へ直結させます。',
         effects: {
-          budgetDelta: +2500000,
+          budgetDelta: +80000000,
           boardConfidenceDelta: +5,
-          newsHeadline: `【財務強化】スポンサーからの特別支援金€2.5Mが移籍予算へ追加承認！`
+          newsHeadline: `【大型増資】クラブへ€80Mのメガ特別支援金交付！世界トップ級の補強へ`
         }
       },
       {
-        id: 'invest_facilities',
-        label: 'B: 医療・コンディショニング施設と分析機材に投資する',
-        description: '選手の疲労回復と怪我リスク軽減に繋がります。',
+        id: 'invest_facilities_split',
+        label: 'B: €50Mを移籍予算、残りを育成アカデミーと最先端施設へ配分',
+        description: '即戦力補強と持続的なクラブ基盤整備を両立します。',
         effects: {
-          fatigueDelta: -10,
-          moraleDelta: +8,
-          boardConfidenceDelta: +6,
-          newsHeadline: `【クラブ近代化】特別支援金をメディカル・分析ラボの最新化へ投入！選手のコンディション向上へ`
+          budgetDelta: +50000000,
+          fatigueDelta: -15,
+          moraleDelta: +10,
+          boardConfidenceDelta: +8,
+          newsHeadline: `【堅実経営】€80Mを補強と施設拡充へ戦略配分！持続的な黄金期創出へ`
         }
       }
     ]
+  },
+
+  // 5b. Emergency Financial Relief when funds < 50M (Requirement 11: 50M未満の救済イベント +5M)
+  {
+    category: 'board_management',
+    categoryLabel: 'クラブ経営・理事会',
+    isEligible: (ctx) => (ctx.userClub?.transferBudget || 0) < 50000000,
+    titleTemplate: () => `【緊急支援】地元有力後援会からの緊急資金注入（€5.0M）`,
+    descriptionTemplate: () =>
+      `現在の移籍・運営資金が5,000万ユーロ（€50M）を下回っている現状を受け、地元経済界の有志後援会が緊急ミーティングを実施。クラブの流動性確保のため、急遽€5.0M（約8億円）の緊急救済資金を無利息で供与することが決定しました。`,
+    choicesGenerator: () => [
+      {
+        id: 'accept_emergency_relief',
+        label: 'A: 救済金€5.0Mをありがたく受託し、財政の健全化に充てる',
+        description: '利用可能資金が即時+5M増加します。',
+        effects: {
+          budgetDelta: +5000000,
+          boardConfidenceDelta: +3,
+          moraleDelta: +2,
+          newsHeadline: `【財政支援】地元後援会から緊急救済金€5.0Mが提供されクラブ資金が回復`
+        }
+      }
+    ]
+  },
+
+  // 5c. Heavy Infrastructure Maintenance / Tax Audit (Requirement 11: 50M〜150M減額、残高を超えない)
+  {
+    category: 'board_management',
+    categoryLabel: 'クラブ経営・理事会',
+    isEligible: (ctx) => (ctx.userClub?.transferBudget || 0) >= 80000000,
+    titleTemplate: () => `【特別支出】スタジアム欧州規格適合のための緊急改修費支出`,
+    descriptionTemplate: () =>
+      `UEFAスタジアム安全基準改定に伴い、来季国際大会開催のためスタンド免震構造・照明の大規模改修工事が必要となりました。理事会は€60.0Mの緊急支出を承認しました。`,
+    choicesGenerator: (ctx) => {
+      const currentBudget = ctx.userClub?.transferBudget || 0;
+      const deductible = Math.min(60000000, Math.max(0, currentBudget - 10000000));
+      return [
+        {
+          id: 'pay_stadium_renovation',
+          label: `A: クラブ補強予算から緊急改修費（€${(deductible / 1000000).toFixed(1)}M）を拠出する`,
+          description: 'スタジアム基準をクリアし、将来の入場料収入とUEFA評価を高めます。',
+          effects: {
+            budgetDelta: -deductible,
+            boardConfidenceDelta: +2,
+            newsHeadline: `【インフラ投資】スタジアム改修費€${(deductible / 1000000).toFixed(1)}Mの支出を承認、欧州最高峰基準へ`
+          }
+        }
+      ];
+    }
   },
 
   // 6. Manager Related: Press conference provocation

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { GameWorldState, YouthProspect, Player } from '../../types/game';
+import { GameWorldState, YouthProspect, Player, NewsItem } from '../../types/game';
 import { 
   Trophy, 
   Award, 
@@ -493,13 +493,13 @@ export const ManagerCareerTab: React.FC<Props> = ({
                       expiryDate: '2026-12-31'
                     }));
 
-                    const resignationNews = {
+                    const resignationNews: NewsItem = {
                       id: `news_res_${Date.now()}`,
-                      title: `🚨 速報: ${state.manager.name}監督が${userClub?.name || '所属クラブ'}の監督を電撃辞任！`,
-                      summary: `${state.manager.name}監督がクラブ首脳陣に辞意を申し入れ、双方合意のもとで契約が解除されました。現在フリーの身となり、各クラブからの招聘を待っています。`,
+                      headline: `【電撃辞任】${state.manager.name}監督が${userClub?.name || '所属クラブ'}の監督を辞任！`,
+                      body: `${state.manager.name}監督がクラブ首脳陣に辞意を申し入れ、双方合意のもとで契約が解除されました。現在フリーの身となり、各クラブからの招聘を待っています。`,
                       date: state.currentDate,
-                      category: 'club' as const,
-                      read: false
+                      category: 'board',
+                      importance: 'high'
                     };
 
                     onUpdateState({
@@ -537,7 +537,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {(state.managerJobOffers || []).map((offer) => {
+                {(state.managerJobOffers || []).map((offer: any) => {
                   const targetClub = state.clubs[offer.clubId];
                   return (
                     <div key={offer.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
@@ -569,13 +569,13 @@ export const ManagerCareerTab: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          const appointmentNews = {
+                          const appointmentNews: NewsItem = {
                             id: `news_app_${Date.now()}`,
-                            title: `✍️ 公式発表: ${offer.clubName}が新監督に${state.manager.name}氏の就任を発表！`,
-                            summary: `${offer.clubName}は本日、新指揮官として${state.manager.name}監督と正式契約を結んだことを発表しました。目標である「${offer.seasonTarget}」に向けて手腕が期待されます。`,
+                            headline: `【新監督就任】${offer.clubName}が新指揮官に${state.manager.name}氏の就任を発表！`,
+                            body: `${offer.clubName}は本日、新指揮官として${state.manager.name}監督と正式契約を結んだことを発表しました。目標である「${offer.seasonTarget}」に向けて手腕が期待されます。`,
                             date: state.currentDate,
-                            category: 'club' as const,
-                            read: false
+                            category: 'press',
+                            importance: 'high'
                           };
 
                           onUpdateState({

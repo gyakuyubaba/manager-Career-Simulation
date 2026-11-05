@@ -928,11 +928,14 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
           const buyer = aiBuyers[Math.floor(Math.random() * aiBuyers.length)];
           const isLoanOffer = targetPlayer.isLoanListed || (!targetPlayer.isTransferListed && targetPlayer.age <= 22 && Math.random() < 0.40);
           
-          // Realistic valuation check (Requirement 17)
+          // Realistic valuation check & Budget limit (Requirement 16: 相手クラブが支払える金額にする)
           const contractFactor = targetPlayer.contractYears <= 1 ? 0.85 : 1.10;
           const feeMultiplier = (0.95 + Math.random() * 0.25) * contractFactor;
-          const fee = isLoanOffer ? Math.round(targetPlayer.marketValue * 0.12) : Math.round(targetPlayer.marketValue * feeMultiplier);
-          const bonusFee = isLoanOffer ? 0 : Math.round(targetPlayer.marketValue * 0.10);
+          const maxAffordableByBuyer = Math.max(500000, Math.floor(buyer.transferBudget * 0.90));
+          const calculatedFee = isLoanOffer ? Math.round(targetPlayer.marketValue * 0.12) : Math.round(targetPlayer.marketValue * feeMultiplier);
+          const fee = Math.min(maxAffordableByBuyer, calculatedFee);
+          const remainingForBonus = Math.max(0, maxAffordableByBuyer - fee);
+          const bonusFee = isLoanOffer ? 0 : Math.min(remainingForBonus, Math.round(targetPlayer.marketValue * 0.10));
           
           const newOffer: IncomingAIOffer = {
             id: `in_offer_${Date.now()}_${targetPlayer.id}`,
