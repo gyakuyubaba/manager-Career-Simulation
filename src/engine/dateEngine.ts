@@ -97,8 +97,9 @@ export function applyMatchResultToWorld(
   fixture: MatchFixture,
   updatedPlayers?: Record<string, Player>
 ): GameWorldState {
-  if (fixture.isResultApplied) {
-    return state; // Duplicate reflection prevention (Requirement 9)
+  const existingFixture = state.fixtures.find(f => f.id === fixture.id);
+  if (fixture.isResultApplied || (existingFixture && existingFixture.isResultApplied)) {
+    return state; // Duplicate reflection prevention (Requirements 9 & 20)
   }
 
   // 1. Update fixture record

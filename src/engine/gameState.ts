@@ -728,8 +728,11 @@ export function resetGameWorldToInitial(): {
   }
 }
 
+let inMemoryStateCache: GameWorldState | null = null;
+
 export function saveGameState(state: GameWorldState): boolean {
   try {
+    inMemoryStateCache = state;
     // 1. Asynchronously persist to authoritative IndexedDB with 3-generation rolling backup
     saveGameToStorage(state).catch(err => {
       console.warn('Background saveGameToStorage error:', err);
@@ -838,7 +841,7 @@ export function migrateJLeagueIntoExistingState(state: GameWorldState): GameWorl
 export function loadGameState(): GameWorldState | null {
   try {
     if (typeof window === 'undefined' || !window.localStorage) {
-      return null;
+      return inMemoryStateCache;
     }
     // Check save from primary or legacy keys
     let raw = window.localStorage.getItem(SAVE_KEY);

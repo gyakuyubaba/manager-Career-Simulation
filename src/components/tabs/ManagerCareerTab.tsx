@@ -506,7 +506,7 @@ export const ManagerCareerTab: React.FC<Props> = ({
                       ...state,
                       userClubId: '',
                       isManagerFreeAgent: true,
-                      managerJobOffers: generatedOffers,
+                      managerJobOffers: generatedOffers as any,
                       news: [resignationNews, ...state.news]
                     });
                   }
