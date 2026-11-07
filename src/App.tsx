@@ -241,6 +241,7 @@ export default function App() {
     // Simulate all other scheduled league matches for this round so ALL clubs update played and standings simultaneously
     const stateWithAllMatches = simulatePendingAIFixturesForDate(stateWithMatchResult, updatedFixture.date);
 
+    saveGameState(stateWithAllMatches);
     setGameState(stateWithAllMatches);
   };
 
@@ -248,11 +249,14 @@ export default function App() {
   const handlePressComplete = (news: NewsItem, trustDelta: number, boardDelta: number) => {
     if (!gameState) return;
 
-    setGameState({
+    const nextState: GameWorldState = {
       ...gameState,
       boardConfidence: Math.min(100, Math.max(10, gameState.boardConfidence + boardDelta)),
       news: [news, ...gameState.news]
-    });
+    };
+
+    saveGameState(nextState);
+    setGameState(nextState);
 
     setActivePressFixture(null);
     setActiveMatchFixture(null);

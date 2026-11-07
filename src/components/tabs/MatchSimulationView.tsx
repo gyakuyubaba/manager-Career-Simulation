@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player, CompetitionCategory } from '../../types/game';
+import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player, CompetitionCategory, FormationName } from '../../types/game';
 import { simulateFullMatch, generateAssistantCoachAdvice, finalMatchEligibilityCheck, MatchEligibilityCheckResult, fastForwardRemainingMatch, isMatchRequiringDecider } from '../../engine/matchEngine';
 import { autoReplaceIneligiblePlayers } from '../../engine/dataValidator';
 import { getDefaultTacticsForClub } from '../../data/squadPopulator';
+import { updateTacticsFormation } from '../../engine/tacticsEngine';
+import { determineMatchOutcome } from '../../engine/dateEngine';
 import { FatigueGauge, ConditionDot } from '../common/FatigueGauge';
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
 import { useI18n } from '../../i18n/LanguageContext';
@@ -65,9 +67,10 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [activeHighlightEvent, setActiveHighlightEvent] = useState<MatchEvent | null>(null);
 
   // Active view tab in match view
-  const [activeTab, setActiveTab] = useState<'formation' | 'pitch' | 'events' | 'stats' | 'subs'>('formation');
+  const [activeTab, setActiveTab] = useState<'formation' | 'pitch' | 'events' | 'stats' | 'subs' | 'tactics'>('formation');
   // Dedicated pre-match preparation tab
   const [preMatchTab, setPreMatchTab] = useState<'formation' | 'squad' | 'tactics' | 'preview'>('formation');
+  const [inMatchTacticsToast, setInMatchTacticsToast] = useState<string | null>(null);
 
   // Track players who have already been subbed off to strictly forbid re-entry
   const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
@@ -81,6 +84,9 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [currentScore, setCurrentScore] = useState<[number, number]>([0, 0]);
   const [revealedEvents, setRevealedEvents] = useState<MatchEvent[]>([]);
   const [subCount, setSubCount] = useState<number>(0);
+  const scoreRef = useRef<[number, number]>([0, 0]);
+  const revealedEventsRef = useRef<MatchEvent[]>([]);
+  const completedFinalFixtureRef = useRef<MatchFixture | null>(null);
 
   // Pause modals (Requirements 1 & 2)
   const [showHalftimeModal, setShowHalftimeModal] = useState<boolean>(false);
@@ -142,9 +148,21 @@ export const MatchSimulationView: React.FC<Props> = ({
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Complete match and evaluate championship / runner up if final
-  const handleCompleteMatch = (customPenaltyShootout?: { homeScore: number; awayScore: number }) => {
+  const handleCompleteMatch = (
+    explicitScore?: [number, number],
+    explicitEvents?: MatchEvent[],
+    customPenaltyShootout?: { homeScore: number; awayScore: number; winnerClubId?: string; kickers?: any[] }
+  ) => {
     setIsPlaying(false);
     setMatchPhase('finished');
+
+    const finalScore: [number, number] = explicitScore || scoreRef.current;
+    const finalEvents: MatchEvent[] = explicitEvents || revealedEventsRef.current;
+
+    scoreRef.current = finalScore;
+    revealedEventsRef.current = finalEvents;
+    setCurrentScore(finalScore);
+    setRevealedEvents(finalEvents);
 
     if (simulatedResult) {
       const isQuarterOrSemi = Boolean(
@@ -164,29 +182,40 @@ export const MatchSimulationView: React.FC<Props> = ({
         (fixture.round && fixture.round.endsWith('決勝') && !fixture.round.includes('準'))
       );
       const finalPk = customPenaltyShootout || simulatedResult.fixture.penaltyShootout;
+      
+      const outcome = determineMatchOutcome({
+        homeClubId: homeClub.id,
+        awayClubId: awayClub.id,
+        homeScore: finalScore[0],
+        awayScore: finalScore[1],
+        penaltyShootout: finalPk
+      });
+
       const finalFixture: MatchFixture = {
         ...simulatedResult.fixture,
-        homeScore: currentScore[0],
-        awayScore: currentScore[1],
+        status: 'finished',
+        homeScore: finalScore[0],
+        awayScore: finalScore[1],
+        winnerClubId: outcome.winnerClubId,
+        resultType: outcome.resultType,
         extraTimePlayed: minute > 90 || simulatedResult.fixture.extraTimePlayed,
         penaltyShootout: finalPk,
-        status: 'finished',
-        events: revealedEvents
+        events: finalEvents,
+        stats: {
+          ...simulatedResult.fixture.stats,
+          homeScore: finalScore[0],
+          awayScore: finalScore[1]
+        },
+        isResultApplied: false
       };
 
+      completedFinalFixtureRef.current = finalFixture;
       onFinishMatch(finalFixture, simulatedResult.updatedPlayers);
 
       if (isFinal) {
-        let winnerClubId = '';
-        if (currentScore[0] > currentScore[1]) winnerClubId = homeClub.id;
-        else if (currentScore[1] > currentScore[0]) winnerClubId = awayClub.id;
-        else if (finalPk) {
-          winnerClubId = finalPk.homeScore > finalPk.awayScore ? homeClub.id : awayClub.id;
-        }
-
-        if (winnerClubId === state.userClubId) {
+        if (outcome.winnerClubId === state.userClubId) {
           setShowChampionshipCelebration(true);
-        } else if (winnerClubId) {
+        } else if (outcome.winnerClubId) {
           setShowRunnerUpModal(true);
         }
       }
@@ -292,14 +321,16 @@ export const MatchSimulationView: React.FC<Props> = ({
               !handledIncidentsRef.current.has(`${e.minute}_${e.type}_${e.playerId || 'unknown'}`)
             );
 
-            setRevealedEvents(old => [...old, ...newEvents]);
+            revealedEventsRef.current = [...revealedEventsRef.current, ...newEvents];
+            setRevealedEvents(revealedEventsRef.current);
             newEvents.forEach((e: MatchEvent) => {
               if (e.type === 'goal') {
                 if (e.clubId === homeClub.id) {
-                  setCurrentScore(sc => [sc[0] + 1, sc[1]]);
+                  scoreRef.current = [scoreRef.current[0] + 1, scoreRef.current[1]];
                 } else {
-                  setCurrentScore(sc => [sc[0], sc[1] + 1]);
+                  scoreRef.current = [scoreRef.current[0], scoreRef.current[1] + 1];
                 }
+                setCurrentScore(scoreRef.current);
 
                 isHighlightPausedRef.current = true;
                 setActiveHighlightEvent(e);
@@ -333,11 +364,11 @@ export const MatchSimulationView: React.FC<Props> = ({
           let isTiedAt90 = false;
           if (requiresDecider) {
             if (isTwoLeggedSecondLeg && fixture.leg1Score) {
-              const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + currentScore[0];
-              const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + currentScore[1];
+              const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + scoreRef.current[0];
+              const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + scoreRef.current[1];
               isTiedAt90 = (aggHome === aggAway);
             } else {
-              isTiedAt90 = (currentScore[0] === currentScore[1]);
+              isTiedAt90 = (scoreRef.current[0] === scoreRef.current[1]);
             }
           }
 
@@ -346,7 +377,7 @@ export const MatchSimulationView: React.FC<Props> = ({
             setShowFulltimeModal(true);
             return 90;
           } else {
-            handleCompleteMatch();
+            handleCompleteMatch(scoreRef.current, revealedEventsRef.current);
             return 90;
           }
         }
@@ -366,11 +397,11 @@ export const MatchSimulationView: React.FC<Props> = ({
           let stillTiedAfterET = false;
           if (requiresDecider) {
             if (isTwoLeggedSecondLeg && fixture.leg1Score) {
-              const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + currentScore[0];
-              const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + currentScore[1];
+              const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + scoreRef.current[0];
+              const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + scoreRef.current[1];
               stillTiedAfterET = (aggHome === aggAway);
             } else {
-              stillTiedAfterET = (currentScore[0] === currentScore[1]);
+              stillTiedAfterET = (scoreRef.current[0] === scoreRef.current[1]);
             }
           }
 
@@ -379,7 +410,7 @@ export const MatchSimulationView: React.FC<Props> = ({
             setShowEtFulltimeModal(true);
             return 120;
           } else {
-            handleCompleteMatch();
+            handleCompleteMatch(scoreRef.current, revealedEventsRef.current);
             return 120;
           }
         }
@@ -540,7 +571,11 @@ export const MatchSimulationView: React.FC<Props> = ({
       awayScore: pAway,
       isFinished: true
     });
-    handleCompleteMatch({ homeScore: pHome, awayScore: pAway });
+    handleCompleteMatch(scoreRef.current, revealedEventsRef.current, { 
+      homeScore: pHome, 
+      awayScore: pAway, 
+      winnerClubId: pHome > pAway ? homeClub.id : awayClub.id 
+    });
   };
 
   // Skip simulation to end of current phase (Pause points at 90m, 105m, 120m respected!)
@@ -568,8 +603,7 @@ export const MatchSimulationView: React.FC<Props> = ({
       const incident = upcomingIncidents[0];
       const stopMin = incident.minute;
       const eventsUpToStop = allEvents.filter((e: MatchEvent) => e.minute <= stopMin);
-      setRevealedEvents(eventsUpToStop);
-
+      
       let hScore = 0;
       let aScore = 0;
       eventsUpToStop.forEach((e: MatchEvent) => {
@@ -578,7 +612,10 @@ export const MatchSimulationView: React.FC<Props> = ({
           else aScore++;
         }
       });
+      scoreRef.current = [hScore, aScore];
+      revealedEventsRef.current = eventsUpToStop;
       setCurrentScore([hScore, aScore]);
+      setRevealedEvents(eventsUpToStop);
       setMinute(stopMin);
       setIsPlaying(false);
       triggerIncidentPause(incident, stopMin);
@@ -591,8 +628,8 @@ export const MatchSimulationView: React.FC<Props> = ({
     if (minute < 45) {
       const res = fastForwardRemainingMatch(
         minute,
-        revealedEvents,
-        currentScore,
+        revealedEventsRef.current,
+        scoreRef.current,
         fixture,
         homeClub,
         awayClub,
@@ -603,7 +640,6 @@ export const MatchSimulationView: React.FC<Props> = ({
       );
 
       const firstHalfEvents = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 45);
-      setRevealedEvents(firstHalfEvents);
       let hScore = 0;
       let aScore = 0;
       firstHalfEvents.forEach((e: MatchEvent) => {
@@ -612,7 +648,10 @@ export const MatchSimulationView: React.FC<Props> = ({
           else aScore++;
         }
       });
+      scoreRef.current = [hScore, aScore];
+      revealedEventsRef.current = firstHalfEvents;
       setCurrentScore([hScore, aScore]);
+      setRevealedEvents(firstHalfEvents);
       setMinute(45);
       setIsPlaying(false);
       setMatchPhase('halftime');
@@ -620,8 +659,8 @@ export const MatchSimulationView: React.FC<Props> = ({
     } else if (minute < 90) {
       const res = fastForwardRemainingMatch(
         minute,
-        revealedEvents,
-        currentScore,
+        revealedEventsRef.current,
+        scoreRef.current,
         fixture,
         homeClub,
         awayClub,
@@ -632,7 +671,6 @@ export const MatchSimulationView: React.FC<Props> = ({
       );
 
       const events90 = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 90);
-      setRevealedEvents(events90);
       let hScore = 0;
       let aScore = 0;
       events90.forEach((e: MatchEvent) => {
@@ -641,7 +679,10 @@ export const MatchSimulationView: React.FC<Props> = ({
           else aScore++;
         }
       });
+      scoreRef.current = [hScore, aScore];
+      revealedEventsRef.current = events90;
       setCurrentScore([hScore, aScore]);
+      setRevealedEvents(events90);
       setMinute(90);
       setIsPlaying(false);
 
@@ -661,7 +702,7 @@ export const MatchSimulationView: React.FC<Props> = ({
         setMatchPhase('fulltime_pause');
         setShowFulltimeModal(true);
       } else {
-        handleCompleteMatch();
+        handleCompleteMatch([hScore, aScore], events90);
       }
     } else if (minute < 105) {
       setMinute(105);
@@ -669,17 +710,44 @@ export const MatchSimulationView: React.FC<Props> = ({
       setMatchPhase('et_halftime');
       setShowEtHalftimeModal(true);
     } else {
+      const res = fastForwardRemainingMatch(
+        minute,
+        revealedEventsRef.current,
+        scoreRef.current,
+        fixture,
+        homeClub,
+        awayClub,
+        homeTac,
+        awayTac,
+        state.players,
+        simulatedResult
+      );
+
+      const events120 = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 120);
+      let hScore = 0;
+      let aScore = 0;
+      events120.forEach((e: MatchEvent) => {
+        if (e.type === 'goal') {
+          if (e.clubId === homeClub.id) hScore++;
+          else aScore++;
+        }
+      });
+      scoreRef.current = [hScore, aScore];
+      revealedEventsRef.current = events120;
+      setCurrentScore([hScore, aScore]);
+      setRevealedEvents(events120);
       setMinute(120);
       setIsPlaying(false);
+
       const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
       let stillTied = false;
       if (requiresDecider) {
         if (isTwoLeggedSecondLeg && fixture.leg1Score) {
-          const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + currentScore[0];
-          const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + currentScore[1];
+          const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + hScore;
+          const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + aScore;
           stillTied = (aggHome === aggAway);
         } else {
-          stillTied = (currentScore[0] === currentScore[1]);
+          stillTied = (hScore === aScore);
         }
       }
 
@@ -687,7 +755,7 @@ export const MatchSimulationView: React.FC<Props> = ({
         setMatchPhase('et_fulltime');
         setShowEtFulltimeModal(true);
       } else {
-        handleCompleteMatch();
+        handleCompleteMatch([hScore, aScore], events120);
       }
     }
   };
@@ -1307,6 +1375,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                           <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
                             {p.name.split(' ').pop()}
                           </div>
+                          <div className="w-10 mt-0.5">
+                            <FatigueGauge fatigue={p.fatigue || 20} size="xs" showLabel={false} />
+                          </div>
                         </div>
                       );
                     })}
@@ -1346,6 +1417,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                           </div>
                           <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
                             {p.name.split(' ').pop()}
+                          </div>
+                          <div className="w-10 mt-0.5">
+                            <FatigueGauge fatigue={p.fatigue || 20} size="xs" showLabel={false} />
                           </div>
                         </div>
                       );
@@ -1645,6 +1719,19 @@ export const MatchSimulationView: React.FC<Props> = ({
                 🔄 選手交代 ({subCount}/5)
               </button>
             )}
+            {matchPhase !== 'finished' && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('tactics')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === 'tactics'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                <span>⚙️ 試合中戦術変更</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -1723,8 +1810,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                         <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
                           {p.name.split(' ').pop()}
                         </div>
-                        <div className="w-12 mt-0.5">
-                          <FatigueGauge fatigue={dynamicFatigue} size="xs" />
+                        <div className="w-10 mt-1">
+                          <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
                         </div>
                       </div>
                     );
@@ -1779,8 +1866,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                         <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
                           {p.name.split(' ').pop()}
                         </div>
-                        <div className="w-12 mt-0.5">
-                          <FatigueGauge fatigue={dynamicFatigue} size="xs" />
+                        <div className="w-10 mt-1">
+                          <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
                         </div>
                       </div>
                     );
@@ -2086,6 +2173,290 @@ export const MatchSimulationView: React.FC<Props> = ({
           </div>
         )}
 
+        {/* IN-MATCH TAB 5: REAL-TIME TACTICS & FORMATION ADJUSTMENT */}
+        {activeTab === 'tactics' && matchPhase !== 'pre' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>⚙️ 試合中戦術・フォーメーション即時変更</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    {minute}&apos; リアルタイム反映
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  スコアや相手の出方に合わせ、試合中にフォーメーションや戦術指示を即座に切り替えます。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('formation')}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700/80 transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+              >
+                <span>🏟️ ピッチ配置を確認</span>
+              </button>
+            </div>
+
+            {inMatchTacticsToast && (
+              <div className="bg-emerald-950/90 border border-emerald-500/80 rounded-2xl p-3 text-emerald-200 text-xs font-bold shadow-lg flex items-center gap-2 animate-in fade-in duration-200">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{inMatchTacticsToast}</span>
+              </div>
+            )}
+
+            {/* Formation Selector & Quick Presets */}
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-300">フォーメーション変更:</span>
+                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                    現在: {tactics.formation}
+                  </span>
+                </div>
+                <select
+                  value={tactics.formation}
+                  onChange={e => {
+                    const newForm = e.target.value as FormationName;
+                    const updated = updateTacticsFormation(tactics, newForm);
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`フォーメーションを ${newForm} に変更しました`);
+                    setTimeout(() => setInMatchTacticsToast(null), 3000);
+                  }}
+                  className="bg-slate-800 border border-emerald-500/50 hover:border-emerald-400 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none cursor-pointer"
+                >
+                  <optgroup label="名将モデル・現代戦術系" className="bg-slate-900 text-slate-300 font-bold">
+                    <option value="3-2-2-3 (WM・ボックスMF)">3-2-2-3 (WM・ボックスMF / シティ型)</option>
+                    <option value="4-3-3 偽9番 (ゼロトップ)">4-3-3 偽9番 (ゼロトップ / スペイン流動型)</option>
+                    <option value="4-2-4 電撃カウンター型">4-2-4 電撃カウンター型 (超攻撃2トップ)</option>
+                    <option value="5-2-1-2 堅守速攻 (カテナチオ)">5-2-1-2 堅守速攻 (カテナチオ / 5バック堅守)</option>
+                    <option value="3-3-3-1 全方位プレス (ビエルサ流)">3-3-3-1 全方位プレス (ビエルサ流マンマーク)</option>
+                  </optgroup>
+                  <optgroup label="4バック系（標準・バランス）" className="bg-slate-900 text-slate-300 font-bold">
+                    <option value="4-3-3">4-3-3（標準・ウイング）</option>
+                    <option value="4-3-3 Holding">4-3-3 Holding（ダブルボランチ）</option>
+                    <option value="4-3-3 Attacking">4-3-3 Attacking（攻撃的インサイドハーフ）</option>
+                    <option value="4-2-3-1">4-2-3-1（トップ下司令塔型）</option>
+                    <option value="4-4-2">4-4-2（クラシック2トップ）</option>
+                    <option value="4-1-2-3">4-1-2-3（アンカー＋2インサイド）</option>
+                    <option value="4-5-1">4-5-1（中盤密集型）</option>
+                    <option value="4-2-4">4-2-4（4トップ急襲型）</option>
+                  </optgroup>
+                  <optgroup label="3バック系（攻撃的・幅広展開）" className="bg-slate-900 text-slate-300 font-bold">
+                    <option value="3-5-2">3-5-2（幅広ウイングバック＋2トップ）</option>
+                    <option value="3-4-3">3-4-3（ダイナミック3トップ）</option>
+                    <option value="3-4-2-1">3-4-2-1（シャドー2枚）</option>
+                    <option value="3-2-4-1">3-2-4-1（中盤4枚支配型）</option>
+                  </optgroup>
+                  <optgroup label="5バック系（堅守速攻・逃げ切り）" className="bg-slate-900 text-slate-300 font-bold">
+                    <option value="5-3-2">5-3-2（強固な中央封鎖）</option>
+                    <option value="5-4-1">5-4-1（ペナルティエリア鉄壁ブロック）</option>
+                    <option value="5-2-3">5-2-3（5バック＋3トップ速攻）</option>
+                  </optgroup>
+                  <optgroup label="変則戦術系" className="bg-slate-900 text-slate-300 font-bold">
+                    <option value="非対称4-3-3">非対称4-3-3（片側偏重型）</option>
+                    <option value="ダイヤモンド型4-4-2">ダイヤモンド型4-4-2（中盤中央支配）</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+                <span className="text-[11px] text-slate-400 shrink-0 font-semibold mr-1">ワンタッチ切替:</span>
+                {[
+                  '4-3-3',
+                  '3-2-2-3 (WM・ボックスMF)',
+                  '4-2-3-1',
+                  '4-4-2',
+                  '4-3-3 偽9番 (ゼロトップ)',
+                  '5-4-1',
+                  '5-2-1-2 堅守速攻 (カテナチオ)',
+                  '4-2-4 電撃カウンター型'
+                ].map(preset => {
+                  const isCurrent = tactics.formation === preset;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => {
+                        const updated = updateTacticsFormation(tactics, preset as FormationName);
+                        setTactics(updated);
+                        onUpdateTactics?.(updated);
+                        setInMatchTacticsToast(`フォーメーションを ${preset} に変更しました`);
+                        setTimeout(() => setInMatchTacticsToast(null), 3000);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                        isCurrent
+                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Tactical Instructions Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Attacking Style */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">攻撃スタイル (Build-up)</label>
+                <select
+                  value={tactics.instructions.attackingStyle}
+                  onChange={e => {
+                    const updated: TeamTactics = {
+                      ...tactics,
+                      instructions: { ...tactics.instructions, attackingStyle: e.target.value as any }
+                    };
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`攻撃スタイルを「${e.target.value}」に変更`);
+                    setTimeout(() => setInMatchTacticsToast(null), 2500);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="ポゼッション・パス">ポゼッション・パス（ショートパス主体）</option>
+                  <option value="ダイレクト・カウンター">ダイレクト・カウンター（即座に縦へ）</option>
+                  <option value="サイド攻撃・クロス">サイド攻撃・クロス（ウイングから放り込む）</option>
+                  <option value="中央突破">中央突破（バイタルワンツー）</option>
+                  <option value="偽9番・流動的ゼロトップ">偽9番・流動的ゼロトップ（CF引いて優位）</option>
+                  <option value="ポジショナルプレー・ハーフスペース攻略">ポジショナルプレー・ハーフスペース攻略</option>
+                  <option value="ティキタカ・超近距離パス回し">ティキタカ・超近距離パス回し</option>
+                  <option value="ロングボール・ターゲットマン">ロングボール・ターゲットマン</option>
+                </select>
+              </div>
+
+              {/* Defensive Style */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">守備スタイル (Defensive Approach)</label>
+                <select
+                  value={tactics.instructions.defensiveStyle}
+                  onChange={e => {
+                    const updated: TeamTactics = {
+                      ...tactics,
+                      instructions: { ...tactics.instructions, defensiveStyle: e.target.value as any }
+                    };
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`守備スタイルを「${e.target.value}」に変更`);
+                    setTimeout(() => setInMatchTacticsToast(null), 2500);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="ハイプレス">ハイプレス（敵陣深くからボール狩り）</option>
+                  <option value="ミドルブロック">ミドルブロック（中盤で網を張り奪還）</option>
+                  <option value="ローブロック・堅守">ローブロック・堅守（自陣PA前を固める）</option>
+                  <option value="ゲーゲンプレス">ゲーゲンプレス（5秒以内全力即時奪還）</option>
+                  <option value="オールコート・マンツーマン">オールコート・マンツーマン（密着マーク徹底）</option>
+                  <option value="カテナチオ・中央完全封鎖">カテナチオ・中央完全封鎖（鉄壁ブロック）</option>
+                  <option value="サイド誘導トラップ">サイド誘導トラップ（タッチライン際で刈り取る）</option>
+                </select>
+              </div>
+
+              {/* Press Intensity */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">プレッシング強度 (Pressing Intensity)</label>
+                <select
+                  value={tactics.instructions.pressIntensity}
+                  onChange={e => {
+                    const updated: TeamTactics = {
+                      ...tactics,
+                      instructions: { ...tactics.instructions, pressIntensity: e.target.value as any }
+                    };
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`プレス強度を「${e.target.value}」に変更`);
+                    setTimeout(() => setInMatchTacticsToast(null), 2500);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="非常に激しい">非常に激しい（スタミナ消費大・球際激突）</option>
+                  <option value="標準的">標準的（バランスの取れたプレス管理）</option>
+                  <option value="自陣引き気味">自陣引き気味（スタミナ温存・省エネ守備）</option>
+                  <option value="相手CB・GK限定猛プレス">相手CB・GK限定猛プレス（出足を狙い撃ち）</option>
+                  <option value="セカンドボール回収特化">セカンドボール回収特化（ルーズボール予測）</option>
+                </select>
+              </div>
+
+              {/* Defensive Line */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">ディフェンスラインの高さ (Defensive Line)</label>
+                <select
+                  value={tactics.instructions.defensiveLine}
+                  onChange={e => {
+                    const updated: TeamTactics = {
+                      ...tactics,
+                      instructions: { ...tactics.instructions, defensiveLine: e.target.value as any }
+                    };
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`ライン高さを「${e.target.value}」に変更`);
+                    setTimeout(() => setInMatchTacticsToast(null), 2500);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="ハイライン">ハイライン（オフサイドトラップ）</option>
+                  <option value="標準">標準（バランスの取れた位置取り）</option>
+                  <option value="ディープライン">ディープライン（裏のスペース警戒）</option>
+                  <option value="超ハイライン・オフサイドトラップ特化">超ハイライン・オフサイドトラップ特化</option>
+                  <option value="可変ディフェンスライン">可変ディフェンスライン（ボール位置に応じ伸縮）</option>
+                </select>
+              </div>
+
+              {/* Tempo */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">試合のテンポ (Tempo)</label>
+                <select
+                  value={tactics.instructions.tempo}
+                  onChange={e => {
+                    const updated: TeamTactics = {
+                      ...tactics,
+                      instructions: { ...tactics.instructions, tempo: e.target.value as any }
+                    };
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`テンポを「${e.target.value}」に変更`);
+                    setTimeout(() => setInMatchTacticsToast(null), 2500);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="高速テンポ">高速テンポ（素早いパス・攻守切替最優先）</option>
+                  <option value="標準">標準テンポ</option>
+                  <option value="じっくりビルドアップ">じっくりビルドアップ（安全第一）</option>
+                  <option value="電光石火・超ハイテンポ">電光石火・超ハイテンポ（超高速展開）</option>
+                  <option value="緩急コントロール・ゲーム支配">緩急コントロール・ゲーム支配</option>
+                </select>
+              </div>
+
+              {/* Counter Urgency */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">カウンター意識 (Counter Urgency)</label>
+                <select
+                  value={tactics.instructions.counterUrgency}
+                  onChange={e => {
+                    const updated: TeamTactics = {
+                      ...tactics,
+                      instructions: { ...tactics.instructions, counterUrgency: e.target.value as any }
+                    };
+                    setTactics(updated);
+                    onUpdateTactics?.(updated);
+                    setInMatchTacticsToast(`カウンター意識を「${e.target.value}」に変更`);
+                    setTimeout(() => setInMatchTacticsToast(null), 2500);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="ボール奪取時即カウンター">ボール奪取時即カウンター（前線へ矢の速攻）</option>
+                  <option value="一度落ち着いて組み立て">一度落ち着いて組み立て（ボール保持・陣形整備）</option>
+                  <option value="サイド高速展開カウンター">サイド高速展開カウンター（ウイング走力活用）</option>
+                  <option value="ファウルストップ警戒・ボールキープ">ファウルストップ警戒・ボールキープ</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* FINISHED STATE OVERVIEW (Post-match summary, MOTM, Proceed to Press Conference) */}
         {matchPhase === 'finished' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-5">
@@ -2222,7 +2593,12 @@ export const MatchSimulationView: React.FC<Props> = ({
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => {
+                  if (completedFinalFixtureRef.current) {
+                    onFinishMatch(completedFinalFixtureRef.current, simulatedResult.updatedPlayers);
+                  }
+                  onClose();
+                }}
                 className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs sm:text-sm font-semibold cursor-pointer"
               >
                 ホーム画面へ戻る
@@ -2230,7 +2606,7 @@ export const MatchSimulationView: React.FC<Props> = ({
 
               <button
                 type="button"
-                onClick={() => onOpenPressConference(fixture)}
+                onClick={() => onOpenPressConference(completedFinalFixtureRef.current || fixture)}
                 className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 cursor-pointer"
               >
                 <span>{t.proceedToPress}</span>

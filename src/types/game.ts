@@ -373,7 +373,12 @@ export type FormationName =
   | '2トップ＋トップ下型'
   | '中央密集型'
   | '両ウイング高位置型'
-  | '片側ウイング偏重型';
+  | '片側ウイング偏重型'
+  | '3-2-2-3 (WM・ボックスMF)'
+  | '4-3-3 偽9番 (ゼロトップ)'
+  | '4-2-4 電撃カウンター型'
+  | '5-2-1-2 堅守速攻 (カテナチオ)'
+  | '3-3-3-1 全方位プレス (ビエルサ流)';
 
 export interface PeriodSummary {
   startDate: string;
@@ -405,12 +410,46 @@ export interface TeamTactics {
     reserves: string[];
   };
   instructions: {
-    attackingStyle: 'ポゼッション・パス' | 'ダイレクト・カウンター' | 'サイド攻撃・クロス' | '中央突破';
-    defensiveStyle: 'ハイプレス' | 'ミドルブロック' | 'ローブロック・堅守' | 'ゲーゲンプレス';
-    pressIntensity: '非常に激しい' | '標準的' | '自陣引き気味';
-    defensiveLine: 'ハイライン' | '標準' | 'ディープライン';
-    tempo: '高速テンポ' | '標準' | 'じっくりビルドアップ';
-    counterUrgency: 'ボール奪取時即カウンター' | '一度落ち着いて組み立て';
+    attackingStyle: 
+      | 'ポゼッション・パス' 
+      | 'ダイレクト・カウンター' 
+      | 'サイド攻撃・クロス' 
+      | '中央突破'
+      | '偽9番・流動的ゼロトップ'
+      | 'ポジショナルプレー・ハーフスペース攻略'
+      | 'ティキタカ・超近距離パス回し'
+      | 'ロングボール・ターゲットマン';
+    defensiveStyle: 
+      | 'ハイプレス' 
+      | 'ミドルブロック' 
+      | 'ローブロック・堅守' 
+      | 'ゲーゲンプレス'
+      | 'オールコート・マンツーマン'
+      | 'カテナチオ・中央完全封鎖'
+      | 'サイド誘導トラップ';
+    pressIntensity: 
+      | '非常に激しい' 
+      | '標準的' 
+      | '自陣引き気味'
+      | '相手CB・GK限定猛プレス'
+      | 'セカンドボール回収特化';
+    defensiveLine: 
+      | 'ハイライン' 
+      | '標準' 
+      | 'ディープライン'
+      | '超ハイライン・オフサイドトラップ特化'
+      | '可変ディフェンスライン';
+    tempo: 
+      | '高速テンポ' 
+      | '標準' 
+      | 'じっくりビルドアップ'
+      | '電光石火・超ハイテンポ'
+      | '緩急コントロール・ゲーム支配';
+    counterUrgency: 
+      | 'ボール奪取時即カウンター' 
+      | '一度落ち着いて組み立て'
+      | 'サイド高速展開カウンター'
+      | 'ファウルストップ警戒・ボールキープ';
   };
   roles: {
     captainId?: string;
@@ -494,6 +533,8 @@ export interface MatchFixture {
   needsDecider?: boolean;
   leg?: 1 | 2;
   leg1Score?: { homeScore: number; awayScore: number; home?: number; away?: number };
+  winnerClubId?: string;
+  resultType?: 'home_win' | 'away_win' | 'draw' | 'pk_home_win' | 'pk_away_win';
   aggregateScore?: { homeScore: number; awayScore: number; homeTotal?: number; awayTotal?: number };
 }
 

@@ -48,7 +48,13 @@ const FORMATIONS: FormationName[] = [
   '2トップ＋トップ下型',
   '中央密集型',
   '両ウイング高位置型',
-  '片側ウイング偏重型'
+  '片側ウイング偏重型',
+  // 名将・現代戦術モデル
+  '3-2-2-3 (WM・ボックスMF)',
+  '4-3-3 偽9番 (ゼロトップ)',
+  '4-2-4 電撃カウンター型',
+  '5-2-1-2 堅守速攻 (カテナチオ)',
+  '3-3-3-1 全方位プレス (ビエルサ流)'
 ];
 
 export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSelectPlayer, onUpdateState }) => {
@@ -459,16 +465,28 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
 
   const POPULAR_PRESETS: FormationName[] = [
     '4-3-3',
+    '3-2-2-3 (WM・ボックスMF)',
     '4-2-3-1',
     '4-4-2',
+    '4-3-3 偽9番 (ゼロトップ)',
     '3-5-2',
+    '5-2-1-2 堅守速攻 (カテナチオ)',
+    '4-2-4 電撃カウンター型',
     '3-4-2-1',
-    '5-3-2',
-    '非対称4-3-3',
-    '4-1-2-3'
+    '5-3-2'
   ];
 
   const FORMATION_GROUPS = [
+    {
+      group: '名将モデル・現代戦術系',
+      items: [
+        '3-2-2-3 (WM・ボックスMF)',
+        '4-3-3 偽9番 (ゼロトップ)',
+        '4-2-4 電撃カウンター型',
+        '5-2-1-2 堅守速攻 (カテナチオ)',
+        '3-3-3-1 全方位プレス (ビエルサ流)'
+      ] as FormationName[]
+    },
     {
       group: '4バック系（標準・バランス）',
       items: [
@@ -490,7 +508,7 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
       ] as FormationName[]
     },
     {
-      group: 'バリエーション戦術系',
+      group: '変則・バリエーション戦術系',
       items: [
         '非対称4-3-3', '非対称4-2-3-1', 'ダイヤモンド型4-4-2', 'フラット型4-5-1',
         '2トップ＋トップ下型', '中央密集型', '両ウイング高位置型', '片側ウイング偏重型'
@@ -1455,7 +1473,7 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {/* Attacking Style */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-slate-300">攻撃スタイル (Build-up)</label>
@@ -1471,12 +1489,16 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                 <option value="ダイレクト・カウンター">ダイレクト・カウンター（ボール奪取時即座に縦へ）</option>
                 <option value="サイド攻撃・クロス">サイド攻撃・クロス（ウイング突破から中央へ放り込む）</option>
                 <option value="中央突破">中央突破（バイタルエリアでワンツー連携）</option>
+                <option value="偽9番・流動的ゼロトップ">偽9番・流動的ゼロトップ（CFが引いて中盤数的優位）</option>
+                <option value="ポジショナルプレー・ハーフスペース攻略">ポジショナルプレー・ハーフスペース攻略（位置的優位とポケット侵入）</option>
+                <option value="ティキタカ・超近距離パス回し">ティキタカ・超近距離パス回し（密集三角関係パスワーク）</option>
+                <option value="ロングボール・ターゲットマン">ロングボール・ターゲットマン（最前線起点にセカンドボール狙い）</option>
               </select>
             </div>
 
             {/* Defensive Style */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-300">守備スタイル (Pressing)</label>
+              <label className="text-xs font-semibold text-slate-300">守備スタイル (Defensive Approach)</label>
               <select
                 value={tactics.instructions.defensiveStyle}
                 onChange={e => onUpdateTactics({
@@ -1489,12 +1511,34 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                 <option value="ミドルブロック">ミドルブロック（中盤で網を張りパスカット）</option>
                 <option value="ローブロック・堅守">ローブロック・堅守（自陣ペナルティエリア前を固める）</option>
                 <option value="ゲーゲンプレス">ゲーゲンプレス（奪われた瞬間5秒以内の全力即時奪還）</option>
+                <option value="オールコート・マンツーマン">オールコート・マンツーマン（全選手密着マンマーク徹底）</option>
+                <option value="カテナチオ・中央完全封鎖">カテナチオ・中央完全封鎖（イタリア伝統の堅牢中央ロック）</option>
+                <option value="サイド誘導トラップ">サイド誘導トラップ（外側へ追い込みタッチライン際で刈り取る）</option>
+              </select>
+            </div>
+
+            {/* Press Intensity */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">プレッシング強度 (Pressing Intensity)</label>
+              <select
+                value={tactics.instructions.pressIntensity}
+                onChange={e => onUpdateTactics({
+                  ...tactics,
+                  instructions: { ...tactics.instructions, pressIntensity: e.target.value as any }
+                })}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="非常に激しい">非常に激しい（スタミナを消費して球際激突）</option>
+                <option value="標準的">標準的（バランスの取れたプレス管理）</option>
+                <option value="自陣引き気味">自陣引き気味（スタミナ温存・省エネ守備）</option>
+                <option value="相手CB・GK限定猛プレス">相手CB・GK限定猛プレス（ビルドアップの出足を狙い撃ち）</option>
+                <option value="セカンドボール回収特化">セカンドボール回収特化（ルーズボール予測で先回り奪取）</option>
               </select>
             </div>
 
             {/* Defensive Line */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-300">ディフェンスラインの高さ</label>
+              <label className="text-xs font-semibold text-slate-300">ディフェンスラインの高さ (Defensive Line)</label>
               <select
                 value={tactics.instructions.defensiveLine}
                 onChange={e => onUpdateTactics({
@@ -1506,12 +1550,14 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                 <option value="ハイライン">ハイライン（オフサイドトラップ、コンパクト陣形）</option>
                 <option value="標準">標準（バランスの取れた位置取り）</option>
                 <option value="ディープライン">ディープライン（裏のスペースを警戒し深めに配置）</option>
+                <option value="超ハイライン・オフサイドトラップ特化">超ハイライン・オフサイドトラップ特化（センターライン付近まで押し上げ）</option>
+                <option value="可変ディフェンスライン">可変ディフェンスライン（ボール位置に応じ臨機応変に伸縮）</option>
               </select>
             </div>
 
             {/* Tempo */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-300">試合のテンポ・ペース配分</label>
+              <label className="text-xs font-semibold text-slate-300">試合のテンポ・ペース配分 (Tempo)</label>
               <select
                 value={tactics.instructions.tempo}
                 onChange={e => onUpdateTactics({
@@ -1523,6 +1569,26 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                 <option value="高速テンポ">高速テンポ（素早いパス回し、攻守の切り替え最優先）</option>
                 <option value="標準">標準テンポ</option>
                 <option value="じっくりビルドアップ">じっくりビルドアップ（安全第一、無理な勝負は避ける）</option>
+                <option value="電光石火・超ハイテンポ">電光石火・超ハイテンポ（1タッチ2タッチの超高速展開）</option>
+                <option value="緩急コントロール・ゲーム支配">緩急コントロール・ゲーム支配（試合時間をコントロール）</option>
+              </select>
+            </div>
+
+            {/* Counter Urgency */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">カウンター意識 (Counter Urgency)</label>
+              <select
+                value={tactics.instructions.counterUrgency}
+                onChange={e => onUpdateTactics({
+                  ...tactics,
+                  instructions: { ...tactics.instructions, counterUrgency: e.target.value as any }
+                })}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="ボール奪取時即カウンター">ボール奪取時即カウンター（前線へ矢のような速攻）</option>
+                <option value="一度落ち着いて組み立て">一度落ち着いて組み立て（ボールを保持し陣形を整える）</option>
+                <option value="サイド高速展開カウンター">サイド高速展開カウンター（ウイングの走力を活かした幅広カウンター）</option>
+                <option value="ファウルストップ警戒・ボールキープ">ファウルストップ警戒・ボールキープ（身体を入れて確実にファウル獲得またはキープ）</option>
               </select>
             </div>
           </div>

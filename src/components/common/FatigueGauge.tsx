@@ -15,14 +15,13 @@ interface Props {
 export function getFatigueInfo(fatigue: number): { clamped: number; labelText: string; label: string; barColor: string; textColor: string } {
   const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
 
-  // Requirement 3:
-  // - 0〜24%：疲労が少ない
-  // - 25〜49%：軽い疲労
-  // - 50〜74%：疲労あり
-  // - 75〜89%：かなり疲労
-  // - 90〜100%：非常に疲労
-  let barColor = 'bg-emerald-500';
-  let textColor = 'text-emerald-400';
+  // User specification:
+  // - 溜まってなかったら (0〜24%): ゲージはそのままの色 (bg-slate-500 / ニュートラル)
+  // - あまり溜まってなかったら (25〜49%): 緑 (bg-emerald-500)
+  // - まあまあ溜まってたら (50〜74%): オレンジ (bg-orange-500)
+  // - めっちゃ溜まってたら (75〜100%): 赤 (bg-red-500)
+  let barColor = 'bg-slate-500';
+  let textColor = 'text-slate-400';
   let labelText = '疲労が少ない';
 
   if (clamped >= 90) {
@@ -30,20 +29,20 @@ export function getFatigueInfo(fatigue: number): { clamped: number; labelText: s
     textColor = 'text-red-400';
     labelText = '非常に疲労';
   } else if (clamped >= 75) {
-    barColor = 'bg-orange-500';
-    textColor = 'text-orange-400';
+    barColor = 'bg-red-500';
+    textColor = 'text-red-400';
     labelText = 'かなり疲労';
   } else if (clamped >= 50) {
-    barColor = 'bg-amber-400';
-    textColor = 'text-amber-300';
+    barColor = 'bg-orange-500';
+    textColor = 'text-orange-400';
     labelText = '疲労あり';
   } else if (clamped >= 25) {
-    barColor = 'bg-teal-400';
-    textColor = 'text-teal-300';
-    labelText = '軽い疲労';
-  } else {
     barColor = 'bg-emerald-500';
     textColor = 'text-emerald-400';
+    labelText = '軽い疲労';
+  } else {
+    barColor = 'bg-slate-500';
+    textColor = 'text-slate-400';
     labelText = '疲労が少ない';
   }
 
@@ -55,31 +54,30 @@ export const FatigueGauge: React.FC<Props> = ({
   condition,
   showCondition = false,
   size = 'sm',
-  showLabel = true,
+  showLabel = false,
   showFraction = false,
   className = ''
 }) => {
   const { t } = useI18n();
-  const { clamped, labelText, barColor, textColor } = getFatigueInfo(fatigue);
+  const { clamped, barColor, textColor } = getFatigueInfo(fatigue);
 
   // Height sizing
   const hClass = size === 'xs' ? 'h-1.5' : size === 'sm' ? 'h-2' : size === 'md' ? 'h-2.5' : 'h-3';
   const textClass = size === 'xs' ? 'text-[10px]' : size === 'sm' ? 'text-[11px]' : 'text-xs';
 
   return (
-    <div className={`space-y-1 ${className}`}>
-      {/* Header Row */}
+    <div className={`space-y-0.5 ${className}`}>
+      {/* Header Row (Optional: only shows numerical percentage or fraction, no verbal label strings) */}
       {showLabel && (
         <div className={`flex items-center justify-between gap-1.5 ${textClass}`}>
           <div className="flex items-center gap-1.5">
             <span className="text-slate-400 font-medium">{t.fatigue}</span>
-            <span className={`font-semibold ${textColor}`}>{labelText}</span>
           </div>
           <div className="flex items-center gap-2 font-mono">
             {showFraction ? (
-              <span className={`font-bold ${textColor}`}>{clamped} / 100 ({labelText})</span>
+              <span className={`font-bold ${textColor}`}>{clamped} / 100</span>
             ) : (
-              <span className={`font-bold ${textColor}`}>{clamped}% {labelText}</span>
+              <span className={`font-bold ${textColor}`}>{clamped}%</span>
             )}
 
             {/* Optional Condition Dot */}
@@ -94,7 +92,7 @@ export const FatigueGauge: React.FC<Props> = ({
       <div className={`w-full bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/60 ${hClass}`}>
         <div 
           className={`h-full rounded-full transition-all duration-300 ${barColor}`}
-          style={{ width: `${clamped}%` }}
+          style={{ width: `${Math.max(clamped > 0 ? 5 : 0, clamped)}%` }}
         />
       </div>
     </div>

@@ -17,6 +17,7 @@ import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionC
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateRandomYouthAcademy } from '../data/youthGenerator';
 import { REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
+import { rebuildStandingsFromMatchResults, determineMatchOutcome } from './dateEngine';
 
 export const CURRENT_SCHEMA_VERSION = 7;
 export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V3_OFFICIAL';
@@ -237,7 +238,33 @@ export function migrateGameState(state: GameWorldState, oldVersion: number): Gam
     migrated.youthAcademy = generateRandomYouthAcademy(clubCountry, 6);
   }
 
-  // 2. Ensure all 12 league standings keys exist without erasing current points
+  // 2. Auto-repair fixtures outcome and standings from authoritative match records (Section 6)
+  if (migrated.fixtures && Array.isArray(migrated.fixtures)) {
+    migrated.fixtures.forEach(f => {
+      if (f.status === 'finished' && f.homeScore !== undefined && f.awayScore !== undefined) {
+        if (!f.winnerClubId || !f.resultType) {
+          const outcome = determineMatchOutcome({
+            homeClubId: f.homeClubId,
+            awayClubId: f.awayClubId,
+            homeScore: f.homeScore,
+            awayScore: f.awayScore,
+            penaltyShootout: f.penaltyShootout
+          });
+          f.winnerClubId = outcome.winnerClubId;
+          f.resultType = outcome.resultType;
+        }
+        if (f.isResultApplied === undefined) {
+          f.isResultApplied = true;
+        }
+      }
+    });
+
+    if (migrated.clubs) {
+      migrated.standings = rebuildStandingsFromMatchResults(migrated.fixtures, migrated.clubs, migrated.standings);
+    }
+  }
+
+  // 2.5 Ensure all 12 league standings keys exist without erasing current points
   if (!migrated.standings) {
     migrated.standings = {} as any;
   }

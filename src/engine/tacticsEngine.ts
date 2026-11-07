@@ -473,6 +473,79 @@ export const FORMATION_TEMPLATES: Record<FormationName, FormationSlot[]> = {
     { position: 'LW', pitchX: 18, pitchY: 22 },
     { position: 'ST', pitchX: 50, pitchY: 18 },
     { position: 'RW', pitchX: 88, pitchY: 18 }
+  ],
+
+  // =========================================================================
+  // 【名将・最新トレンド現代戦術モデル】
+  // =========================================================================
+  '3-2-2-3 (WM・ボックスMF)': [
+    { position: 'GK', pitchX: 50, pitchY: 92 },
+    { position: 'CB', pitchX: 72, pitchY: 82 },
+    { position: 'CB', pitchX: 50, pitchY: 84 },
+    { position: 'CB', pitchX: 28, pitchY: 82 },
+    { position: 'CDM', pitchX: 62, pitchY: 64 },
+    { position: 'CDM', pitchX: 38, pitchY: 64 },
+    { position: 'CAM', pitchX: 65, pitchY: 42 },
+    { position: 'CAM', pitchX: 35, pitchY: 42 },
+    { position: 'RW', pitchX: 86, pitchY: 22 },
+    { position: 'ST', pitchX: 50, pitchY: 16 },
+    { position: 'LW', pitchX: 14, pitchY: 22 }
+  ],
+
+  '4-3-3 偽9番 (ゼロトップ)': [
+    { position: 'GK', pitchX: 50, pitchY: 92 },
+    { position: 'RB', pitchX: 85, pitchY: 76 },
+    { position: 'CB', pitchX: 63, pitchY: 80 },
+    { position: 'CB', pitchX: 37, pitchY: 80 },
+    { position: 'LB', pitchX: 15, pitchY: 76 },
+    { position: 'CDM', pitchX: 50, pitchY: 62 },
+    { position: 'CM', pitchX: 66, pitchY: 48 },
+    { position: 'CM', pitchX: 34, pitchY: 48 },
+    { position: 'RW', pitchX: 80, pitchY: 20 },
+    { position: 'CF', pitchX: 50, pitchY: 34 },
+    { position: 'LW', pitchX: 20, pitchY: 20 }
+  ],
+
+  '4-2-4 電撃カウンター型': [
+    { position: 'GK', pitchX: 50, pitchY: 92 },
+    { position: 'RB', pitchX: 85, pitchY: 78 },
+    { position: 'CB', pitchX: 63, pitchY: 82 },
+    { position: 'CB', pitchX: 37, pitchY: 82 },
+    { position: 'LB', pitchX: 15, pitchY: 78 },
+    { position: 'CM', pitchX: 60, pitchY: 56 },
+    { position: 'CM', pitchX: 40, pitchY: 56 },
+    { position: 'RW', pitchX: 88, pitchY: 20 },
+    { position: 'ST', pitchX: 58, pitchY: 15 },
+    { position: 'ST', pitchX: 42, pitchY: 15 },
+    { position: 'LW', pitchX: 12, pitchY: 20 }
+  ],
+
+  '5-2-1-2 堅守速攻 (カテナチオ)': [
+    { position: 'GK', pitchX: 50, pitchY: 92 },
+    { position: 'RWB', pitchX: 88, pitchY: 66 },
+    { position: 'CB', pitchX: 68, pitchY: 82 },
+    { position: 'CB', pitchX: 50, pitchY: 85 },
+    { position: 'CB', pitchX: 32, pitchY: 82 },
+    { position: 'LWB', pitchX: 12, pitchY: 66 },
+    { position: 'CDM', pitchX: 62, pitchY: 62 },
+    { position: 'CDM', pitchX: 38, pitchY: 62 },
+    { position: 'CAM', pitchX: 50, pitchY: 38 },
+    { position: 'ST', pitchX: 58, pitchY: 18 },
+    { position: 'ST', pitchX: 42, pitchY: 18 }
+  ],
+
+  '3-3-3-1 全方位プレス (ビエルサ流)': [
+    { position: 'GK', pitchX: 50, pitchY: 92 },
+    { position: 'CB', pitchX: 72, pitchY: 80 },
+    { position: 'CB', pitchX: 50, pitchY: 84 },
+    { position: 'CB', pitchX: 28, pitchY: 80 },
+    { position: 'RWB', pitchX: 86, pitchY: 56 },
+    { position: 'CDM', pitchX: 50, pitchY: 62 },
+    { position: 'LWB', pitchX: 14, pitchY: 56 },
+    { position: 'CAM', pitchX: 68, pitchY: 36 },
+    { position: 'CAM', pitchX: 50, pitchY: 34 },
+    { position: 'CAM', pitchX: 32, pitchY: 36 },
+    { position: 'ST', pitchX: 50, pitchY: 16 }
   ]
 };
 

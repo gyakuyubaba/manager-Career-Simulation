@@ -1,4 +1,4 @@
-import { GameWorldState, MatchFixture, MatchEvent, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory, CompetitionCategory, PendingTransfer } from '../types/game';
+import { GameWorldState, MatchFixture, MatchEvent, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory, CompetitionCategory, PendingTransfer, PenaltyShootoutResult } from '../types/game';
 import { ENABLE_J_LEAGUE } from '../data/clubsData';
 import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRandomWeightedInjury } from './matchEngine';
 import { simulateAITransfers } from './transferEngine';
@@ -89,6 +89,80 @@ export interface DayProgressionResult {
   periodSummary?: PeriodSummary;
 }
 
+export const STANDINGS_LEAGUES: LeagueKey[] = [
+  'premier-league',
+  'championship',
+  'laliga',
+  'segunda-division',
+  'bundesliga',
+  '2-bundesliga',
+  'serie-a',
+  'serie-b',
+  'ligue-1',
+  'ligue-2',
+  'j1-league',
+  'j2-league',
+  'j3-league'
+];
+
+export interface MatchOutcome {
+  winnerClubId?: string;
+  resultType: 'home_win' | 'away_win' | 'draw' | 'pk_home_win' | 'pk_away_win';
+  isDraw: boolean;
+  homePointsDelta: number;
+  awayPointsDelta: number;
+}
+
+export function determineMatchOutcome(fixture: {
+  homeClubId: string;
+  awayClubId: string;
+  homeScore?: number;
+  awayScore?: number;
+  penaltyShootout?: PenaltyShootoutResult;
+}): MatchOutcome {
+  const homeScore = fixture.homeScore ?? 0;
+  const awayScore = fixture.awayScore ?? 0;
+
+  if (homeScore > awayScore) {
+    return {
+      winnerClubId: fixture.homeClubId,
+      resultType: 'home_win',
+      isDraw: false,
+      homePointsDelta: 3,
+      awayPointsDelta: 0
+    };
+  } else if (awayScore > homeScore) {
+    return {
+      winnerClubId: fixture.awayClubId,
+      resultType: 'away_win',
+      isDraw: false,
+      homePointsDelta: 0,
+      awayPointsDelta: 3
+    };
+  } else {
+    if (fixture.penaltyShootout) {
+      const pkHome = fixture.penaltyShootout.homeScore ?? 0;
+      const pkAway = fixture.penaltyShootout.awayScore ?? 0;
+      const pkWinner = fixture.penaltyShootout.winnerClubId || (pkHome > pkAway ? fixture.homeClubId : fixture.awayClubId);
+      const isPkHome = pkWinner === fixture.homeClubId;
+      return {
+        winnerClubId: pkWinner,
+        resultType: isPkHome ? 'pk_home_win' : 'pk_away_win',
+        isDraw: false,
+        homePointsDelta: isPkHome ? 3 : 0,
+        awayPointsDelta: isPkHome ? 0 : 3
+      };
+    }
+    return {
+      winnerClubId: undefined,
+      resultType: 'draw',
+      isDraw: true,
+      homePointsDelta: 1,
+      awayPointsDelta: 1
+    };
+  }
+}
+
 // -------------------------------------------------------------
 // 【9. MATCH_RESULT 大会・順位表・選手個人成績への確実な反映】
 // -------------------------------------------------------------
@@ -97,30 +171,55 @@ export function applyMatchResultToWorld(
   fixture: MatchFixture,
   updatedPlayers?: Record<string, Player>
 ): GameWorldState {
+  const homeScore = fixture.homeScore ?? 0;
+  const awayScore = fixture.awayScore ?? 0;
   const existingFixture = state.fixtures.find(f => f.id === fixture.id);
-  if (fixture.isResultApplied || (existingFixture && existingFixture.isResultApplied)) {
-    return state; // Duplicate reflection prevention (Requirements 9 & 20)
+
+  // Requirement 3 & 7 (Idempotency): If the exact same fixture result has already been applied,
+  // do not duplicate points, records, or match counts.
+  if (
+    existingFixture &&
+    existingFixture.status === 'finished' &&
+    existingFixture.isResultApplied &&
+    existingFixture.homeScore === homeScore &&
+    existingFixture.awayScore === awayScore
+  ) {
+    return state;
   }
 
-  // 1. Update fixture record
-  const fixtures = [...state.fixtures];
-  const idx = fixtures.findIndex(f => f.id === fixture.id);
+  // 1. Authoritative outcome determination
+  const outcome = determineMatchOutcome({
+    homeClubId: fixture.homeClubId,
+    awayClubId: fixture.awayClubId,
+    homeScore,
+    awayScore,
+    penaltyShootout: fixture.penaltyShootout
+  });
+
   const finalFixture: MatchFixture = {
     ...fixture,
     status: 'finished',
+    homeScore,
+    awayScore,
+    winnerClubId: outcome.winnerClubId,
+    resultType: outcome.resultType,
     isResultApplied: true
   };
+
+  const fixtures = [...state.fixtures];
+  const idx = fixtures.findIndex(f => f.id === fixture.id);
   if (idx !== -1) {
     fixtures[idx] = finalFixture;
   } else {
     fixtures.push(finalFixture);
   }
 
-  // 2. Update standings if this is a league fixture
-  const standings = { ...state.standings };
-  const leagueKey = finalFixture.competition as LeagueKey;
-  if (standings[leagueKey]) {
-    updateStandingsAfterMatch(standings[leagueKey], finalFixture);
+  // 2. Update standings if this is an official league fixture (never include cups or preseason)
+  let standings = { ...state.standings };
+  const isOfficialLeague = STANDINGS_LEAGUES.includes(finalFixture.competition as LeagueKey);
+  if (isOfficialLeague) {
+    // Rebuilding standings ensures clean recalculation without ghost points or duplicates, even if scores were corrected
+    standings = rebuildStandingsFromMatchResults(fixtures, state.clubs, standings);
   }
 
   // 3. Update player season stats from events (Requirement 2: プレシーズン個人成績混入防止)
@@ -389,7 +488,9 @@ export function applyMatchResultToWorld(
   let processedMatchIds = [...(state.processedBoardConfidenceMatchIds || [])];
   let boardConfidenceStage = state.boardConfidenceStage || getBoardConfidenceStage(state.boardConfidence, state.isSacked);
 
-  if (finalFixture.isUserMatch && finalFixture.homeScore !== undefined && finalFixture.awayScore !== undefined) {
+  const isUserMatch = Boolean(finalFixture.isUserMatch || (state.userClubId && (finalFixture.homeClubId === state.userClubId || finalFixture.awayClubId === state.userClubId)));
+
+  if (isUserMatch && finalFixture.homeScore !== undefined && finalFixture.awayScore !== undefined) {
     const isUserHome = finalFixture.homeClubId === state.userClubId;
     const userScore = isUserHome ? finalFixture.homeScore : finalFixture.awayScore;
     const oppScore = isUserHome ? finalFixture.awayScore : finalFixture.homeScore;
@@ -415,16 +516,16 @@ export function applyMatchResultToWorld(
       if (evalResult.newsItem) {
         updatedNews.unshift(evalResult.newsItem);
       }
-    }
 
-    managerStats.matchesManaged += 1;
-    if (userScore > oppScore) {
-      managerStats.wins += 1;
-      managerStats.reputation = Math.min(99, managerStats.reputation + 1);
-    } else if (userScore === oppScore) {
-      managerStats.draws += 1;
-    } else {
-      managerStats.losses += 1;
+      managerStats.matchesManaged += 1;
+      if (userScore > oppScore) {
+        managerStats.wins += 1;
+        managerStats.reputation = Math.min(99, managerStats.reputation + 1);
+      } else if (userScore === oppScore) {
+        managerStats.draws += 1;
+      } else {
+        managerStats.losses += 1;
+      }
     }
   }
 
@@ -1524,6 +1625,7 @@ export function rebuildStandingsFromMatchResults(
 
   // 1. Initialize clean entries for all clubs across their registered leagues
   Object.values(clubs).forEach(club => {
+    if (!club || !club.league) return;
     if (!standingsMap[club.league]) {
       standingsMap[club.league] = {};
     }
@@ -1542,62 +1644,71 @@ export function rebuildStandingsFromMatchResults(
     };
   });
 
-  // 2. Aggregate all finished fixtures strictly once
-  fixtures.forEach(fixture => {
-    if (fixture.status === 'finished' && fixture.homeScore !== undefined && fixture.awayScore !== undefined) {
-      const leagueKey = fixture.competition;
-      if (standingsMap[leagueKey]) {
-        const homeRow = standingsMap[leagueKey][fixture.homeClubId];
-        const awayRow = standingsMap[leagueKey][fixture.awayClubId];
-        if (homeRow && awayRow) {
-          homeRow.played += 1;
-          awayRow.played += 1;
-          homeRow.goalsFor += fixture.homeScore;
-          homeRow.goalsAgainst += fixture.awayScore;
-          homeRow.goalDiff += (fixture.homeScore - fixture.awayScore);
+  // 2. Aggregate all finished fixtures strictly once (deduplicate by match ID, official leagues only)
+  const processedFixtureIds = new Set<string>();
+  const validFixtures = (fixtures || []).filter(f => {
+    if (!f || !f.id || processedFixtureIds.has(f.id)) return false;
+    processedFixtureIds.add(f.id);
+    return f.status === 'finished' && f.homeScore !== undefined && f.awayScore !== undefined;
+  });
 
-          awayRow.goalsFor += fixture.awayScore;
-          awayRow.goalsAgainst += fixture.homeScore;
-          awayRow.goalDiff += (fixture.awayScore - fixture.homeScore);
+  validFixtures.forEach(fixture => {
+    const leagueKey = fixture.competition as LeagueKey;
+    // Strictly isolate league standings: never process cup or friendly fixtures into league tables
+    if (!STANDINGS_LEAGUES.includes(leagueKey) || !standingsMap[leagueKey]) return;
 
-          if (fixture.homeScore > fixture.awayScore) {
-            homeRow.won += 1;
-            homeRow.points += 3;
-            homeRow.form.push('W');
-            awayRow.lost += 1;
-            awayRow.form.push('L');
-          } else if (fixture.homeScore < fixture.awayScore) {
-            awayRow.won += 1;
-            awayRow.points += 3;
-            homeRow.lost += 1;
-            homeRow.form.push('L');
-            awayRow.form.push('W');
-          } else {
-            homeRow.drawn += 1;
-            homeRow.points += 1;
-            awayRow.drawn += 1;
-            awayRow.points += 1;
-            homeRow.form.push('D');
-            awayRow.form.push('D');
-          }
-        }
-      }
+    const homeRow = standingsMap[leagueKey][fixture.homeClubId];
+    const awayRow = standingsMap[leagueKey][fixture.awayClubId];
+    if (!homeRow || !awayRow) return;
+
+    const hScore = fixture.homeScore!;
+    const aScore = fixture.awayScore!;
+
+    homeRow.played += 1;
+    awayRow.played += 1;
+    homeRow.goalsFor += hScore;
+    homeRow.goalsAgainst += aScore;
+    homeRow.goalDiff += (hScore - aScore);
+
+    awayRow.goalsFor += aScore;
+    awayRow.goalsAgainst += hScore;
+    awayRow.goalDiff += (aScore - hScore);
+
+    if (hScore > aScore) {
+      homeRow.won += 1;
+      homeRow.points += 3;
+      awayRow.lost += 1;
+    } else if (aScore > hScore) {
+      awayRow.won += 1;
+      awayRow.points += 3;
+      homeRow.lost += 1;
+    } else {
+      homeRow.drawn += 1;
+      homeRow.points += 1;
+      awayRow.drawn += 1;
+      awayRow.points += 1;
     }
   });
 
-  // 3. Format and sort each league table (Points -> GD -> GF -> Alphabetical)
+  // 3. Format, calculate recent 5 form (newest on left), and sort each league table
   const result: Record<LeagueKey, StandingsRow[]> = {} as any;
   for (const [leagueKey, clubsMap] of Object.entries(standingsMap)) {
     const rows = Object.values(clubsMap);
+
+    // Populate recent 5 form for each club based on chronological league matches
+    rows.forEach(r => {
+      r.form = getRecentLeagueForm(r.clubId, leagueKey as LeagueKey, validFixtures);
+    });
+
+    // Points DESC -> GoalDiff DESC -> GoalsFor DESC -> Won DESC -> Alphabetical
     rows.sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
       if (b.goalDiff !== a.goalDiff) return b.goalDiff - a.goalDiff;
       if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+      if (b.won !== a.won) return b.won - a.won;
       return a.clubName.localeCompare(b.clubName);
     });
-    rows.forEach(r => {
-      r.form = r.form.slice(-5);
-    });
+
     result[leagueKey as LeagueKey] = rows;
   }
 

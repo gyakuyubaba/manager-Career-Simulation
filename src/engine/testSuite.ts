@@ -1,4 +1,4 @@
-import { GameWorldState, Player, Club, MatchFixture, LeagueKey, MatchEvent, MatchIncidentNotice, TransferNegotiation } from '../types/game';
+import { GameWorldState, Player, Club, MatchFixture, LeagueKey, MatchEvent, MatchIncidentNotice, TransferNegotiation, StandingsRow } from '../types/game';
 import { createNewGameWorld, appointUserToClub } from './gameState';
 import { 
   finalMatchEligibilityCheck, 
@@ -12,7 +12,10 @@ import {
   applyMatchResultToWorld, 
   processSeasonEndPromotionsAndRelegations,
   getCompetitionCategory,
-  calculateEuropeanQualifications
+  calculateEuropeanQualifications,
+  determineMatchOutcome,
+  rebuildStandingsFromMatchResults,
+  getRecentLeagueForm
 } from './dateEngine';
 import { evaluateMatchBoardConfidence, calculateClubStature } from './boardConfidenceEngine';
 import { generateClubVisionRoadmap, isSecondDivisionLeague } from './clubVisionEngine';
@@ -3068,6 +3071,432 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 90', name: 'セーブデータ整合性検証', passed: false, details: e.message });
   }
 
+  // =============================================================
+  // 【緊急修正：試合結果・勝敗判定・勝ち点・順位表の必須テスト A〜J】
+  // =============================================================
+
+  // TEST 91 (テストA): ホーム 2 - 1 アウェイ → ホーム勝利、ホーム勝ち点+3、アウェイ勝ち点+0
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fixture: MatchFixture = {
+      id: 'test_a_fixture',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 2,
+      awayScore: 1
+    };
+    const s1 = applyMatchResultToWorld(testState, fixture);
+    const pl = s1.standings['premier-league'] || [];
+    const homeRow = pl.find(r => r.clubId === 'arsenal');
+    const awayRow = pl.find(r => r.clubId === 'chelsea');
+    const fSaved = s1.fixtures.find(f => f.id === 'test_a_fixture');
+
+    const passed = Boolean(
+      fSaved?.winnerClubId === 'arsenal' &&
+      fSaved?.resultType === 'home_win' &&
+      homeRow?.played === 1 && homeRow?.won === 1 && homeRow?.points === 3 && homeRow?.goalDiff === 1 &&
+      awayRow?.played === 1 && awayRow?.lost === 1 && awayRow?.points === 0 && awayRow?.goalDiff === -1
+    );
+    results.push({
+      id: 'TEST 91',
+      name: 'テストA: ホーム 2 - 1 アウェイ (ホーム勝利+3pt, アウェイ0pt)',
+      passed,
+      details: passed
+        ? `成功: ホーム(アーセナル 2-1 チェルシー)の勝利が確定し、ホーム勝ち点+3(得失点差+1)、アウェイ勝ち点0(得失点差-1)が正確に反映されました。`
+        : `失敗: 勝敗または勝ち点不整合 (Home pts: ${homeRow?.points}, Away pts: ${awayRow?.points}, winner: ${fSaved?.winnerClubId})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 91', name: 'テストA検証', passed: false, details: e.message });
+  }
+
+  // TEST 92 (テストB): ホーム 0 - 3 アウェイ → アウェイ勝利、ホーム勝ち点+0、アウェイ勝ち点+3
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fixture: MatchFixture = {
+      id: 'test_b_fixture',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 0,
+      awayScore: 3
+    };
+    const s1 = applyMatchResultToWorld(testState, fixture);
+    const pl = s1.standings['premier-league'] || [];
+    const homeRow = pl.find(r => r.clubId === 'arsenal');
+    const awayRow = pl.find(r => r.clubId === 'chelsea');
+    const fSaved = s1.fixtures.find(f => f.id === 'test_b_fixture');
+
+    const passed = Boolean(
+      fSaved?.winnerClubId === 'chelsea' &&
+      fSaved?.resultType === 'away_win' &&
+      homeRow?.played === 1 && homeRow?.lost === 1 && homeRow?.points === 0 && homeRow?.goalDiff === -3 &&
+      awayRow?.played === 1 && awayRow?.won === 1 && awayRow?.points === 3 && awayRow?.goalDiff === 3
+    );
+    results.push({
+      id: 'TEST 92',
+      name: 'テストB: ホーム 0 - 3 アウェイ (アウェイ勝利+3pt, ホーム0pt)',
+      passed,
+      details: passed
+        ? `成功: アウェイ(アーセナル 0-3 チェルシー)の勝利が確定し、アウェイ勝ち点+3(得失点差+3)、ホーム勝ち点0(得失点差-3)が正確に反映されました。`
+        : `失敗: アウェイ勝敗不整合 (Home pts: ${homeRow?.points}, Away pts: ${awayRow?.points}, winner: ${fSaved?.winnerClubId})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 92', name: 'テストB検証', passed: false, details: e.message });
+  }
+
+  // TEST 93 (テストC): ホーム 1 - 1 アウェイ → 引き分け、両クラブ勝ち点+1
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fixture: MatchFixture = {
+      id: 'test_c_fixture',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 1,
+      awayScore: 1
+    };
+    const s1 = applyMatchResultToWorld(testState, fixture);
+    const pl = s1.standings['premier-league'] || [];
+    const homeRow = pl.find(r => r.clubId === 'arsenal');
+    const awayRow = pl.find(r => r.clubId === 'chelsea');
+    const fSaved = s1.fixtures.find(f => f.id === 'test_c_fixture');
+
+    const passed = Boolean(
+      fSaved?.winnerClubId === undefined &&
+      fSaved?.resultType === 'draw' &&
+      homeRow?.played === 1 && homeRow?.drawn === 1 && homeRow?.points === 1 && homeRow?.goalDiff === 0 &&
+      awayRow?.played === 1 && awayRow?.drawn === 1 && awayRow?.points === 1 && awayRow?.goalDiff === 0
+    );
+    results.push({
+      id: 'TEST 93',
+      name: 'テストC: ホーム 1 - 1 アウェイ (引き分け、両クラブ勝ち点+1)',
+      passed,
+      details: passed
+        ? `成功: 引き分け(1-1)が正確に判定され、両クラブに勝ち点1(引き分け1、得失点差0)が加算されました。`
+        : `失敗: 引き分け不整合 (Home pts: ${homeRow?.points}, Away pts: ${awayRow?.points})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 93', name: 'テストC検証', passed: false, details: e.message });
+  }
+
+  // TEST 94 (テストD): ホーム 3 - 0 アウェイ → 試合終了画面を複数回開いても、ホームの勝ち点が+3のまま
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fixture: MatchFixture = {
+      id: 'test_d_fixture',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 3,
+      awayScore: 0
+    };
+    // Simulate opening/completing match 3 times
+    let s = applyMatchResultToWorld(testState, fixture);
+    s = applyMatchResultToWorld(s, fixture);
+    s = applyMatchResultToWorld(s, fixture);
+
+    const pl = s.standings['premier-league'] || [];
+    const homeRow = pl.find(r => r.clubId === 'arsenal');
+    const awayRow = pl.find(r => r.clubId === 'chelsea');
+
+    const passed = Boolean(
+      homeRow?.played === 1 && homeRow?.won === 1 && homeRow?.points === 3 && homeRow?.goalsFor === 3 &&
+      awayRow?.played === 1 && awayRow?.lost === 1 && awayRow?.points === 0
+    );
+    results.push({
+      id: 'TEST 94',
+      name: 'テストD: 試合終了画面を複数回開いても勝ち点+3のまま (二重加算防止)',
+      passed,
+      details: passed
+        ? `成功: 複数回結果反映を呼び出しても、試合数1・勝利数1・勝ち点3が厳格に維持され二重加算されませんでした。`
+        : `失敗: 二重加算発生 (played: ${homeRow?.played}, points: ${homeRow?.points})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 94', name: 'テストD検証', passed: false, details: e.message });
+  }
+
+  // TEST 95 (テストE): 試合終了後にセーブ・ロード → 試合結果、順位表、直近5試合が一致する
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fixture: MatchFixture = {
+      id: 'test_e_fixture',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 2,
+      awayScore: 0
+    };
+    const s1 = applyMatchResultToWorld(testState, fixture);
+
+    // Simulate save to JSON and reload via migrateGameState
+    const serialized = JSON.stringify(s1);
+    const parsed = JSON.parse(serialized);
+    const { migrateGameState } = require('./storageEngine');
+    const loaded = migrateGameState(parsed, 1);
+
+    const plOrig = s1.standings['premier-league']?.find(r => r.clubId === 'arsenal');
+    const plLoaded = loaded.standings['premier-league']?.find((r: any) => r.clubId === 'arsenal');
+
+    const passed = Boolean(
+      plLoaded &&
+      plLoaded.played === plOrig?.played &&
+      plLoaded.won === plOrig?.won &&
+      plLoaded.points === plOrig?.points &&
+      plLoaded.goalDiff === plOrig?.goalDiff &&
+      JSON.stringify(plLoaded.form) === JSON.stringify(plOrig?.form)
+    );
+    results.push({
+      id: 'TEST 95',
+      name: 'テストE: 試合終了後のセーブ・ロード整合性検証',
+      passed,
+      details: passed
+        ? `成功: セーブ・ロード後も順位表(勝点${plLoaded?.points}, 試合数${plLoaded?.played})および直近5試合記録が完全一致しました。`
+        : `失敗: ロード後の不一致`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 95', name: 'テストE検証', passed: false, details: e.message });
+  }
+
+  // TEST 96 (テストF): リーグ戦の勝利後、順位表と直近5試合が一致する (最新が先頭)
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const f1: MatchFixture = {
+      id: 'test_f_1',
+      date: '2026-08-10',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 1,
+      awayScore: 0
+    };
+    const f2: MatchFixture = {
+      id: 'test_f_2',
+      date: '2026-08-17',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'everton',
+      status: 'finished',
+      homeScore: 2,
+      awayScore: 2
+    };
+    const f3: MatchFixture = {
+      id: 'test_f_3',
+      date: '2026-08-24',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'liverpool',
+      status: 'finished',
+      homeScore: 3,
+      awayScore: 1
+    };
+
+    let s = applyMatchResultToWorld(testState, f1);
+    s = applyMatchResultToWorld(s, f2);
+    s = applyMatchResultToWorld(s, f3);
+
+    const arsenalRow = s.standings['premier-league']?.find(r => r.clubId === 'arsenal');
+    const recentFormHelper = getRecentLeagueForm('arsenal', 'premier-league', s.fixtures);
+
+    // Latest match (f3 on 08-24) is 'W', f2 (08-17) is 'D', f1 (08-10) is 'W'
+    const expectedForm = ['W', 'D', 'W'];
+    const passed = Boolean(
+      arsenalRow &&
+      arsenalRow.points === 7 && // 3 + 1 + 3
+      arsenalRow.played === 3 &&
+      JSON.stringify(arsenalRow.form) === JSON.stringify(expectedForm) &&
+      JSON.stringify(recentFormHelper) === JSON.stringify(expectedForm)
+    );
+    results.push({
+      id: 'TEST 96',
+      name: 'テストF: リーグ戦勝利後の順位表と直近5試合整合性検証 (最新左側)',
+      passed,
+      details: passed
+        ? `成功: 順位表の勝点(7pts)および直近試合記録([W, D, W])が日付降順で完全に一致しました。`
+        : `失敗: 順位表または直近5試合不一致 (pts: ${arsenalRow?.points}, form: ${JSON.stringify(arsenalRow?.form)})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 96', name: 'テストF検証', passed: false, details: e.message });
+  }
+
+  // TEST 97 (テストG): カップ戦で勝利 → 正しいクラブが勝ち上がり、リーグ順位表は変化しない
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const origPL = JSON.parse(JSON.stringify(testState.standings['premier-league'] || []));
+    const cupFixture: MatchFixture = {
+      id: 'test_g_cup_fixture',
+      date: '2026-09-20',
+      competition: 'fa-cup',
+      competitionName: 'FAカップ',
+      round: '3回戦',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 2,
+      awayScore: 1
+    };
+
+    const s1 = applyMatchResultToWorld(testState, cupFixture);
+    const newPL = s1.standings['premier-league'] || [];
+    const fSaved = s1.fixtures.find(f => f.id === 'test_g_cup_fixture');
+
+    const passed = Boolean(
+      fSaved?.winnerClubId === 'arsenal' &&
+      JSON.stringify(origPL) === JSON.stringify(newPL)
+    );
+    results.push({
+      id: 'TEST 97',
+      name: 'テストG: カップ戦勝利のリーグ順位表非混入・勝ち上がり検証',
+      passed,
+      details: passed
+        ? `成功: FAカップ勝利(アーセナル 2-1)でアーセナルの勝者が確定し、プレミアリーグ順位表には一切混入しませんでした。`
+        : `失敗: カップ戦結果がリーグ順位表に混入または勝者判定エラー`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 97', name: 'テストG検証', passed: false, details: e.message });
+  }
+
+  // TEST 98 (テストH): 試合結果を修正した場合 → 修正前の勝ち点を残さず、正しい順位表に再計算される
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fInitial: MatchFixture = {
+      id: 'test_h_fix',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 1,
+      awayScore: 1
+    };
+    let s = applyMatchResultToWorld(testState, fInitial);
+    let pl = s.standings['premier-league'] || [];
+    let h1 = pl.find(r => r.clubId === 'arsenal');
+    const initialPointsOk = h1?.points === 1;
+
+    // Now correct match result to 2 - 1 (Arsenal win)
+    const fCorrected: MatchFixture = {
+      ...fInitial,
+      homeScore: 2,
+      awayScore: 1
+    };
+    s = applyMatchResultToWorld(s, fCorrected);
+    pl = s.standings['premier-league'] || [];
+    const h2 = pl.find(r => r.clubId === 'arsenal');
+    const a2 = pl.find(r => r.clubId === 'chelsea');
+
+    const passed = Boolean(
+      initialPointsOk &&
+      h2?.played === 1 && h2?.won === 1 && h2?.points === 3 &&
+      a2?.played === 1 && a2?.lost === 1 && a2?.points === 0
+    );
+    results.push({
+      id: 'TEST 98',
+      name: 'テストH: 試合結果修正時の順位表クリーン再計算検証',
+      passed,
+      details: passed
+        ? `成功: スコア修正時(1-1から2-1へ修正)、旧勝点が残らず再計算されアーセナル勝ち点3、チェルシー勝ち点0に正常更新されました。`
+        : `失敗: 修正後の勝ち点不正 (Arsenal: ${h2?.points}, Chelsea: ${a2?.points})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 98', name: 'テストH検証', passed: false, details: e.message });
+  }
+
+  // TEST 99 (テストI): ホームとアウェイのクラブIDを入れ替えたケース → 勝敗判定が正しく入れ替わる
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    // Case 1: Arsenal (home) vs Chelsea (away), 2-1
+    const outcome1 = determineMatchOutcome({
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      homeScore: 2,
+      awayScore: 1
+    });
+
+    // Case 2: Chelsea (home) vs Arsenal (away), 2-1
+    const outcome2 = determineMatchOutcome({
+      homeClubId: 'chelsea',
+      awayClubId: 'arsenal',
+      homeScore: 2,
+      awayScore: 1
+    });
+
+    const passed = Boolean(
+      outcome1.winnerClubId === 'arsenal' && outcome1.homePointsDelta === 3 && outcome1.awayPointsDelta === 0 &&
+      outcome2.winnerClubId === 'chelsea' && outcome2.homePointsDelta === 3 && outcome2.awayPointsDelta === 0
+    );
+    results.push({
+      id: 'TEST 99',
+      name: 'テストI: ホーム・アウェイクラブID入替時の勝敗判定反転検証',
+      passed,
+      details: passed
+        ? `成功: ホームとアウェイのクラブIDを反転させた場合、勝敗判定および勝点加算クラブが正確に入れ替わりました。`
+        : `失敗: 勝敗判定反転エラー (case1 winner: ${outcome1.winnerClubId}, case2 winner: ${outcome2.winnerClubId})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 99', name: 'テストI検証', passed: false, details: e.message });
+  }
+
+  // TEST 100 (テストJ): 同じ試合結果を複数回処理 → 勝ち点、得点、試合数が二重に増加しない (冪等性保証)
+  try {
+    const testState = JSON.parse(JSON.stringify(baseState));
+    const fixture: MatchFixture = {
+      id: 'test_j_fixture',
+      date: '2026-08-15',
+      competition: 'premier-league',
+      competitionName: 'プレミアリーグ',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      status: 'finished',
+      homeScore: 2,
+      awayScore: 0
+    };
+
+    let s = testState;
+    for (let i = 0; i < 5; i++) {
+      s = applyMatchResultToWorld(s, fixture);
+    }
+
+    const pl: StandingsRow[] = s.standings['premier-league'] || [];
+    const h = pl.find((r: StandingsRow) => r.clubId === 'arsenal');
+    const a = pl.find((r: StandingsRow) => r.clubId === 'chelsea');
+
+    const passed = Boolean(
+      h?.played === 1 && h?.won === 1 && h?.points === 3 && h?.goalsFor === 2 &&
+      a?.played === 1 && a?.lost === 1 && a?.points === 0 && a?.goalsAgainst === 2
+    );
+    results.push({
+      id: 'TEST 100',
+      name: 'テストJ: 同一試合結果の多重適用時の完全な冪等性検証 (二重増加ゼロ)',
+      passed,
+      details: passed
+        ? `成功: 5回連続で同じ試合結果を適用しても、試合数1、勝ち点3、得点2が維持され一切二重増加しませんでした。`
+        : `失敗: 冪等性違反 (played: ${h?.played}, points: ${h?.points}, GF: ${h?.goalsFor})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 100', name: 'テストJ検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -3080,6 +3509,7 @@ export const runAll48Tests = runAll27Tests;
 export const runAll65Tests = runAll27Tests;
 export const runAll72Tests = runAll27Tests;
 export const runAll90Tests = runAll27Tests;
+export const runAll100Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

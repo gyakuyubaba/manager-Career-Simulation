@@ -1499,7 +1499,7 @@ export function simulateFullMatch(
       const matchMinutes = extraTimePlayed ? 120 : 90;
       const timeFactor = matchMinutes / 90; // 1.0 or 1.33 for ET
       const tacticsPress = (p.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
-      const pressMultiplier = tacticsPress === '非常に激しい' ? 1.20 : tacticsPress === '自陣引き気味' ? 0.85 : 1.0;
+      const pressMultiplier = (tacticsPress === '非常に激しい' || tacticsPress === '相手CB・GK限定猛プレス') ? 1.20 : tacticsPress === '自陣引き気味' ? 0.85 : 1.0;
 
       const calculatedFatigueDelta = Math.round(15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier);
       updated.fatigue = Math.max(0, Math.min(100, updated.fatigue + calculatedFatigueDelta));

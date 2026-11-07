@@ -39,7 +39,11 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
 
     setIsSubmitting(true);
 
-    const matchContext = `${userClub?.name} (${fixture.homeScore ?? 0} - ${fixture.awayScore ?? 0}) vs ${oppClub?.name}`;
+    const isUserHome = fixture.homeClubId === state.userClubId;
+    const userScore = isUserHome ? (fixture.homeScore ?? 0) : (fixture.awayScore ?? 0);
+    const oppScore = isUserHome ? (fixture.awayScore ?? 0) : (fixture.homeScore ?? 0);
+    const matchOutcomeStr = userScore > oppScore ? '勝利' : userScore === oppScore ? '引き分け' : '敗戦';
+    const matchContext = `${userClub?.name} (${userScore} - ${oppScore}, ${matchOutcomeStr}) vs ${oppClub?.name}`;
 
     try {
       const response = await fetch('/api/press-conference', {
