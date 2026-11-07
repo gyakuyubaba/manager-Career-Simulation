@@ -390,10 +390,11 @@ export function getTournamentBracket(
   // Find all fixtures belonging to this cup
   const cupFixtures = state.fixtures.filter(f => f.competition === cupId);
 
-  // Group by rounds (last 4 knockout rounds: R16, QF, SF, Final)
+  // Group by rounds: For European cups include 決勝Tプレーオフ (5 rounds: Playoff, R16, QF, SF, Final)
+  const isEuro = meta.format === 'european-league-phase';
   const knockoutRoundsMeta = meta.rounds.filter(r => !r.name.includes('リーグフェーズ'));
-  const targetRounds = knockoutRoundsMeta.slice(-4); // e.g. R16, QF, SF, Final
-  const counts = [8, 4, 2, 1];
+  const targetRounds = isEuro ? knockoutRoundsMeta : knockoutRoundsMeta.slice(-4);
+  const counts = isEuro ? [8, 8, 4, 2, 1] : [8, 4, 2, 1];
 
   // Pick participating clubs
   const participatingClubs = Object.values(state.clubs).filter(c => {
@@ -635,4 +636,144 @@ export function initializeTournamentCompetitions(
   });
 
   return result as Record<CupKey, TournamentCompetition>;
+}
+
+/**
+ * Populates European Knockout Play-off (February) and Round of 16 (March) fixtures
+ * following the completion of the 36-club League Phase.
+ * 
+ * Rules:
+ * - 1st to 8th: Directly into Round of 16 (March). They have a 1-month bye with NO European fixtures in February!
+ * - 9th to 24th: 2-legged Play-offs in February (Leg 1 Feb 16/18, Leg 2 Feb 23/25).
+ * - 25th to 36th: Eliminated.
+ */
+export function populateEuropeanKnockoutFixtures(state: GameWorldState): boolean {
+  let changed = false;
+  const euroCups: ('ucl' | 'uel' | 'uecl')[] = ['ucl', 'uel', 'uecl'];
+
+  euroCups.forEach(cupId => {
+    // Check if league phase matches are done (all finished or game date is past late January)
+    const lpFixtures = state.fixtures.filter(f => f.competition === cupId && (f.round?.includes('第') || f.round?.includes('節')));
+    const allLpFinished = lpFixtures.length > 0 && lpFixtures.every(f => f.status === 'finished');
+    const isPastLpDate = (state.currentDate || '') >= '2027-01-29';
+
+    if (!allLpFinished && !isPastLpDate) return;
+
+    // Check if play-off fixtures exist and need seeding
+    const poLeg1Fixtures = state.fixtures.filter(f => 
+      f.competition === cupId && 
+      (f.round === 'Play-off Leg 1' || f.competitionName?.includes('プレーオフ 第1戦'))
+    );
+    const poLeg2Fixtures = state.fixtures.filter(f => 
+      f.competition === cupId && 
+      (f.round === 'Play-off Leg 2' || f.competitionName?.includes('プレーオフ 第2戦'))
+    );
+
+    if (poLeg1Fixtures.length === 8 && (poLeg1Fixtures[0].homeClubId === 'tbd' || !poLeg1Fixtures[0].homeClubId)) {
+      const standings = getEuropeanLeaguePhaseStandings(cupId, state.clubs, state.fixtures);
+      if (standings.length >= 24) {
+        // Top 8 (0-7): Direct to Round of 16 (March) -> 1-month bye in February
+        // 9th to 24th (8-23): Play-off (February)
+        for (let m = 0; m < 8; m++) {
+          const highSeed = standings[8 + m];      // 9th, 10th, ..., 16th
+          const lowSeed = standings[23 - m];     // 24th, 23rd, ..., 17th
+          
+          if (highSeed && lowSeed) {
+            // Leg 1: lower seed at home
+            if (poLeg1Fixtures[m]) {
+              poLeg1Fixtures[m].homeClubId = lowSeed.clubId;
+              poLeg1Fixtures[m].awayClubId = highSeed.clubId;
+              poLeg1Fixtures[m].isUserMatch = Boolean(state.userClubId && (lowSeed.clubId === state.userClubId || highSeed.clubId === state.userClubId));
+            }
+            // Leg 2: higher seed at home
+            if (poLeg2Fixtures[m]) {
+              poLeg2Fixtures[m].homeClubId = highSeed.clubId;
+              poLeg2Fixtures[m].awayClubId = lowSeed.clubId;
+              poLeg2Fixtures[m].isUserMatch = Boolean(state.userClubId && (highSeed.clubId === state.userClubId || lowSeed.clubId === state.userClubId));
+            }
+            changed = true;
+          }
+        }
+      }
+    }
+  });
+
+  return changed;
+}
+
+/**
+ * Advances the 8 European Play-off winners into Round of 16 (March) against the Top 8 direct qualifiers.
+ */
+export function advanceEuropeanPlayoffWinnersToRoundOf16(state: GameWorldState): boolean {
+  let changed = false;
+  const euroCups: ('ucl' | 'uel' | 'uecl')[] = ['ucl', 'uel', 'uecl'];
+
+  euroCups.forEach(cupId => {
+    const poLeg1Fixtures = state.fixtures.filter(f => 
+      f.competition === cupId && 
+      (f.round === 'Play-off Leg 1' || f.competitionName?.includes('プレーオフ 第1戦'))
+    );
+    const poLeg2Fixtures = state.fixtures.filter(f => 
+      f.competition === cupId && 
+      (f.round === 'Play-off Leg 2' || f.competitionName?.includes('プレーオフ 第2戦'))
+    );
+
+    // If both Leg 1 and Leg 2 are finished
+    if (poLeg1Fixtures.length === 8 && poLeg2Fixtures.length === 8 && poLeg2Fixtures.every(f => f.status === 'finished')) {
+      const r16Leg1Fixtures = state.fixtures.filter(f => 
+        f.competition === cupId && 
+        (f.round === 'Round of 16 Leg 1' || f.competitionName?.includes('ラウンド16 第1戦'))
+      );
+      const r16Leg2Fixtures = state.fixtures.filter(f => 
+        f.competition === cupId && 
+        (f.round === 'Round of 16 Leg 2' || f.competitionName?.includes('ラウンド16 第2戦'))
+      );
+
+      if (r16Leg1Fixtures.length === 8 && (r16Leg1Fixtures[0].homeClubId === 'tbd' || !r16Leg1Fixtures[0].homeClubId)) {
+        const standings = getEuropeanLeaguePhaseStandings(cupId, state.clubs, state.fixtures);
+        // Top 8 direct qualifiers (standings[0..7])
+        for (let m = 0; m < 8; m++) {
+          const top8Club = standings[m];
+          const leg1 = poLeg1Fixtures[m];
+          const leg2 = poLeg2Fixtures[m];
+
+          // Determine playoff aggregate winner
+          let playoffWinnerId = leg2?.homeClubId;
+          const leg1Home = leg1?.homeScore ?? 0;
+          const leg1Away = leg1?.awayScore ?? 0;
+          const leg2Home = leg2?.homeScore ?? 0;
+          const leg2Away = leg2?.awayScore ?? 0;
+
+          // In leg 2: home is higher seed, away is lower seed
+          // In leg 1: home was lower seed, away was higher seed
+          const totalHigh = leg1Away + leg2Home;
+          const totalLow = leg1Home + leg2Away;
+
+          if (leg2?.penaltyShootout) {
+            playoffWinnerId = leg2.penaltyShootout.winnerClubId || (leg2.penaltyShootout.homeScore > leg2.penaltyShootout.awayScore ? leg2.homeClubId : leg2.awayClubId);
+          } else if (totalHigh >= totalLow) {
+            playoffWinnerId = leg2?.homeClubId;
+          } else {
+            playoffWinnerId = leg2?.awayClubId;
+          }
+
+          if (r16Leg1Fixtures[m] && top8Club && playoffWinnerId) {
+            // Leg 1: Playoff winner at home, Top 8 club away
+            r16Leg1Fixtures[m].homeClubId = playoffWinnerId;
+            r16Leg1Fixtures[m].awayClubId = top8Club.clubId;
+            r16Leg1Fixtures[m].isUserMatch = Boolean(state.userClubId && (playoffWinnerId === state.userClubId || top8Club.clubId === state.userClubId));
+          }
+          if (r16Leg2Fixtures[m] && top8Club && playoffWinnerId) {
+            // Leg 2: Top 8 club at home, Playoff winner away
+            r16Leg2Fixtures[m].homeClubId = top8Club.clubId;
+            r16Leg2Fixtures[m].awayClubId = playoffWinnerId;
+            r16Leg2Fixtures[m].isUserMatch = Boolean(state.userClubId && (playoffWinnerId === state.userClubId || top8Club.clubId === state.userClubId));
+          }
+          changed = true;
+        }
+      }
+    }
+  });
+
+  return changed;
 }

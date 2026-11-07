@@ -1375,8 +1375,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                           <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
                             {p.name.split(' ').pop()}
                           </div>
-                          <div className="w-10 mt-0.5">
-                            <FatigueGauge fatigue={p.fatigue || 20} size="xs" showLabel={false} />
+                          <div className="w-11 mt-0.5">
+                            <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
                           </div>
                         </div>
                       );
@@ -1418,8 +1418,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                           <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
                             {p.name.split(' ').pop()}
                           </div>
-                          <div className="w-10 mt-0.5">
-                            <FatigueGauge fatigue={p.fatigue || 20} size="xs" showLabel={false} />
+                          <div className="w-11 mt-0.5">
+                            <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
                           </div>
                         </div>
                       );
@@ -1810,7 +1810,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                         <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
                           {p.name.split(' ').pop()}
                         </div>
-                        <div className="w-10 mt-1">
+                        <div className="w-11 mt-0.5">
                           <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
                         </div>
                       </div>
@@ -1838,7 +1838,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
                   {awayStartersList.map((s, idx) => {
                     const p = s.player;
-                    const dynamicFatigue = Math.min(100, Math.round((p.fatigue || 20) + (minute * 0.25)));
+                    const dynamicFatigue = Math.min(100, Math.round((p.fatigue ?? 0) + (minute * 0.25)));
                     const isUserPlayer = !isUserHome;
                     return (
                       <div
@@ -1866,7 +1866,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                         <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
                           {p.name.split(' ').pop()}
                         </div>
-                        <div className="w-10 mt-1">
+                        <div className="w-11 mt-0.5">
                           <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
                         </div>
                       </div>

@@ -16,12 +16,12 @@ export function getFatigueInfo(fatigue: number): { clamped: number; labelText: s
   const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
 
   // User specification:
-  // - 溜まってなかったら (0〜24%): ゲージはそのままの色 (bg-slate-500 / ニュートラル)
-  // - あまり溜まってなかったら (25〜49%): 緑 (bg-emerald-500)
-  // - まあまあ溜まってたら (50〜74%): オレンジ (bg-orange-500)
+  // - 溜まってなかったら (0〜24%): ゲージはそのままの色 (bg-sky-400 / 鮮やかなベースカラー)
+  // - あまり溜まってなかったら (25〜49%): 緑 (bg-emerald-400)
+  // - まあまあ溜まってたら (50〜74%): オレンジ (bg-amber-400)
   // - めっちゃ溜まってたら (75〜100%): 赤 (bg-red-500)
-  let barColor = 'bg-slate-500';
-  let textColor = 'text-slate-400';
+  let barColor = 'bg-sky-400';
+  let textColor = 'text-sky-400';
   let labelText = '疲労が少ない';
 
   if (clamped >= 90) {
@@ -33,16 +33,16 @@ export function getFatigueInfo(fatigue: number): { clamped: number; labelText: s
     textColor = 'text-red-400';
     labelText = 'かなり疲労';
   } else if (clamped >= 50) {
-    barColor = 'bg-orange-500';
-    textColor = 'text-orange-400';
+    barColor = 'bg-amber-400';
+    textColor = 'text-amber-400';
     labelText = '疲労あり';
   } else if (clamped >= 25) {
-    barColor = 'bg-emerald-500';
+    barColor = 'bg-emerald-400';
     textColor = 'text-emerald-400';
     labelText = '軽い疲労';
   } else {
-    barColor = 'bg-slate-500';
-    textColor = 'text-slate-400';
+    barColor = 'bg-sky-400';
+    textColor = 'text-sky-400';
     labelText = '疲労が少ない';
   }
 
@@ -61,8 +61,11 @@ export const FatigueGauge: React.FC<Props> = ({
   const { t } = useI18n();
   const { clamped, barColor, textColor } = getFatigueInfo(fatigue);
 
+  // Remaining stamina capacity: 100 when fresh (0 fatigue), draining as fatigue grows
+  const staminaRemaining = Math.max(8, 100 - clamped);
+
   // Height sizing
-  const hClass = size === 'xs' ? 'h-1.5' : size === 'sm' ? 'h-2' : size === 'md' ? 'h-2.5' : 'h-3';
+  const hClass = size === 'xs' ? 'h-2' : size === 'sm' ? 'h-2.5' : size === 'md' ? 'h-3' : 'h-3.5';
   const textClass = size === 'xs' ? 'text-[10px]' : size === 'sm' ? 'text-[11px]' : 'text-xs';
 
   return (
@@ -89,10 +92,10 @@ export const FatigueGauge: React.FC<Props> = ({
       )}
 
       {/* Progress Bar Track */}
-      <div className={`w-full bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/60 ${hClass}`}>
+      <div className={`w-full bg-slate-950/90 rounded-full overflow-hidden p-0.5 border border-slate-700/80 shadow-inner ${hClass}`}>
         <div 
-          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
-          style={{ width: `${Math.max(clamped > 0 ? 5 : 0, clamped)}%` }}
+          className={`h-full rounded-full transition-all duration-300 shadow-sm ${barColor}`}
+          style={{ width: `${staminaRemaining}%` }}
         />
       </div>
     </div>

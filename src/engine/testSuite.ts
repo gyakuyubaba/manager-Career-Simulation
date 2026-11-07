@@ -3497,6 +3497,147 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 100', name: 'テストJ検証', passed: false, details: e.message });
   }
 
+  // TEST 101: 疲労ゲージ色仕様検証 (0-24%: bg-sky-400 そのままの色 / 25-49%: bg-emerald-400 / 50-74%: bg-amber-400 / 75-100%: bg-red-500)
+  try {
+    const { getFatigueInfo } = require('../components/common/FatigueGauge');
+    const f0 = getFatigueInfo(10);
+    const f25 = getFatigueInfo(35);
+    const f50 = getFatigueInfo(60);
+    const f75 = getFatigueInfo(85);
+    const colorsMatch = 
+      f0.barColor === 'bg-sky-400' &&
+      f25.barColor === 'bg-emerald-400' &&
+      f50.barColor === 'bg-amber-400' &&
+      f75.barColor === 'bg-red-500';
+
+    results.push({
+      id: 'TEST 101',
+      name: '疲労ゲージ色仕様検証: 0-24%スカイブルー / 25-49%緑 / 50-74%オレンジ / 75-100%赤',
+      passed: colorsMatch,
+      details: colorsMatch
+        ? `成功: 疲労ゲージが指定通りの4段階カラー（そのままの色/緑/オレンジ/赤）で正確に出力されます。`
+        : `失敗: 色指定不一致 (0%: ${f0.barColor}, 25%: ${f25.barColor}, 50%: ${f50.barColor}, 75%: ${f75.barColor})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 101', name: '疲労ゲージ色仕様検証', passed: false, details: e.message });
+  }
+
+  // TEST 102: European Cup Knockout Seeding: 上位8クラブ直接ベスト16進出・2月試合免除（1ヶ月間なし）& 9〜24位プレーオフ進出
+  try {
+    const { populateEuropeanKnockoutFixtures, getEuropeanLeaguePhaseStandings } = require('./cupEngine');
+    const { generateEuropeanCompetitionsFixtures } = require('./fixtureGenerator');
+    const testState = JSON.parse(JSON.stringify(baseState));
+    if (!testState.fixtures.some((f: any) => f.competition === 'ucl')) {
+      testState.fixtures.push(...generateEuropeanCompetitionsFixtures(testState.clubs, 'arsenal', 2026));
+    }
+    testState.currentDate = '2027-01-30';
+    populateEuropeanKnockoutFixtures(testState);
+
+    const standings = getEuropeanLeaguePhaseStandings('ucl', testState.clubs, testState.fixtures);
+    const top8ClubIds = standings.slice(0, 8).map((r: any) => r.clubId);
+    const poClubs = standings.slice(8, 24).map((r: any) => r.clubId);
+
+    // Verify February play-off fixtures
+    const poLeg1 = testState.fixtures.filter((f: any) => f.competition === 'ucl' && f.round === 'Play-off Leg 1');
+    const poTeams = poLeg1.flatMap((f: any) => [f.homeClubId, f.awayClubId]);
+
+    // Top 8 clubs must NOT have any fixtures in February
+    const top8InPo = top8ClubIds.some((id: string) => poTeams.includes(id));
+    const allPoTeamsIn9to24 = poTeams.every((id: string) => poClubs.includes(id));
+
+    const passed = !top8InPo && allPoTeamsIn9to24 && poLeg1.length === 8;
+    results.push({
+      id: 'TEST 102',
+      name: '欧州CL/EL/ECL: 上位8クラブ直接ベスト16進出（2月試合免除・1ヶ月間休養）および9〜24位プレーオフ進出検証',
+      passed,
+      details: passed
+        ? `成功: 上位8クラブは2月のプレーオフ免除（1ヶ月間CLなし）となり、9〜24位の16クラブのみで2試合制プレーオフが組まれました。`
+        : `失敗: プレーオフ編成不整合 (Top8参加: ${top8InPo}, 全POチーム9-24位: ${allPoTeamsIn9to24})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 102', name: '欧州カップ戦プレーオフ検証', passed: false, details: e.message });
+  }
+
+  // TEST 103: European Cup Play-off勝者のRound 16進出およびTop 8との対戦組み合わせ検証
+  try {
+    const { populateEuropeanKnockoutFixtures, advanceEuropeanPlayoffWinnersToRoundOf16, getEuropeanLeaguePhaseStandings } = require('./cupEngine');
+    const { generateEuropeanCompetitionsFixtures } = require('./fixtureGenerator');
+    const testState = JSON.parse(JSON.stringify(baseState));
+    if (!testState.fixtures.some((f: any) => f.competition === 'ucl')) {
+      testState.fixtures.push(...generateEuropeanCompetitionsFixtures(testState.clubs, 'arsenal', 2026));
+    }
+    testState.currentDate = '2027-01-30';
+    populateEuropeanKnockoutFixtures(testState);
+
+    // Simulate play-off completion
+    testState.fixtures.forEach((f: any) => {
+      if (f.competition === 'ucl' && (f.round === 'Play-off Leg 1' || f.round === 'Play-off Leg 2')) {
+        f.status = 'finished';
+        f.homeScore = 2;
+        f.awayScore = 1;
+      }
+    });
+
+    advanceEuropeanPlayoffWinnersToRoundOf16(testState);
+    const r16Leg1 = testState.fixtures.filter((f: any) => f.competition === 'ucl' && f.round === 'Round of 16 Leg 1');
+    const standings = getEuropeanLeaguePhaseStandings('ucl', testState.clubs, testState.fixtures);
+    const top8ClubIds = standings.slice(0, 8).map((r: any) => r.clubId);
+
+    const r16HasTop8 = r16Leg1.every((f: any) => top8ClubIds.includes(f.awayClubId));
+    const r16HasPlayoffWinners = r16Leg1.every((f: any) => f.homeClubId && f.homeClubId !== 'tbd');
+
+    const passed = r16HasTop8 && r16HasPlayoffWinners && r16Leg1.length === 8;
+    results.push({
+      id: 'TEST 103',
+      name: '欧州CL/EL/ECL: プレーオフ勝者8クラブと直接R16進出上位8クラブのラウンド16対戦カード確定検証',
+      passed,
+      details: passed
+        ? `成功: 2月のプレーオフ勝者8クラブが3月のラウンド16で直接進出の上位8クラブと正確に対戦カードを形成しました。`
+        : `失敗: R16対戦カード不一致`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 103', name: 'ラウンド16カード確定検証', passed: false, details: e.message });
+  }
+
+  // TEST 104: 2部昇格プレーオフ日程生成・勝者昇格判定検証
+  try {
+    const { scheduleSecondDivisionPlayoffs, processSeasonEndPromotionsAndRelegations } = require('./dateEngine');
+    const testState = JSON.parse(JSON.stringify(baseState));
+    testState.currentDate = '2027-05-05';
+    scheduleSecondDivisionPlayoffs(testState);
+
+    const champSf1 = testState.fixtures.find((f: any) => f.id === 'fix_champ_po_sf1_2027');
+    const champSf2 = testState.fixtures.find((f: any) => f.id === 'fix_champ_po_sf2_2027');
+    const champFinal = testState.fixtures.find((f: any) => f.id === 'fix_champ_po_final_2027');
+
+    const hasFixtures = Boolean(champSf1 && champSf2 && champFinal);
+
+    // Simulate championship final win by 3rd place
+    if (champFinal) {
+      champFinal.status = 'finished';
+      champFinal.homeClubId = testState.standings['championship'][2]?.clubId || 'c_seed3';
+      champFinal.awayClubId = testState.standings['championship'][3]?.clubId || 'c_seed4';
+      champFinal.homeScore = 2;
+      champFinal.awayScore = 1;
+    }
+
+    const promoRes = processSeasonEndPromotionsAndRelegations(testState);
+    const promotedClub = promoRes.state.clubs[champFinal.homeClubId];
+    const isPromoted = promotedClub?.league === 'premier-league';
+
+    const passed = hasFixtures && isPromoted;
+    results.push({
+      id: 'TEST 104',
+      name: '2部昇格プレーオフ: EFL Championship 3〜6位の準決勝・決勝日程生成および優勝クラブのプレミア昇格検証',
+      passed,
+      details: passed
+        ? `成功: 3〜6位による昇格プレーオフが日程生成され、決勝で勝利したクラブがプレミアリーグへ昇格しました。`
+        : `失敗: 昇格プレーオフ生成または昇格判定不整合 (日程あり: ${hasFixtures}, 昇格達成: ${isPromoted})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 104', name: '2部昇格プレーオフ検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -3510,6 +3651,7 @@ export const runAll65Tests = runAll27Tests;
 export const runAll72Tests = runAll27Tests;
 export const runAll90Tests = runAll27Tests;
 export const runAll100Tests = runAll27Tests;
+export const runAll104Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

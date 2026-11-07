@@ -76,6 +76,21 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
     });
   };
 
+  const getRecentCupForm = (clubId: string, cup: CupKey): ('W' | 'D' | 'L')[] => {
+    const finishedCupFixtures = state.fixtures
+      .filter(f => f.competition === cup && f.status === 'finished' && (f.homeClubId === clubId || f.awayClubId === clubId))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    return finishedCupFixtures.slice(0, 5).map(f => {
+      const isHome = f.homeClubId === clubId;
+      const myScore = isHome ? (f.homeScore ?? 0) : (f.awayScore ?? 0);
+      const oppScore = isHome ? (f.awayScore ?? 0) : (f.homeScore ?? 0);
+      if (myScore > oppScore) return 'W';
+      if (myScore === oppScore) return 'D';
+      return 'L';
+    });
+  };
+
   return (
     <div className="space-y-5 pb-20">
       
@@ -489,7 +504,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
             )}
           </div>
 
-          {/* EUROPEAN LEAGUE PHASE STANDINGS */}
+          {/* EUROPEAN LEAGUE PHASE STANDINGS (Redesigned: Requirement 2 matching Image 3) */}
           {isEuroCup && euroSubMode === 'league_phase' && (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
               <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
@@ -498,27 +513,27 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                   36クラブ単一リーグフェーズ（上位8クラブが直接ベスト16、9〜24位がプレーオフ進出）
                 </span>
                 <div className="flex items-center gap-3 text-[11px] font-mono">
-                  <span className="text-emerald-400 font-bold">■ 1-8位: 直接R16</span>
-                  <span className="text-blue-400 font-bold">■ 9-24位: プレーオフ</span>
+                  <span className="text-emerald-400 font-bold">■ 1-8位: 自動ベスト16 (直接R16)</span>
+                  <span className="text-cyan-400 font-bold">■ 9-24位: プレーオフ</span>
                   <span className="text-rose-400">■ 25-36位: 敗退</span>
                 </div>
               </div>
 
-              <div className="overflow-x-auto max-h-[560px]">
+              <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-950/80 sticky top-0 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800 z-10">
                     <tr>
-                      <th className="py-3 px-3 text-center w-12">順位</th>
-                      <th className="py-3 px-4">クラブ</th>
-                      <th className="py-3 px-3 text-center">試合</th>
-                      <th className="py-3 px-3 text-center text-emerald-400">勝</th>
-                      <th className="py-3 px-3 text-center text-slate-400">分</th>
-                      <th className="py-3 px-3 text-center text-rose-400">負</th>
-                      <th className="py-3 px-3 text-center">得点</th>
-                      <th className="py-3 px-3 text-center">失点</th>
-                      <th className="py-3 px-3 text-center">得失点差</th>
-                      <th className="py-3 px-4 text-center font-bold text-white">勝点</th>
-                      <th className="py-3 px-3 text-center">進出区分</th>
+                      <th className="py-2.5 px-3 text-center w-12">順位</th>
+                      <th className="py-2.5 px-4 min-w-[180px]">クラブ</th>
+                      <th className="py-2.5 px-3 text-center w-10">試合</th>
+                      <th className="py-2.5 px-3 text-center w-10 text-emerald-400">勝</th>
+                      <th className="py-2.5 px-3 text-center w-10 text-slate-400">分</th>
+                      <th className="py-2.5 px-3 text-center w-10 text-rose-400">負</th>
+                      <th className="py-2.5 px-3 text-center w-10">得点</th>
+                      <th className="py-2.5 px-3 text-center w-10">失点</th>
+                      <th className="py-2.5 px-3 text-center w-10">得失差</th>
+                      <th className="py-2.5 px-3 text-center w-28">直近5試合</th>
+                      <th className="py-2.5 px-4 text-center w-14 font-bold text-white">勝点</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -528,39 +543,53 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
 
                       let statusBadge = '';
                       let borderClass = '';
+                      let rankTextColor = 'text-slate-300';
+
                       if (idx < 8) {
-                        statusBadge = 'ベスト16直接進出';
-                        borderClass = 'border-l-4 border-l-emerald-500 bg-emerald-950/10';
+                        statusBadge = '直接R16';
+                        borderClass = 'border-l-4 border-l-emerald-500 bg-emerald-950/15';
+                        rankTextColor = 'text-emerald-400';
                       } else if (idx < 24) {
-                        statusBadge = 'プレーオフ進出';
-                        borderClass = 'border-l-4 border-l-blue-500 bg-blue-950/10';
+                        statusBadge = 'PO進出';
+                        borderClass = 'border-l-4 border-l-cyan-500 bg-cyan-950/10';
+                        rankTextColor = 'text-cyan-400';
                       } else {
                         statusBadge = '敗退';
                         borderClass = 'border-l-4 border-l-rose-500/40 bg-rose-950/5';
+                        rankTextColor = 'text-slate-500';
                       }
 
                       return (
                         <tr
                           key={row.clubId}
                           className={`transition-colors ${borderClass} ${
-                            isUserClub ? 'bg-amber-950/30 text-amber-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
+                            isUserClub ? 'bg-emerald-950/20 text-emerald-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
                           }`}
                         >
-                          <td className="py-2.5 px-3 text-center font-mono font-bold">
+                          <td className={`py-2.5 px-3 text-center font-mono font-black ${rankTextColor}`}>
                             {idx + 1}
                           </td>
-                          <td className="py-2.5 px-4 flex items-center gap-2">
-                            <span className="font-bold text-white truncate max-w-[200px]">
-                              {clubObj?.name || row.clubName}
-                            </span>
-                            {isUserClub && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                自クラブ
+                          <td className="py-2.5 px-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white truncate max-w-[170px] sm:max-w-[220px]">
+                                {clubObj?.name || row.clubName}
                               </span>
-                            )}
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                idx < 8 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                idx < 24 ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' :
+                                'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              }`}>
+                                {statusBadge}
+                              </span>
+                              {isUserClub && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold">
+                                  自クラブ
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2.5 px-3 text-center font-mono">{row.played}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{row.won}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400 font-semibold">{row.won}</td>
                           <td className="py-2.5 px-3 text-center font-mono text-slate-400">{row.drawn}</td>
                           <td className="py-2.5 px-3 text-center font-mono text-rose-400">{row.lost}</td>
                           <td className="py-2.5 px-3 text-center font-mono">{row.goalsFor}</td>
@@ -568,23 +597,54 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                           <td className="py-2.5 px-3 text-center font-mono font-semibold">
                             {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
                           </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {(() => {
+                                const form = getRecentCupForm(row.clubId, selectedCup);
+                                if (form.length === 0) return <span className="text-slate-600 font-mono text-[10px]">-</span>;
+                                return form.map((res, fIdx) => (
+                                  <span
+                                    key={fIdx}
+                                    title={res === 'W' ? '勝利' : res === 'D' ? '引分' : '敗戦'}
+                                    className={`w-4 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center shadow-xs ${
+                                      res === 'W'
+                                        ? 'bg-emerald-600 text-white'
+                                        : res === 'D'
+                                        ? 'bg-amber-600 text-white'
+                                        : 'bg-rose-600 text-white'
+                                    }`}
+                                  >
+                                    {res}
+                                  </span>
+                                ));
+                              })()}
+                            </div>
+                          </td>
                           <td className="py-2.5 px-4 text-center font-mono font-bold text-white text-sm">
                             {row.points}
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              idx < 8 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
-                              idx < 24 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40' :
-                              'bg-slate-800 text-slate-500'
-                            }`}>
-                              {statusBadge}
-                            </span>
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* European League Phase Standings Legend */}
+              <div className="p-3.5 bg-slate-950/80 border-t border-slate-800 flex items-center gap-4 text-[11px] text-slate-400 flex-wrap">
+                <span className="font-bold text-slate-300">凡例:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span>
+                  <span className="text-emerald-400 font-semibold">1〜8位: 自動ベスト16（直接R16進出・2月プレーオフ免除）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-cyan-500 inline-block"></span>
+                  <span className="text-cyan-400 font-semibold">9〜24位: 決勝Tプレーオフ進出（2月にホーム＆アウェイ2試合制）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block"></span>
+                  <span className="text-rose-400">25〜36位: 敗退</span>
+                </div>
               </div>
             </div>
           )}
