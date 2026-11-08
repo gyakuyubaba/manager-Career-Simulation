@@ -224,7 +224,7 @@ export function generateEuropeanCompetitionsFixtures(
 
   const eligibleClubs = Object.values(clubs).filter(c =>
     c.id !== 'free_agent' &&
-    ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1'].includes(c.league)
+    ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1', 'super-lig', 'primeira-liga', 'eredivisie', 'pro-league'].includes(c.league)
   );
   eligibleClubs.sort((a, b) => (b.reputation || 50) - (a.reputation || 50));
 
@@ -577,6 +577,46 @@ export function generateDomesticCupFixtures(
     { name: '準々決勝', round: 'Quarter-Final', date: `${seasonYear + 1}-02-25`, count: 4 },
     { name: '準決勝', round: 'Semi-Final', date: `${seasonYear + 1}-04-01`, count: 2 },
     { name: '決勝 (サンドニ)', round: 'Final', date: `${seasonYear + 1}-05-22`, count: 1 }
+  ]);
+
+  // 7. Türkiye Kupası (Turkey)
+  const turkClubs = Object.values(clubs).filter(c => c.league === 'super-lig').map(c => c.id);
+  addCupTournament('turkey-cup', 'テュルキエ・クパス', turkClubs, [
+    { name: '本戦1回戦', round: 'Round 1', date: `${seasonYear}-10-29`, count: 8 },
+    { name: 'ベスト16', round: 'Round of 16', date: `${seasonYear + 1}-01-14`, count: 8 },
+    { name: '準々決勝', round: 'Quarter-Final', date: `${seasonYear + 1}-02-18`, count: 4 },
+    { name: '準決勝', round: 'Semi-Final', date: `${seasonYear + 1}-04-08`, count: 2 },
+    { name: '決勝 (アタテュルク)', round: 'Final', date: `${seasonYear + 1}-05-19`, count: 1 }
+  ]);
+
+  // 8. Taça de Portugal (Portugal)
+  const porClubs = Object.values(clubs).filter(c => c.league === 'primeira-liga').map(c => c.id);
+  addCupTournament('taca-de-portugal', 'タッサ・デ・ポルトガル', porClubs, [
+    { name: '本戦3回戦', round: 'Round of 32', date: `${seasonYear}-10-18`, count: 8 },
+    { name: 'ベスト16', round: 'Round of 16', date: `${seasonYear}-12-18`, count: 8 },
+    { name: '準々決勝', round: 'Quarter-Final', date: `${seasonYear + 1}-02-11`, count: 4 },
+    { name: '準決勝', round: 'Semi-Final', date: `${seasonYear + 1}-04-14`, count: 2 },
+    { name: '決勝 (ジャモール)', round: 'Final', date: `${seasonYear + 1}-05-23`, count: 1 }
+  ]);
+
+  // 9. KNVB Beker (Netherlands)
+  const nedClubs = Object.values(clubs).filter(c => c.league === 'eredivisie').map(c => c.id);
+  addCupTournament('knvb-beker', 'KNVBカップ', nedClubs, [
+    { name: '1回戦', round: 'Round 1', date: `${seasonYear}-10-29`, count: 8 },
+    { name: 'ベスト16', round: 'Round of 16', date: `${seasonYear + 1}-01-14`, count: 8 },
+    { name: '準々決勝', round: 'Quarter-Final', date: `${seasonYear + 1}-02-04`, count: 4 },
+    { name: '準決勝', round: 'Semi-Final', date: `${seasonYear + 1}-03-03`, count: 2 },
+    { name: '決勝 (ロッテルダム)', round: 'Final', date: `${seasonYear + 1}-04-18`, count: 1 }
+  ]);
+
+  // 10. Croky Cup (Belgian Cup)
+  const belClubs = Object.values(clubs).filter(c => c.league === 'pro-league').map(c => c.id);
+  addCupTournament('belgian-cup', 'ベルギーカップ (Croky Cup)', belClubs, [
+    { name: '1回戦', round: 'Round 1', date: `${seasonYear}-10-30`, count: 8 },
+    { name: 'ベスト16', round: 'Round of 16', date: `${seasonYear}-12-04`, count: 8 },
+    { name: '準々決勝', round: 'Quarter-Final', date: `${seasonYear + 1}-01-08`, count: 4 },
+    { name: '準決勝', round: 'Semi-Final', date: `${seasonYear + 1}-02-05`, count: 2 },
+    { name: '決勝 (ボードゥアン)', round: 'Final', date: `${seasonYear + 1}-05-01`, count: 1 }
   ]);
 
   return domesticFixtures;

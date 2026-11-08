@@ -1375,6 +1375,77 @@ export function simulateFullMatch(
   }
   });
 
+  // =========================================================================
+  // REQUIREMENT 10: INSTANT SKIP AI AUTO-SUBSTITUTIONS (up to 5 substitutions)
+  // Performed based on fatigue, yellow cards, injury risk, and tactical balance
+  // =========================================================================
+  const subMinutes = [60, 68, 75, 82];
+  const subbedInPlayersList: { player: Player; minutes: number }[] = [];
+  const playerMinutesMap: Record<string, number> = {};
+  [...homeStartersList, ...awayStartersList].forEach(p => { playerMinutesMap[p.id] = 90; });
+
+  const performTeamTacticalSubs = (
+    teamClub: Club,
+    starters: Player[],
+    pitchIds: string[],
+    benchIds: string[]
+  ) => {
+    let subCount = 0;
+    const availableBench = benchIds.map(id => updatedPlayers[id]).filter(p => p && p.position !== 'GK' && !p.injury?.isInjured && !p.suspension?.isSuspended);
+    const usedBenchIds = new Set<string>();
+
+    for (const subMin of subMinutes) {
+      if (subCount >= 4 || availableBench.length === 0) break;
+
+      // Find candidate to sub off: outfield starter with yellow card or fatigue
+      const candidates = starters.filter(p => pitchIds.includes(p.id) && p.position !== 'GK');
+      candidates.sort((a, b) => {
+        const aYellow = yellowCardCounts[a.id] ? 1 : 0;
+        const bYellow = yellowCardCounts[b.id] ? 1 : 0;
+        if (aYellow !== bYellow) return bYellow - aYellow;
+        const aFatigue = updatedPlayers[a.id]?.fatigue || 0;
+        const bFatigue = updatedPlayers[b.id]?.fatigue || 0;
+        return bFatigue - aFatigue;
+      });
+
+      const outPlayer = candidates[0];
+      if (!outPlayer) continue;
+
+      const inPlayer = availableBench.find(bp => !usedBenchIds.has(bp.id) && (
+        bp.position === outPlayer.position ||
+        (['ST', 'CF', 'LW', 'RW'].includes(outPlayer.position) && ['ST', 'CF', 'LW', 'RW'].includes(bp.position)) ||
+        (['CM', 'CAM', 'CDM', 'LM', 'RM'].includes(outPlayer.position) && ['CM', 'CAM', 'CDM', 'LM', 'RM'].includes(bp.position)) ||
+        (['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(outPlayer.position) && ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(bp.position))
+      )) || availableBench.find(bp => !usedBenchIds.has(bp.id));
+
+      if (inPlayer) {
+        usedBenchIds.add(inPlayer.id);
+        subCount++;
+        const jitter = Math.floor(rng() * 4) - 2;
+        const actualMin = Math.max(56, Math.min(86, subMin + jitter));
+
+        playerMinutesMap[outPlayer.id] = actualMin;
+        playerMinutesMap[inPlayer.id] = 90 - actualMin;
+        subbedInPlayersList.push({ player: inPlayer, minutes: 90 - actualMin });
+
+        const idx = pitchIds.indexOf(outPlayer.id);
+        if (idx !== -1) pitchIds[idx] = inPlayer.id;
+
+        events.push({
+          minute: actualMin,
+          type: 'substitution',
+          clubId: teamClub.id,
+          playerId: inPlayer.id,
+          playerName: inPlayer.name,
+          description: `【選手交代】${teamClub.name}: IN ${inPlayer.name} (${inPlayer.position}) ⇄ OUT ${outPlayer.name} (${outPlayer.position})`
+        });
+      }
+    }
+  };
+
+  performTeamTacticalSubs(homeClub, homeStartersList, homePitchPlayers, homeTactics.lineup?.bench || []);
+  performTeamTacticalSubs(awayClub, awayStartersList, awayPitchPlayers, awayTactics.lineup?.bench || []);
+
   // Sort events chronologically
   events.sort((a, b) => a.minute - b.minute);
 
@@ -1496,8 +1567,8 @@ export function simulateFullMatch(
       }
 
       // Tactics intensity
-      const matchMinutes = extraTimePlayed ? 120 : 90;
-      const timeFactor = matchMinutes / 90; // 1.0 or 1.33 for ET
+      const matchMinutes = playerMinutesMap[p.id] || (extraTimePlayed ? 120 : 90);
+      const timeFactor = matchMinutes / 90; // 1.0 or fractional based on minutes played
       const tacticsPress = (p.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
       const pressMultiplier = (tacticsPress === '非常に激しい' || tacticsPress === '相手CB・GK限定猛プレス') ? 1.20 : tacticsPress === '自陣引き気味' ? 0.85 : 1.0;
 
@@ -1529,7 +1600,7 @@ export function simulateFullMatch(
         }
         updated.preseasonStats.appearances += 1;
         updated.preseasonStats.starts += 1;
-        updated.preseasonStats.minutes += 90;
+        updated.preseasonStats.minutes += matchMinutes;
         updated.preseasonStats.goals += scored;
         updated.preseasonStats.assists += assisted;
         const psCurrAvg = updated.preseasonStats.avgRating || 6.5;
@@ -1545,7 +1616,7 @@ export function simulateFullMatch(
         // OFFICIAL COMPETITIVE MATCH: Update official stats
         updated.stats.appearances += 1;
         updated.stats.starts += 1;
-        updated.stats.minutes += 90;
+        updated.stats.minutes += matchMinutes;
         updated.stats.goals += scored;
         updated.stats.assists += assisted;
 
@@ -1571,7 +1642,7 @@ export function simulateFullMatch(
         const cs = updated.competitionStats[compKey];
         cs.appearances += 1;
         cs.starts += 1;
-        cs.minutes += 90;
+        cs.minutes += matchMinutes;
         cs.goals += scored;
         cs.assists += assisted;
         cs.avgRating = +( ((cs.avgRating || 6.5) * (cs.appearances - 1) + matchRating) / cs.appearances ).toFixed(2);

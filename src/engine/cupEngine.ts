@@ -234,6 +234,78 @@ export const SUPPORTED_CUPS: CupTournamentMeta[] = [
       { name: 'プライムステージ 準決勝 (2試合制)', dateMonthDay: '10-21', matchCount: 2, isTwoLegged: true },
       { name: '決勝 (国立競技場)', dateMonthDay: '11-18', matchCount: 1 }
     ]
+  },
+  // Turkey
+  {
+    id: 'turkey-cup',
+    name: 'テュルキエ・クパス (トルコカップ)',
+    shortName: 'トルコ杯',
+    country: 'トルコ',
+    logo: '🇹🇷',
+    format: 'knockout-bracket',
+    startDateMonthDay: '10-29',
+    endDateMonthDay: '05-19',
+    rounds: [
+      { name: '4回戦 (R32)', dateMonthDay: '10-29', matchCount: 8 },
+      { name: 'ラウンド16', dateMonthDay: '01-14', matchCount: 8 },
+      { name: '準々決勝', dateMonthDay: '02-11', matchCount: 4 },
+      { name: '準決勝 (2試合制)', dateMonthDay: '04-07', matchCount: 2, isTwoLegged: true },
+      { name: '決勝', dateMonthDay: '05-19', matchCount: 1 }
+    ]
+  },
+  // Portugal
+  {
+    id: 'taca-de-portugal',
+    name: 'タッサ・デ・ポルトガル (ポルトガル杯)',
+    shortName: 'タッサ杯',
+    country: 'ポルトガル',
+    logo: '🇵🇹',
+    format: 'knockout-bracket',
+    startDateMonthDay: '10-18',
+    endDateMonthDay: '05-23',
+    rounds: [
+      { name: '3回戦 (R32)', dateMonthDay: '10-18', matchCount: 8 },
+      { name: 'ラウンド16', dateMonthDay: '01-10', matchCount: 8 },
+      { name: '準々決勝', dateMonthDay: '02-05', matchCount: 4 },
+      { name: '準決勝 (2試合制)', dateMonthDay: '04-14', matchCount: 2, isTwoLegged: true },
+      { name: '決勝 (ジャモール)', dateMonthDay: '05-23', matchCount: 1 }
+    ]
+  },
+  // Netherlands
+  {
+    id: 'knvb-beker',
+    name: 'KNVBベーカー (オランダカップ)',
+    shortName: 'KNVB杯',
+    country: 'オランダ',
+    logo: '🇳🇱',
+    format: 'knockout-bracket',
+    startDateMonthDay: '10-29',
+    endDateMonthDay: '04-18',
+    rounds: [
+      { name: '1回戦 (R32)', dateMonthDay: '10-29', matchCount: 8 },
+      { name: '2回戦 (R16)', dateMonthDay: '12-17', matchCount: 8 },
+      { name: '準々決勝', dateMonthDay: '02-04', matchCount: 4 },
+      { name: '準決勝', dateMonthDay: '03-03', matchCount: 2 },
+      { name: '決勝 (デ・カイプ)', dateMonthDay: '04-18', matchCount: 1 }
+    ]
+  },
+  // Belgium
+  {
+    id: 'belgian-cup',
+    name: 'クロッキーカップ (ベルギーカップ)',
+    shortName: 'ベルギー杯',
+    country: 'ベルギー',
+    logo: '🇧🇪',
+    format: 'knockout-bracket',
+    startDateMonthDay: '10-29',
+    endDateMonthDay: '05-01',
+    rounds: [
+      { name: 'ラウンド32', dateMonthDay: '10-29', matchCount: 8 },
+      { name: 'ラウンド16', dateMonthDay: '12-04', matchCount: 8 },
+      { name: '準々決勝', dateMonthDay: '01-15', matchCount: 4 },
+      { name: '準決勝 (2試合制)', dateMonthDay: '02-05', matchCount: 2, isTwoLegged: true },
+      { name: '決勝 (ボードゥアン国王競技場)', dateMonthDay: '05-01', matchCount: 1 }
+    ]
   }
 ];
 
@@ -650,12 +722,15 @@ export function initializeTournamentCompetitions(
 export function populateEuropeanKnockoutFixtures(state: GameWorldState): boolean {
   let changed = false;
   const euroCups: ('ucl' | 'uel' | 'uecl')[] = ['ucl', 'uel', 'uecl'];
+  const seasonYear = parseInt(state.season?.split('/')[0], 10) || 2026;
 
   euroCups.forEach(cupId => {
     // Check if league phase matches are done (all finished or game date is past late January)
     const lpFixtures = state.fixtures.filter(f => f.competition === cupId && (f.round?.includes('第') || f.round?.includes('節')));
     const allLpFinished = lpFixtures.length > 0 && lpFixtures.every(f => f.status === 'finished');
-    const isPastLpDate = (state.currentDate || '') >= '2027-01-29';
+    const lpEndMonthDay = cupId === 'uecl' ? '12-18' : '01-29';
+    const lpTargetYear = cupId === 'uecl' ? seasonYear : seasonYear + 1;
+    const isPastLpDate = (state.currentDate || '') >= `${lpTargetYear}-${lpEndMonthDay}`;
 
     if (!allLpFinished && !isPastLpDate) return;
 
@@ -694,6 +769,36 @@ export function populateEuropeanKnockoutFixtures(state: GameWorldState): boolean
             changed = true;
           }
         }
+
+        // Send news notice for user club regarding league phase outcome
+        if (state.userClubId) {
+          const userIdx = standings.findIndex(s => s.clubId === state.userClubId);
+          if (userIdx !== -1) {
+            const cupNameUpper = cupId.toUpperCase();
+            const newsId = `news_lp_finish_${cupId}_${seasonYear}`;
+            if (!state.news.some(n => n.id === newsId)) {
+              if (userIdx < 8) {
+                state.news.unshift({
+                  id: newsId,
+                  date: state.currentDate,
+                  title: `【${cupNameUpper}】リーグフェーズ${userIdx + 1}位！自動ベスト16進出決定（2月プレーオフ免除）`,
+                  category: 'competition',
+                  read: false,
+                  body: `欧州${cupNameUpper}リーグフェーズ全日程が終了し、自クラブは見事${userIdx + 1}位で上位8枠に入り「自動ベスト16進出」を確定させました！2月の決勝トーナメントプレーオフは免除され、3月中旬のラウンド16まで約1ヶ月間、欧州戦のないインターバルに入ります。過密日程を回避し、国内リーグ戦やカップ戦に全力を注ぎましょう！`
+                });
+              } else if (userIdx < 24) {
+                state.news.unshift({
+                  id: newsId,
+                  date: state.currentDate,
+                  title: `【${cupNameUpper}】リーグフェーズ${userIdx + 1}位で決勝Tプレーオフ進出決定！`,
+                  category: 'competition',
+                  read: false,
+                  body: `欧州${cupNameUpper}リーグフェーズを${userIdx + 1}位で終え、2月中旬に開催される決勝トーナメントプレーオフ（ホーム＆アウェイ2試合制）への進出が決定しました。ラウンド16進出を賭けて激突します！`
+                });
+              }
+            }
+          }
+        }
       }
     }
   });
@@ -707,6 +812,7 @@ export function populateEuropeanKnockoutFixtures(state: GameWorldState): boolean
 export function advanceEuropeanPlayoffWinnersToRoundOf16(state: GameWorldState): boolean {
   let changed = false;
   const euroCups: ('ucl' | 'uel' | 'uecl')[] = ['ucl', 'uel', 'uecl'];
+  const seasonYear = parseInt(state.season?.split('/')[0], 10) || 2026;
 
   euroCups.forEach(cupId => {
     const poLeg1Fixtures = state.fixtures.filter(f => 
@@ -770,6 +876,23 @@ export function advanceEuropeanPlayoffWinnersToRoundOf16(state: GameWorldState):
             r16Leg2Fixtures[m].isUserMatch = Boolean(state.userClubId && (playoffWinnerId === state.userClubId || top8Club.clubId === state.userClubId));
           }
           changed = true;
+        }
+
+        if (state.userClubId) {
+          const isInR16 = r16Leg1Fixtures.some(f => f.homeClubId === state.userClubId || f.awayClubId === state.userClubId);
+          if (isInR16) {
+            const newsId = `news_r16_draw_${cupId}_${seasonYear}`;
+            if (!state.news.some(n => n.id === newsId)) {
+              state.news.unshift({
+                id: newsId,
+                date: state.currentDate,
+                title: `【${cupId.toUpperCase()}】決勝Tプレーオフ終了！ラウンド16の対戦カードが正式決定`,
+                category: 'competition',
+                read: false,
+                body: `欧州${cupId.toUpperCase()}の2月プレーオフ全試合が終了し、勝ち上がった8クラブとリーグフェーズ上位8クラブによる「ラウンド16」の全対戦カードが確定しました！3月中旬より激闘が再開されます。`
+              });
+            }
+          }
         }
       }
     }

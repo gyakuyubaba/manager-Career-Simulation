@@ -14,6 +14,7 @@ import { GameWorldState, Club, Player, LeagueKey, StandingsRow, DEFAULT_DIFFICUL
 import { ALL_CLUBS, ENABLE_J_LEAGUE } from '../data/clubsData';
 import { J1_20_CLUBS, J2_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
+import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateRandomYouthAcademy } from '../data/youthGenerator';
 import { REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
@@ -274,8 +275,19 @@ export function migrateGameState(state: GameWorldState, oldVersion: number): Gam
     'bundesliga', '2-bundesliga',
     'serie-a', 'serie-b',
     'ligue-1', 'ligue-2',
-    'j1-league', 'j2-league'
+    'j1-league', 'j2-league',
+    'super-lig', 'primeira-liga',
+    'eredivisie', 'pro-league'
   ];
+
+  // 2.6 Safely ensure newly added European leagues clubs exist in migrated.clubs
+  if (migrated.clubs) {
+    ALL_NEW_4_LEAGUES_CLUBS.forEach(c => {
+      if (!migrated.clubs[c.id]) {
+        migrated.clubs[c.id] = { ...c, playerIds: [] };
+      }
+    });
+  }
   allLeagueKeys.forEach(k => {
     if (!migrated.standings[k] || migrated.standings[k].length === 0) {
       const lgClubs = Object.values(migrated.clubs || {}).filter(c => c && c.league === k);

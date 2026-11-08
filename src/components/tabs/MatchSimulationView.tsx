@@ -120,6 +120,7 @@ export const MatchSimulationView: React.FC<Props> = ({
   // In-match substitution selector
   const [subPlayerOffId, setSubPlayerOffId] = useState<string | null>(null);
   const [subPlayerOnId, setSubPlayerOnId] = useState<string | null>(null);
+  const [formerClubInterviewAnswer, setFormerClubInterviewAnswer] = useState<number | null>(null);
 
   // Unified In-match incident modal state (Requirement 1: 負傷およびレッドカード発生時の即座一時停止)
   const [activeIncidentNotice, setActiveIncidentNotice] = useState<{
@@ -964,6 +965,21 @@ export const MatchSimulationView: React.FC<Props> = ({
               <span className="text-slate-500 text-lg">-</span>
               <span className={currentScore[1] > currentScore[0] ? 'text-emerald-400' : 'text-white'}>{currentScore[1]}</span>
             </div>
+            
+            {/* Penalty Shootout Score Centerpiece Display */}
+            {simulatedResult?.fixture?.penaltyShootout && (
+              <div className="text-xs font-black text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/40 my-0.5 shadow-xs">
+                (PK {simulatedResult.fixture.penaltyShootout.homeScore} - {simulatedResult.fixture.penaltyShootout.awayScore})
+              </div>
+            )}
+
+            {/* 2-Legged Aggregate / 1st Leg Display */}
+            {simulatedResult?.fixture?.firstLegScore && (
+              <div className="text-[10px] text-cyan-400 font-mono font-bold mt-0.5">
+                (1st: {simulatedResult.fixture.firstLegScore} / 合計: {simulatedResult.fixture.aggregateScore})
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5 text-[11px] font-mono mt-0.5">
               <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               <span className="font-extrabold text-emerald-400 tracking-wider">
@@ -1337,6 +1353,98 @@ export const MatchSimulationView: React.FC<Props> = ({
                 ℹ️ 試合・会場情報
               </button>
             </div>
+
+            {/* Former Club Pre-Match Press Interview (Requirement 3) */}
+            {(() => {
+              const oppClub = isUserHome ? awayClub : homeClub;
+              const oppClubId = oppClub?.id;
+              const isFormerClub = Boolean(
+                oppClubId && (
+                  state.pastManagedClubIds?.includes(oppClubId) || 
+                  state.careerHistory?.some(h => h.clubId === oppClubId)
+                )
+              );
+              if (!isFormerClub) return null;
+
+              return (
+                <div className="bg-gradient-to-r from-purple-950/40 via-slate-900 to-indigo-950/40 border border-purple-500/40 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">🎙️</span>
+                      <div>
+                        <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider">古巣対戦前 特別メディア会見</span>
+                        <h4 className="text-sm font-bold text-white">「かつて指揮した古巣 {oppClub?.name} との激突。監督、今の心境は？」</h4>
+                      </div>
+                    </div>
+                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2.5 py-0.5 rounded-full border border-purple-500/30 font-bold">
+                      古巣対決
+                    </span>
+                  </div>
+                  {formerClubInterviewAnswer === null ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormerClubInterviewAnswer(1);
+                          if (onUpdateState) {
+                            onUpdateState(prev => ({
+                              ...prev,
+                              boardConfidence: {
+                                ...prev.boardConfidence,
+                                overallScore: Math.min(100, (prev.boardConfidence?.overallScore ?? 75) + 2)
+                              }
+                            }));
+                          }
+                        }}
+                        className="p-3 rounded-2xl bg-slate-950/80 hover:bg-purple-950/50 border border-slate-800 hover:border-purple-500/50 text-left cursor-pointer transition-all space-y-1"
+                      >
+                        <div className="text-xs font-bold text-purple-300">① 恩義と全力勝負</div>
+                        <div className="text-[11px] text-slate-300">「古巣への恩義とリスペクトを胸に、今日持てる全力を尽くして勝利を掴む」</div>
+                        <div className="text-[10px] text-emerald-400 font-mono">効果: フロント＆ファン信頼度UP</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormerClubInterviewAnswer(2);
+                          if (onUpdateState) {
+                            onUpdateState(prev => ({
+                              ...prev,
+                              boardConfidence: {
+                                ...prev.boardConfidence,
+                                fanApproval: Math.min(100, (prev.boardConfidence?.fanApproval ?? 75) + 3)
+                              }
+                            }));
+                          }
+                        }}
+                        className="p-3 rounded-2xl bg-slate-950/80 hover:bg-purple-950/50 border border-slate-800 hover:border-purple-500/50 text-left cursor-pointer transition-all space-y-1"
+                      >
+                        <div className="text-xs font-bold text-purple-300">② 闘志と集中力</div>
+                        <div className="text-[11px] text-slate-300">「感傷に浸るつもりはない。我々の目標は勝ち点3のみ。弱点は把握している」</div>
+                        <div className="text-[10px] text-cyan-400 font-mono">効果: チーム闘志＆サポーター熱気UP</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormerClubInterviewAnswer(3);
+                        }}
+                        className="p-3 rounded-2xl bg-slate-950/80 hover:bg-purple-950/50 border border-slate-800 hover:border-purple-500/50 text-left cursor-pointer transition-all space-y-1"
+                      >
+                        <div className="text-xs font-bold text-purple-300">③ 冷静沈着</div>
+                        <div className="text-[11px] text-slate-300">「特別な感情はない。1シーズンの中の重要な1試合として普段通り戦うだけだ」</div>
+                        <div className="text-[10px] text-slate-400 font-mono">効果: 選手の重圧緩和</div>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-purple-950/30 rounded-2xl border border-purple-500/30 text-xs text-purple-200 flex items-center justify-between">
+                      <span>
+                        会見での発言がメディアで大きく報じられ、チームとサポーターの結束が高まりました。
+                      </span>
+                      <span className="text-emerald-400 font-bold shrink-0">会見終了 ✓</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* PRE-MATCH TAB 1: DUAL FORMATIONS */}
             {preMatchTab === 'formation' && (

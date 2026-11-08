@@ -218,68 +218,120 @@ export function evaluateMatchBoardConfidence(
   // -------------------------------------------------------------
   // Consecutive Losses & Winless streak compounding penalties
   // -------------------------------------------------------------
+  const isTopClub = userClub.tier === 'Elite' || userClub.reputation >= 80;
+
   if (isOfficial) {
     if (newConsecutiveLosses >= 6) {
-      delta -= 8;
-      fanDelta -= 8;
-      reason += `（6連敗の深刻な不振により特別ペナルティ）`;
+      delta -= 10;
+      fanDelta -= 10;
+      reason += `（連敗の深刻な不振により特別ペナルティ）`;
     }
 
-    if (newConsecutiveWinless >= 5) {
-      if (newConsecutiveWinless === 5) {
-        delta -= 8;
+    if (isTopClub) {
+      // Stricter criteria for big clubs (Requirement 2)
+      // 3 winless = sharp drop, 4 = warning, 5 = severe danger, 6 = near-certain sacking
+      if (newConsecutiveWinless === 3) {
+        delta -= 15;
+        fanDelta -= 12;
+        reason += `（ビッグクラブ3戦未勝利による信頼度大幅急落）`;
+      } else if (newConsecutiveWinless === 4) {
+        delta -= 18;
+        fanDelta -= 15;
+        specialNews = {
+          id: `news_winless_warning_${Date.now()}`,
+          date: fixture.date || state.currentDate,
+          headline: `【警告】泥沼の4戦未勝利：${userClub.name}理事会、${state.manager.name}監督へ早期改善を要求`,
+          body: `名門${userClub.name}が4戦連続で白星を逃し、順位が後退。サポーターの怒りが沸点に達する中、取締役会は監督へ公式な警告を通告しました。`,
+          category: 'board',
+          relatedClubId: userClub.id,
+          importance: 'high'
+        };
+      } else if (newConsecutiveWinless === 5) {
+        delta -= 22;
+        fanDelta -= 20;
+        specialNews = {
+          id: `news_winless_crisis_${Date.now()}`,
+          date: fixture.date || state.currentDate,
+          headline: `【解任危機】5試合未勝利：${userClub.name}、${state.manager.name}監督の進退審議に着手`,
+          body: `5戦未勝利というクラブ史上類を見ない大不振に直面する${userClub.name}。理事会は緊急会議を招集し、監督の進退協議を開始したと有力メディアが一斉に報じています。`,
+          category: 'board',
+          relatedClubId: userClub.id,
+          importance: 'high'
+        };
+      } else if (newConsecutiveWinless >= 6) {
+        delta -= 30;
+        fanDelta -= 25;
+        reason += `（6戦未勝利・解任決定レベルの危機）`;
+      }
+    } else {
+      // Softer, realistic decay for mid/lower table clubs
+      if (newConsecutiveWinless === 4) {
+        delta -= 6;
+        fanDelta -= 5;
+      } else if (newConsecutiveWinless === 5) {
+        delta -= 10;
         fanDelta -= 8;
         specialNews = {
           id: `news_winless_5_${Date.now()}`,
           date: fixture.date || state.currentDate,
-          headline: `【危機】公式戦5試合未勝利：${userClub.name}理事会、${state.manager.name}監督の求心力低下を危惧`,
-          body: `公式戦5試合にわたって勝利から見放されている${userClub.name}。順位の低迷とサポーターの不満を受け、取締役会は監督の指導力について緊急の懸念を表明しました。`,
+          headline: `【危機】公式戦5試合未勝利：${userClub.name}理事会、${state.manager.name}監督へ奮起を促す`,
+          body: `公式戦5試合にわたって勝利から見放されている${userClub.name}。残留に向けてこれ以上の勝ち点取りこぼしは許されない情勢となっています。`,
           category: 'board',
           relatedClubId: userClub.id,
           importance: 'high'
         };
       } else if (newConsecutiveWinless === 6) {
-        delta -= 12;
+        delta -= 14;
         fanDelta -= 12;
-        specialNews = {
-          id: `news_winless_6_${Date.now()}`,
-          date: fixture.date || state.currentDate,
-          headline: `【最後通牒】泥沼の6試合未勝利：${userClub.name}フロント、${state.manager.name}監督へ次戦必勝を通告`,
-          body: `6試合勝利なしという深刻な不振に陥った${userClub.name}。理事会は${state.manager.name}監督に対し、次戦での結果次第で進退を問う最後通牒を突きつけた模様です。`,
-          category: 'board',
-          relatedClubId: userClub.id,
-          importance: 'high'
-        };
       } else if (newConsecutiveWinless >= 7) {
-        delta -= 15;
-        fanDelta -= 15;
-        specialNews = {
-          id: `news_winless_7_${Date.now()}`,
-          date: fixture.date || state.currentDate,
-          headline: `【進退極まる】${newConsecutiveWinless}試合未勝利：${userClub.name}幹部、監督解任協議を開始`,
-          body: `未勝利記録が${newConsecutiveWinless}試合に到達。スタジアムではサポーターの抗議行動が激化し、取締役会は解任に向けた具体的な条件確認に入ったと現地メディアが報じています。`,
-          category: 'board',
-          relatedClubId: userClub.id,
-          importance: 'high'
-        };
+        delta -= 20;
+        fanDelta -= 16;
       }
     }
   }
 
-  const newConfidence = Math.max(0, Math.min(100, state.boardConfidence + delta));
+  let calculatedConfidence = Math.max(0, Math.min(100, state.boardConfidence + delta));
   const newFanApproval = Math.max(0, Math.min(100, state.fanApproval + fanDelta));
+
+  // HARD CONFIDENCE CAPS based on winless streak (Ensures confidence strictly matches reality)
+  // Never allows 80% confidence with 10 winless
+  if (isOfficial) {
+    if (isTopClub) {
+      if (newConsecutiveWinless >= 6) calculatedConfidence = Math.min(calculatedConfidence, 12);
+      else if (newConsecutiveWinless >= 5) calculatedConfidence = Math.min(calculatedConfidence, 25);
+      else if (newConsecutiveWinless >= 4) calculatedConfidence = Math.min(calculatedConfidence, 40);
+      else if (newConsecutiveWinless >= 3) calculatedConfidence = Math.min(calculatedConfidence, 55);
+    } else {
+      if (newConsecutiveWinless >= 8) calculatedConfidence = Math.min(calculatedConfidence, 15);
+      else if (newConsecutiveWinless >= 7) calculatedConfidence = Math.min(calculatedConfidence, 25);
+      else if (newConsecutiveWinless >= 6) calculatedConfidence = Math.min(calculatedConfidence, 40);
+      else if (newConsecutiveWinless >= 5) calculatedConfidence = Math.min(calculatedConfidence, 50);
+    }
+  }
+
+  const newConfidence = calculatedConfidence;
 
   // -------------------------------------------------------------
   // Sacking Risk Evaluation (4 Stages: 通常 / 警告 / 解任危機 / 解任)
   // -------------------------------------------------------------
   let sackTriggered = false;
 
-  if (newConfidence <= 10 && newConsecutiveWinless >= 7) {
-    if (Math.random() < 0.85) sackTriggered = true;
-  } else if (newConfidence < 15 && newConsecutiveWinless >= 8) {
-    if (Math.random() < 0.75) sackTriggered = true;
-  } else if (newConfidence <= 5) {
-    sackTriggered = true;
+  if (isTopClub) {
+    if (newConsecutiveWinless >= 6) {
+      sackTriggered = true; // 6 winless at top club = instant sack
+    } else if (newConsecutiveWinless >= 5 && newConfidence <= 25) {
+      if (Math.random() < 0.80) sackTriggered = true;
+    } else if (newConfidence <= 8) {
+      sackTriggered = true;
+    }
+  } else {
+    if (newConfidence <= 10 && newConsecutiveWinless >= 7) {
+      if (Math.random() < 0.85) sackTriggered = true;
+    } else if (newConfidence < 15 && newConsecutiveWinless >= 8) {
+      if (Math.random() < 0.75) sackTriggered = true;
+    } else if (newConfidence <= 5) {
+      sackTriggered = true;
+    }
   }
 
   if (sackTriggered) {

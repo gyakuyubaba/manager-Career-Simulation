@@ -295,7 +295,11 @@ export type LeagueKey =
   | 'ligue-2'
   | 'j1-league'
   | 'j2-league'
-  | 'j3-league';
+  | 'j3-league'
+  | 'super-lig'
+  | 'primeira-liga'
+  | 'eredivisie'
+  | 'pro-league';
 
 export type CupKey = 
   | 'ucl'
@@ -309,7 +313,11 @@ export type CupKey =
   | 'coupe-de-france'
   | 'super-cup'
   | 'levain-cup'
-  | 'emperors-cup';
+  | 'emperors-cup'
+  | 'turkey-cup'
+  | 'taca-de-portugal'
+  | 'knvb-beker'
+  | 'belgian-cup';
 
 export interface Club {
   id: string;
@@ -814,6 +822,7 @@ export interface GameWorldState {
   news: NewsItem[];
   youthAcademy: YouthProspect[];
   careerHistory: SeasonHistory[];
+  pastManagedClubIds?: string[];
 
   clubVision?: ClubVisionRoadmap; // 未来予想図・クラブ成長計画
   selectedPreSeason?: string;

@@ -10,6 +10,7 @@ import { generateFullJLeaguePlayers, J2_20_CLUBS } from './jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from './europeanSecondDivisionClubs';
 import { MUST_CHECK_AND_OVERSEAS_SEEDS } from './europeanSecondDivisionPlayers';
 import { FREE_AGENT_SUPERSTARS, FREE_AGENT_CLUB } from './freeAgentsData';
+import { ALL_NEW_4_LEAGUES_CLUBS, REAL_NEW_LEAGUES_STARS } from './europeanNewLeaguesData';
 
 // Standard 25 squad positions template (3 GKs, 4 CBs, 2 LBs, 2 RBs, 2 CDMs, 2 CMs, 2 CAMs, 1 LM, 1 RM, 1 LW, 1 RW, 3 STs, 1 CF)
 const SQUAD_POSITIONS_TEMPLATE: Position[] = [
@@ -116,6 +117,54 @@ const DEPTH_NAMES_BY_COUNTRY: Record<string, { firstNames: string[]; lastNames: 
       '吉田', '山田', '佐々木', '山口', '松本', '井上', '木村', '林', '斎藤', '清水',
       '山崎', '森', '池田', '橋本', '阿部', '石川', '山下', '中島', '石井', '小川',
       '前田', '岡田', '長谷川', '藤田', '後藤', '近藤', '村上', '遠藤', '青木', '坂本'
+    ]
+  },
+  'トルコ': {
+    firstNames: [
+      'Arda', 'Kerem', 'Barış', 'Semih', 'Ferdi', 'Kenan', 'Hakan', 'Orkun', 'Salih', 'Yunus',
+      'Cenk', 'Emre', 'Burak', 'Ozan', 'Yusuf', 'Can', 'Mert', 'Altay', 'Uğurcan', 'Berke',
+      'Eren', 'Kaan', 'Enes', 'Ahmet', 'Mehmet', 'Mustafa', 'Ali', 'Deniz', 'Batuhan', 'Onur'
+    ],
+    lastNames: [
+      'Yılmaz', 'Kaya', 'Demir', 'Çelik', 'Şahin', 'Yıldız', 'Yıldırım', 'Öztürk', 'Aydın', 'Özdemir',
+      'Arslan', 'Doğan', 'Kılıç', 'Aslan', 'Çetin', 'Kara', 'Koç', 'Kurt', 'Özkan', 'Şimşek',
+      'Erdoğan', 'Polat', 'Korkmaz', 'Bulut', 'Güneş', 'Yalçın', 'Bozkurt', 'Aksoy', 'Turan', 'Kaplan'
+    ]
+  },
+  'ポルトガル': {
+    firstNames: [
+      'João', 'Rodrigo', 'Martim', 'Afonso', 'Tomás', 'Tiago', 'Gonçalo', 'Duarte', 'Lourenço', 'Miguel',
+      'Bernardo', 'Diogo', 'Guilherme', 'Pedro', 'Francisco', 'Santiago', 'Salvador', 'Lucas', 'Mateus', 'Rafael',
+      'André', 'Rúben', 'Renato', 'Fábio', 'Nuno', 'Bruno', 'Rui', 'Vasco', 'Hélder', 'Cristiano'
+    ],
+    lastNames: [
+      'Silva', 'Santos', 'Ferreira', 'Pereira', 'Oliveira', 'Costa', 'Rodrigues', 'Martins', 'Jesus', 'Sousa',
+      'Fernandes', 'Gonçalves', 'Gomes', 'Lopes', 'Marques', 'Alves', 'Almeida', 'Ribeiro', 'Pinto', 'Carvalho',
+      'Teixeira', 'Moreira', 'Correia', 'Mendes', 'Nunes', 'Soares', 'Vieira', 'Monteiro', 'Cardoso', 'Rocha'
+    ]
+  },
+  'オランダ': {
+    firstNames: [
+      'Noah', 'Sem', 'Liam', 'Lucas', 'Daan', 'Finn', 'Levi', 'Luuk', 'Bram', 'Milan',
+      'Jesse', 'Lars', 'Thijs', 'Julian', 'Thomas', 'Sam', 'Tim', 'Ruben', 'Stijn', 'Sven',
+      'Mees', 'Gijs', 'Max', 'Mats', 'Niek', 'Jelle', 'Cas', 'Wout', 'Teun', 'Guus'
+    ],
+    lastNames: [
+      'de Jong', 'Jansen', 'de Vries', 'van de Berg', 'van Dijk', 'Bakker', 'Janssen', 'Visser', 'Smit', 'Meijer',
+      'de Boer', 'Mulder', 'de Groot', 'Bos', 'Vos', 'Peters', 'Hendriks', 'van Leeuwen', 'Dekker', 'Brouwer',
+      'de Wit', 'Dijkstra', 'Smits', 'de Graaf', 'van der Meer', 'van der Linden', 'Kok', 'Jacobs', 'Vermeulen', 'van den Heuvel'
+    ]
+  },
+  'ベルギー': {
+    firstNames: [
+      'Arthur', 'Noah', 'Jules', 'Louis', 'Liam', 'Adam', 'Lucas', 'Victor', 'Gaspard', 'Gabriel',
+      'Maxime', 'Simon', 'Théo', 'Nathan', 'Hugo', 'Robin', 'Luka', 'Arno', 'Milan', 'Senne',
+      'Jonas', 'Dries', 'Jan', 'Pieter', 'Kobe', 'Wout', 'Jelle', 'Michiel', 'Ward', 'Jasper'
+    ],
+    lastNames: [
+      'Peeters', 'Janssens', 'Maes', 'Jacobs', 'Mertens', 'Willems', 'Claes', 'Goossens', 'Wouters', 'De Smet',
+      'Vermeulen', 'Pauwels', 'Hermans', 'Aerts', 'Michiels', 'Martens', 'Thijs', 'De Clercq', 'Van Damme', 'De Vos',
+      'Hendrickx', 'Van de Velde', 'Van Dyck', 'Lemmens', 'Dubois', 'Lambert', 'Dupont', 'Martin', 'Renard', 'Dumont'
     ]
   }
 };
@@ -461,12 +510,18 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     };
   });
 
-  // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs) have at least 25 players across positions
+  // 3c. Register Authentic Stars from the 4 New European Leagues
+  REAL_NEW_LEAGUES_STARS.forEach(p => {
+    addPlayerIfUnique(p);
+  });
+
+  // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs + 71 New European League clubs) have at least 25 players across positions
   // AND CRITICAL REQUIREMENT: 全チーム最低2人以上（スタメン・ベンチ・ベンチ外用の3人体制推奨）のGKを必ず確保
   const allClubsToEnsure: Club[] = [
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
-    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS
+    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    ...ALL_NEW_4_LEAGUES_CLUBS
   ];
 
   // Deduplicate clubs by id

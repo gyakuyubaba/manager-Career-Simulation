@@ -994,10 +994,37 @@ export function advanceOneDay(
     }
   }
 
-  // Transfer window deadline day check
+  // Winter transfer window opening on Jan 1
+  if (nextDate.endsWith('-01-01') && !autoSimulateUserMatch) {
+    state.news = [{
+      id: `news_winter_window_open_${Date.now()}`,
+      date: nextDate,
+      headline: '【冬の移籍市場開幕】1月冬の移籍ウィンドウが正式オープン！',
+      body: '1月1日を迎え、欧州およびJリーグの冬の移籍市場が公式に開幕しました。後半戦の巻き返しやタイトル獲得に向けた緊急補強、契約満了が迫る実力者の獲得交渉が1月31日23:59まで活発に行われます。',
+      category: 'transfer',
+      importance: 'high'
+    }, ...state.news];
+    stoppedReason = '【冬の移籍市場開幕】1月1日を迎え、冬の移籍ウィンドウがオープンしました！';
+  }
+
+  // Transfer window deadline day check (Summer: Aug 31, Winter: Jan 31)
   if ((nextDate.endsWith('-08-31') || nextDate.endsWith('-01-31')) && !autoSimulateUserMatch) {
     state.showDeadlineSummary = true;
-    stoppedReason = '【移籍市場最終日】夏の移籍ウィンドウのデッドラインデイを迎えました！';
+    stoppedReason = nextDate.endsWith('-01-31')
+      ? '【移籍市場最終日】冬の移籍ウィンドウのデッドラインデイを迎えました！'
+      : '【移籍市場最終日】夏の移籍ウィンドウのデッドラインデイを迎えました！';
+  }
+
+  // Winter transfer window closure on Feb 1
+  if (nextDate.endsWith('-02-01')) {
+    state.news = [{
+      id: `news_winter_window_close_${Date.now()}`,
+      date: nextDate,
+      headline: '【冬の移籍市場閉幕】白熱の1月冬の移籍ウィンドウがクローズ！',
+      body: '1月31日23:59をもって冬の移籍市場が正式に終了しました。各クラブの陣容が確定し、後半戦の優勝・残留争いが本格化します。',
+      category: 'transfer',
+      importance: 'high'
+    }, ...state.news];
   }
 
   // Unexpected Events System (Requirement 10: 「予期せぬ出来事」)
@@ -1091,7 +1118,7 @@ export function scheduleSecondDivisionPlayoffs(state: GameWorldState): boolean {
   }
 
   // 2. Segunda Division (Spain): 3rd vs 6th, 4th vs 5th -> Final
-  if ((state.currentDate || '') >= `${nextYear}-05-28`) {
+  if ((state.currentDate || '') >= `${nextYear}-05-18`) {
     const segRows = state.standings['segunda-division'] || [];
     if (segRows.length >= 6) {
       const existingSegPo = state.fixtures.some(f => f.competition === 'segunda-playoffs');
@@ -1277,6 +1304,78 @@ export function scheduleSecondDivisionPlayoffs(state: GameWorldState): boolean {
           fin.isUserMatch = Boolean(state.userClubId && (w1 === state.userClubId || w2 === state.userClubId));
           changed = true;
         }
+      }
+    }
+  }
+
+  // 6. Bundesliga Relegation Play-off (入替戦): 16th Bundesliga vs 3rd 2. Bundesliga
+  if ((state.currentDate || '') >= `${nextYear}-05-18`) {
+    const blRows = state.standings['bundesliga'] || [];
+    const bl2Rows = state.standings['2-bundesliga'] || [];
+    if (blRows.length >= 16 && bl2Rows.length >= 3) {
+      const blClubId = blRows[15].clubId;
+      const bl2ClubId = bl2Rows[2].clubId;
+      const existingBlPo = state.fixtures.some(f => f.competition === 'bundesliga-relegation-playoffs');
+      if (!existingBlPo) {
+        state.fixtures.push({
+          id: `fix_bl_po_leg1_${nextYear}`,
+          date: `${nextYear}-05-21`,
+          competition: 'bundesliga-relegation-playoffs',
+          competitionName: 'ブンデスリーガ 昇降格プレーオフ 第1戦',
+          round: '入替戦 第1戦',
+          homeClubId: bl2ClubId,
+          awayClubId: blClubId,
+          status: 'upcoming',
+          isUserMatch: Boolean(state.userClubId && (bl2ClubId === state.userClubId || blClubId === state.userClubId))
+        });
+        state.fixtures.push({
+          id: `fix_bl_po_leg2_${nextYear}`,
+          date: `${nextYear}-05-24`,
+          competition: 'bundesliga-relegation-playoffs',
+          competitionName: 'ブンデスリーガ 昇降格プレーオフ 第2戦',
+          round: '入替戦 第2戦',
+          homeClubId: blClubId,
+          awayClubId: bl2ClubId,
+          status: 'upcoming',
+          isUserMatch: Boolean(state.userClubId && (bl2ClubId === state.userClubId || blClubId === state.userClubId))
+        });
+        changed = true;
+      }
+    }
+  }
+
+  // 7. Ligue 1 Barrages (昇降格入替戦): 16th Ligue 1 vs 3rd Ligue 2
+  if ((state.currentDate || '') >= `${nextYear}-05-20`) {
+    const l1Rows = state.standings['ligue-1'] || [];
+    const l2Rows = state.standings['ligue-2'] || [];
+    if (l1Rows.length >= 16 && l2Rows.length >= 3) {
+      const l1ClubId = l1Rows[15].clubId;
+      const l2ClubId = l2Rows[2].clubId;
+      const existingL1Po = state.fixtures.some(f => f.competition === 'ligue-1-barrages');
+      if (!existingL1Po) {
+        state.fixtures.push({
+          id: `fix_l1_po_leg1_${nextYear}`,
+          date: `${nextYear}-05-23`,
+          competition: 'ligue-1-barrages',
+          competitionName: 'リーグ・アン 昇降格プレーオフ (バラージュ) 第1戦',
+          round: 'バラージュ 第1戦',
+          homeClubId: l2ClubId,
+          awayClubId: l1ClubId,
+          status: 'upcoming',
+          isUserMatch: Boolean(state.userClubId && (l2ClubId === state.userClubId || l1ClubId === state.userClubId))
+        });
+        state.fixtures.push({
+          id: `fix_l1_po_leg2_${nextYear}`,
+          date: `${nextYear}-05-28`,
+          competition: 'ligue-1-barrages',
+          competitionName: 'リーグ・アン 昇降格プレーオフ (バラージュ) 第2戦',
+          round: 'バラージュ 第2戦',
+          homeClubId: l1ClubId,
+          awayClubId: l2ClubId,
+          status: 'upcoming',
+          isUserMatch: Boolean(state.userClubId && (l2ClubId === state.userClubId || l1ClubId === state.userClubId))
+        });
+        changed = true;
       }
     }
   }
@@ -1593,33 +1692,94 @@ export function processSeasonEndPromotionsAndRelegations(
   j1Relegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'j2-league'; clubs[id].division = 2; } });
   j2Promoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'j1-league'; clubs[id].division = 1; } });
 
+  // Combine all promoted and relegated clubs across all leagues
+  const allRelegatedClubIds = [
+    ...plRelegated,
+    ...llRelegated,
+    ...blRelegated,
+    ...saRelegated,
+    ...l1Relegated,
+    ...j1Relegated
+  ];
+
+  const allPromotedClubIds = [
+    ...champPromoted,
+    ...segPromoted,
+    ...bl2Promoted,
+    ...sbPromoted,
+    ...l2Promoted,
+    ...j2Promoted
+  ];
+
+  // =========================================================================
+  // REQUIREMENT 5: RELEGATION FINANCIAL PENALTY & PLAYER TRANSFER REQUESTS
+  // 1. Slashed transfer budget by 45%, wage budget by 35%
+  // 2. High OVR (75+ or 70+ in J-League) or high wage players request transfer listing
+  // =========================================================================
+  const transferListingNewsList: NewsItem[] = [];
+
+  allRelegatedClubIds.forEach(cId => {
+    const rc = clubs[cId];
+    if (!rc) return;
+    rc.transferBudget = Math.round(rc.transferBudget * 0.55); // 45% reduction due to lower broadcast & ticket revenue
+    rc.wageBudget = Math.round(rc.wageBudget * 0.65); // 35% wage budget slash
+    rc.target = '1部昇格';
+
+    // Player transfer requests
+    const clubPlayers = Object.values(state.players).filter(p => p.clubId === cId);
+    const starPlayers = clubPlayers.filter(p => (rc.league === 'j2-league' ? p.ovr >= 70 : p.ovr >= 75) || p.wage >= 40000);
+
+    if (starPlayers.length > 0) {
+      starPlayers.forEach(p => {
+        p.isTransferListed = true;
+        p.transferListed = true;
+      });
+
+      transferListingNewsList.push({
+        id: `news_relegation_listing_${cId}_${Date.now()}`,
+        date: state.currentDate,
+        headline: `【主力流出危機】2部降格に伴い${rc.name}の主力選手が移籍を志願！`,
+        body: `2部降格の決定を受け、${rc.name}所属の${starPlayers.slice(0, 3).map(p => p.name).join('、')}ら主力選手陣がトップディビジョンでのプレーを希望し、クラブへ移籍志願書を提出しました。移籍金獲得を目指すクラブ側も売却を容認し、移籍リストへの掲載が決定しました。`,
+        category: 'transfer',
+        relatedClubId: cId,
+        importance: 'high'
+      });
+    }
+  });
+
+  // REQUIREMENT 14: AI Club budget season updates (promoted clubs and top clubs)
+  allPromotedClubIds.forEach(cId => {
+    const pc = clubs[cId];
+    if (!pc) return;
+    pc.transferBudget = Math.round(pc.transferBudget * 1.35); // 35% promotion bonus
+    pc.wageBudget = Math.round(pc.wageBudget * 1.25);
+    pc.target = 'リーグ残留';
+  });
+
+  // Top 4 clubs in each 1st division receive continental prize money bonus
+  const top1stDivLeagues: LeagueKey[] = ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1', 'j1-league', 'super-lig', 'primeira-liga', 'eredivisie', 'pro-league'];
+  top1stDivLeagues.forEach(lk => {
+    const rows = getStandings(lk);
+    if (rows && rows.length >= 4) {
+      const champ = clubs[rows[0].clubId];
+      if (champ) champ.transferBudget = Math.round(champ.transferBudget * 1.20);
+      const runnerUp = clubs[rows[1].clubId];
+      if (runnerUp) runnerUp.transferBudget = Math.round(runnerUp.transferBudget * 1.15);
+    }
+  });
+
   // Handle User Club Promotion / Relegation effects
   let userClubNewsHeadline = '';
   let userClubNewsBody = '';
   if (state.userClubId) {
     const userClub = clubs[state.userClubId];
-    const isPromoted = champPromoted.includes(state.userClubId) ||
-      segPromoted.includes(state.userClubId) ||
-      bl2Promoted.includes(state.userClubId) ||
-      sbPromoted.includes(state.userClubId) ||
-      l2Promoted.includes(state.userClubId) ||
-      j2Promoted.includes(state.userClubId);
-
-    const isRelegated = plRelegated.includes(state.userClubId) ||
-      llRelegated.includes(state.userClubId) ||
-      blRelegated.includes(state.userClubId) ||
-      saRelegated.includes(state.userClubId) ||
-      l1Relegated.includes(state.userClubId) ||
-      j1Relegated.includes(state.userClubId);
+    const isPromoted = allPromotedClubIds.includes(state.userClubId);
+    const isRelegated = allRelegatedClubIds.includes(state.userClubId);
 
     if (isPromoted) {
-      userClub.transferBudget = Math.round(userClub.transferBudget * 1.35);
-      userClub.wageBudget = Math.round(userClub.wageBudget * 1.25);
-      userClub.target = 'リーグ残留';
       userClubNewsHeadline = `【歓喜の1部昇格達成！】${userClub.name}、${state.manager.name}監督の下でトップリーグ昇格決定！`;
       userClubNewsBody = `激闘のシーズンを戦い抜いた${userClub.name}が、見事にトップディビジョンへの昇格を果たしました！取締役会は${state.manager.name}監督の手腕を絶賛し、来季の補強予算を大幅に増額（35%UP）することを決定。サポーターの歓喜の声が街中に響き渡っています。`;
     } else if (isRelegated) {
-      userClub.target = '1部昇格';
       userClubNewsHeadline = `【悔しき2部降格】${userClub.name}、来季は2部ディビジョンからの再起を誓う`;
       userClubNewsBody = `残留争いの末、${userClub.name}の2部降格が決定しました。取締役会は失望を隠せないものの、${state.manager.name}監督に対して「1年でのトップリーグ復帰」を厳命。チームの刷新と即時昇格に向けた再構築が始まります。`;
     }
@@ -1770,7 +1930,8 @@ export function processSeasonEndPromotionsAndRelegations(
       fixtures: [...playoffFixtures, ...nextFixtures],
       tournaments: updatedTournaments,
       selectedPreSeason: undefined, // Clears selection so pre-season invitations show in July!
-      clubVision: updatedVision
+      clubVision: updatedVision,
+      news: [mainNews, ...transferListingNewsList, ...(state.news || [])]
     },
     news: mainNews
   };

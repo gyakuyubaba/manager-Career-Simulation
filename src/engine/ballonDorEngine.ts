@@ -189,8 +189,13 @@ export function checkAndAdvanceBallonDor(
     return { updatedState: {} };
   }
 
+  // Strictly once per season: if winner already announced for this year, do not trigger again!
+  if (state.ballonDorYear === year && state.ballonDorWinnerAnnounced) {
+    return { updatedState: {} };
+  }
+
   // Phase 1: Early/Mid November Nominees Announcement (From Day 3 onwards)
-  if (day >= 3 && day < 25 && !state.ballonDorNomineesAnnounced) {
+  if (day >= 3 && day < 25 && (!state.ballonDorNomineesAnnounced || state.ballonDorYear !== year)) {
     const candidates = generateBallonDorCandidates(state);
     const topCandidate = candidates[0];
 
@@ -224,8 +229,8 @@ export function checkAndAdvanceBallonDor(
     };
   }
 
-  // Phase 2: Late November (Day 25 onwards) Winner Announcement Gala
-  if (day >= 25 && !state.ballonDorWinnerAnnounced) {
+  // Phase 2: Late November (Day 25 through 30) Winner Announcement Gala
+  if (day >= 25 && day <= 30 && (!state.ballonDorWinnerAnnounced || state.ballonDorYear !== year)) {
     const candidates = state.ballonDorRankings && state.ballonDorRankings.length > 0 
       ? state.ballonDorRankings 
       : generateBallonDorCandidates(state);

@@ -23,20 +23,16 @@ const ALL_LEAGUE_NAMES: Record<LeagueKey, string> = {
   'serie-b': 'Serie B (イタリア2部)',
   'ligue-1': 'Ligue 1 (フランス)',
   'ligue-2': 'Ligue 2 (フランス2部)',
+  'super-lig': 'Süper Lig (トルコ)',
+  'primeira-liga': 'Primeira Liga (ポルトガル)',
+  'eredivisie': 'Eredivisie (オランダ)',
+  'pro-league': 'Belgian Pro League (ベルギー)',
   'j1-league': '明治安田J1百年構想リーグ (日本)',
   'j2-league': '明治安田J2リーグ (日本)',
   'j3-league': '明治安田J3リーグ (日本)'
 };
 
-const LEAGUE_NAMES: Partial<Record<LeagueKey, string>> = ENABLE_J_LEAGUE 
-  ? ALL_LEAGUE_NAMES 
-  : {
-      'premier-league': 'Premier League (イングランド)',
-      'laliga': 'LaLiga (スペイン)',
-      'bundesliga': 'Bundesliga (ドイツ)',
-      'serie-a': 'Serie A (イタリア)',
-      'ligue-1': 'Ligue 1 (フランス)'
-    };
+const LEAGUE_NAMES: Partial<Record<LeagueKey, string>> = ALL_LEAGUE_NAMES;
 
 export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
@@ -504,36 +500,36 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
             )}
           </div>
 
-          {/* EUROPEAN LEAGUE PHASE STANDINGS (Redesigned: Requirement 2 matching Image 3) */}
+          {/* EUROPEAN LEAGUE PHASE STANDINGS (Redesigned: Matching regular league standings in Image 4) */}
           {isEuroCup && euroSubMode === 'league_phase' && (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-              <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="p-3.5 bg-slate-950/70 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                 <span className="font-bold text-amber-300 flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-amber-400" />
-                  36クラブ単一リーグフェーズ（上位8クラブが直接ベスト16、9〜24位がプレーオフ進出）
+                  <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>36クラブ リーグフェーズ (上位8クラブが直接ベスト16、9〜24位がプレーオフ進出)</span>
                 </span>
-                <div className="flex items-center gap-3 text-[11px] font-mono">
-                  <span className="text-emerald-400 font-bold">■ 1-8位: 自動ベスト16 (直接R16)</span>
+                <div className="flex items-center gap-3 text-[11px] font-mono shrink-0">
+                  <span className="text-emerald-400 font-bold">■ 1-8位: 直接R16</span>
                   <span className="text-cyan-400 font-bold">■ 9-24位: プレーオフ</span>
                   <span className="text-rose-400">■ 25-36位: 敗退</span>
                 </div>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-950/80 sticky top-0 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800 z-10">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead className="bg-slate-950/90 sticky top-0 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800 z-10">
                     <tr>
-                      <th className="py-2.5 px-3 text-center w-12">順位</th>
-                      <th className="py-2.5 px-4 min-w-[180px]">クラブ</th>
-                      <th className="py-2.5 px-3 text-center w-10">試合</th>
-                      <th className="py-2.5 px-3 text-center w-10 text-emerald-400">勝</th>
-                      <th className="py-2.5 px-3 text-center w-10 text-slate-400">分</th>
-                      <th className="py-2.5 px-3 text-center w-10 text-rose-400">負</th>
-                      <th className="py-2.5 px-3 text-center w-10">得点</th>
-                      <th className="py-2.5 px-3 text-center w-10">失点</th>
-                      <th className="py-2.5 px-3 text-center w-10">得失差</th>
-                      <th className="py-2.5 px-3 text-center w-28">直近5試合</th>
-                      <th className="py-2.5 px-4 text-center w-14 font-bold text-white">勝点</th>
+                      <th className="py-2.5 px-3 text-center w-10 sm:w-12">順位</th>
+                      <th className="py-2.5 px-3 min-w-[140px]">クラブ</th>
+                      <th className="py-2.5 px-2 text-center w-9 sm:w-11">試合</th>
+                      <th className="py-2.5 px-2 text-center w-9 sm:w-11 text-emerald-400">勝</th>
+                      <th className="py-2.5 px-2 text-center w-9 sm:w-11 text-slate-400">分</th>
+                      <th className="py-2.5 px-2 text-center w-9 sm:w-11 text-rose-400">負</th>
+                      <th className="py-2.5 px-2 text-center w-10 hidden sm:table-cell">得点</th>
+                      <th className="py-2.5 px-2 text-center w-10 hidden sm:table-cell">失点</th>
+                      <th className="py-2.5 px-2 text-center w-11 sm:w-12">得失差</th>
+                      <th className="py-2.5 px-2 text-center w-24 hidden md:table-cell">直近5試合</th>
+                      <th className="py-2.5 px-3 text-center w-12 sm:w-14 font-bold text-white">勝点</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -543,38 +539,38 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
 
                       let statusBadge = '';
                       let borderClass = '';
-                      let rankTextColor = 'text-slate-300';
+                      let rankTextColor = 'text-slate-400';
 
                       if (idx < 8) {
                         statusBadge = '直接R16';
-                        borderClass = 'border-l-4 border-l-emerald-500 bg-emerald-950/15';
+                        borderClass = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
                         rankTextColor = 'text-emerald-400';
                       } else if (idx < 24) {
                         statusBadge = 'PO進出';
-                        borderClass = 'border-l-4 border-l-cyan-500 bg-cyan-950/10';
+                        borderClass = 'border-l-4 border-l-cyan-500 bg-cyan-950/15';
                         rankTextColor = 'text-cyan-400';
                       } else {
                         statusBadge = '敗退';
-                        borderClass = 'border-l-4 border-l-rose-500/40 bg-rose-950/5';
+                        borderClass = 'border-l-4 border-l-rose-500/40 bg-rose-950/10';
                         rankTextColor = 'text-slate-500';
                       }
 
                       return (
                         <tr
                           key={row.clubId}
-                          className={`transition-colors ${borderClass} ${
-                            isUserClub ? 'bg-emerald-950/20 text-emerald-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
+                          className={`h-11 transition-colors ${borderClass} ${
+                            isUserClub ? 'bg-emerald-950/30 text-emerald-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
                           }`}
                         >
-                          <td className={`py-2.5 px-3 text-center font-mono font-black ${rankTextColor}`}>
+                          <td className={`py-2 px-3 text-center font-mono font-bold ${rankTextColor} align-middle`}>
                             {idx + 1}
                           </td>
-                          <td className="py-2.5 px-4">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-white truncate max-w-[170px] sm:max-w-[220px]">
+                          <td className="py-2 px-3 align-middle">
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="font-bold text-white truncate max-w-[130px] sm:max-w-[200px]">
                                 {clubObj?.name || row.clubName}
                               </span>
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 ${
                                 idx < 8 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
                                 idx < 24 ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' :
                                 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
@@ -582,22 +578,22 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                                 {statusBadge}
                               </span>
                               {isUserClub && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold shrink-0">
                                   自クラブ
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="py-2.5 px-3 text-center font-mono">{row.played}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400 font-semibold">{row.won}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-slate-400">{row.drawn}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-rose-400">{row.lost}</td>
-                          <td className="py-2.5 px-3 text-center font-mono">{row.goalsFor}</td>
-                          <td className="py-2.5 px-3 text-center font-mono">{row.goalsAgainst}</td>
-                          <td className="py-2.5 px-3 text-center font-mono font-semibold">
+                          <td className="py-2 px-2 text-center font-mono align-middle">{row.played}</td>
+                          <td className="py-2 px-2 text-center font-mono text-emerald-400 font-semibold align-middle">{row.won}</td>
+                          <td className="py-2 px-2 text-center font-mono text-slate-400 align-middle">{row.drawn}</td>
+                          <td className="py-2 px-2 text-center font-mono text-rose-400 align-middle">{row.lost}</td>
+                          <td className="py-2 px-2 text-center font-mono hidden sm:table-cell align-middle">{row.goalsFor}</td>
+                          <td className="py-2 px-2 text-center font-mono hidden sm:table-cell align-middle">{row.goalsAgainst}</td>
+                          <td className="py-2 px-2 text-center font-mono font-semibold align-middle">
                             {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
                           </td>
-                          <td className="py-2.5 px-3 text-center">
+                          <td className="py-2 px-2 text-center hidden md:table-cell align-middle">
                             <div className="flex items-center justify-center gap-1">
                               {(() => {
                                 const form = getRecentCupForm(row.clubId, selectedCup);
@@ -620,7 +616,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                               })()}
                             </div>
                           </td>
-                          <td className="py-2.5 px-4 text-center font-mono font-bold text-white text-sm">
+                          <td className="py-2 px-3 text-center font-mono font-bold text-white text-sm align-middle">
                             {row.points}
                           </td>
                         </tr>

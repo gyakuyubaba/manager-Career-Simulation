@@ -3,6 +3,7 @@ import { Club, ManagerProfile, LeagueKey, Player } from '../types/game';
 import { ALL_CLUBS } from '../data/clubsData';
 import { J2_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
+import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { buildCompletePlayersRegistry } from '../data/squadPopulator';
 import { generateClubVisionRoadmap } from '../engine/clubVisionEngine';
 import { 
@@ -32,7 +33,8 @@ interface Props {
 const ALL_SELECTABLE_CLUBS: Club[] = [
   ...ALL_CLUBS,
   ...J2_20_CLUBS,
-  ...ALL_EUROPEAN_2ND_DIVISION_CLUBS
+  ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+  ...ALL_NEW_4_LEAGUES_CLUBS
 ];
 
 const LEAGUES: { id: LeagueKey; name: string; flag: string; count: number }[] = [
@@ -47,7 +49,11 @@ const LEAGUES: { id: LeagueKey; name: string; flag: string; count: number }[] = 
   { id: 'serie-a', name: 'セリエA', flag: '🇮🇹', count: 20 },
   { id: 'serie-b', name: 'セリエB', flag: '🇮🇹', count: 20 },
   { id: 'ligue-1', name: 'リーグ・アン', flag: '🇫🇷', count: 18 },
-  { id: 'ligue-2', name: 'リーグ・ドゥ', flag: '🇫🇷', count: 18 }
+  { id: 'ligue-2', name: 'リーグ・ドゥ', flag: '🇫🇷', count: 18 },
+  { id: 'super-lig', name: 'スュペル・リグ', flag: '🇹🇷', count: 19 },
+  { id: 'primeira-liga', name: 'プリメイラ・リーガ', flag: '🇵🇹', count: 18 },
+  { id: 'eredivisie', name: 'エールディヴィジ', flag: '🇳🇱', count: 18 },
+  { id: 'pro-league', name: 'ベルギー・プロ・リーグ', flag: '🇧🇪', count: 16 }
 ];
 
 export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSelectClub, onBackToManagerCreation }) => {

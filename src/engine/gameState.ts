@@ -15,6 +15,7 @@ import {
 import { ALL_CLUBS, ENABLE_J_LEAGUE } from '../data/clubsData';
 import { J1_20_CLUBS, J2_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
+import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { FREE_AGENT_CLUB, FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 import { generateRandomYouthAcademy, generateSingleRandomYouthProspect } from '../data/youthGenerator';
 import { deriveRealisticAltPositions } from '../data/playerPositionsHelper';
@@ -59,7 +60,11 @@ export function createInitialStandings(clubs: Record<string, Club>): Record<Leag
     'ligue-2': [],
     'j1-league': [],
     'j2-league': [],
-    'j3-league': []
+    'j3-league': [],
+    'super-lig': [],
+    'primeira-liga': [],
+    'eredivisie': [],
+    'pro-league': []
   };
 
   Object.values(clubs).forEach(club => {
@@ -269,6 +274,7 @@ export function createNewGameWorld(
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    ...ALL_NEW_4_LEAGUES_CLUBS,
     FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {
@@ -384,8 +390,13 @@ export function createNewGameWorld(
 // - 2 Upper / Elite Tier clubs (reputable ambition)
 // If J.League is enabled, ensure J1 is represented prominently among the offers.
 // -------------------------------------------------------------
-export function getInitialClubOffers(allClubs: Record<string, Club>, manager?: ManagerProfile): Club[] {
-  const clubList = Object.values(allClubs);
+export function getInitialClubOffers(
+  allClubs: Record<string, Club>, 
+  manager?: ManagerProfile,
+  isMidSeason?: boolean,
+  standings?: Record<LeagueKey, StandingsRow[]>
+): Club[] {
+  const clubList = Object.values(allClubs).filter(c => c.id !== 'free_agent');
   if (clubList.length === 0) return [];
 
   // Helper to shuffle an array randomly
@@ -410,6 +421,67 @@ export function getInitialClubOffers(allClubs: Record<string, Club>, manager?: M
     return false;
   };
 
+  // =========================================================================
+  // REQUIREMENT 8: MATCHDAY 9 EMERGENCY TAKEOVER MODE
+  // Takeover clubs must strictly be authentic struggling / relegation-zone clubs,
+  // NEVER top or Elite clubs!
+  // =========================================================================
+  if (isMidSeason) {
+    const strugglingClubIds = new Set<string>();
+
+    if (standings) {
+      // Find bottom 5 clubs in each league standings
+      Object.entries(standings).forEach(([_league, rows]) => {
+        if (rows && rows.length >= 6) {
+          const bottomSlice = rows.slice(-5);
+          bottomSlice.forEach(r => strugglingClubIds.add(r.clubId));
+        }
+      });
+    }
+
+    // Filter candidate clubs: must NOT be Elite, either in bottom standings or Lower tier with struggles
+    const emergencyCandidates = clubList.filter(c => {
+      if (c.tier === 'Elite') return false; // Never top clubs for emergency rescue!
+      if (strugglingClubIds.has(c.id)) return true;
+      if (c.tier === 'Lower') return true;
+      if (c.target === 'リーグ残留' || c.fanExpectation === '残留最優先') return true;
+      return false;
+    });
+
+    const shuffledCandidates = shuffle(emergencyCandidates);
+
+    // If manager is Japanese, ensure 1-2 struggling J-League clubs
+    if (ENABLE_J_LEAGUE) {
+      const jStruggling = shuffledCandidates.filter(c => c.league === 'j1-league' || c.league === 'j2-league');
+      if (jStruggling.length > 0) {
+        tryAdd(jStruggling[0]);
+        if (manager?.nationality === '日本' && jStruggling.length > 1) {
+          tryAdd(jStruggling[1]);
+        }
+      }
+    }
+
+    // Fill remaining spots with struggling clubs from diverse leagues
+    for (const sc of shuffledCandidates) {
+      if (picked.length >= 5) break;
+      const existingLeagues = picked.map(p => p.league);
+      if (!existingLeagues.includes(sc.league) || shuffledCandidates.length <= 5) {
+        tryAdd(sc);
+      }
+    }
+
+    // Safety fallback
+    for (const sc of shuffledCandidates) {
+      if (picked.length >= 5) break;
+      tryAdd(sc);
+    }
+
+    if (picked.length > 0) {
+      return picked;
+    }
+  }
+
+  // Pre-season standard balanced offers:
   // If J.League enabled, guarantee at least 1-2 J1 clubs in the initial offers
   if (ENABLE_J_LEAGUE) {
     const j1Clubs = shuffle(clubList.filter(c => c.league === 'j1-league'));
@@ -761,6 +833,7 @@ export function migrateJLeagueIntoExistingState(state: GameWorldState): GameWorl
     ...ALL_CLUBS,
     ...J2_20_CLUBS,
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    ...ALL_NEW_4_LEAGUES_CLUBS,
     FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {
