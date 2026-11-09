@@ -12,7 +12,7 @@
 
 import { GameWorldState, Club, Player, LeagueKey, StandingsRow, DEFAULT_DIFFICULTY_SETTINGS } from '../types/game';
 import { ALL_CLUBS, ENABLE_J_LEAGUE } from '../data/clubsData';
-import { J1_20_CLUBS, J2_20_CLUBS } from '../data/jLeagueData';
+import { J1_20_CLUBS, J2_20_CLUBS, J3_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
 import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
@@ -275,14 +275,19 @@ export function migrateGameState(state: GameWorldState, oldVersion: number): Gam
     'bundesliga', '2-bundesliga',
     'serie-a', 'serie-b',
     'ligue-1', 'ligue-2',
-    'j1-league', 'j2-league',
+    'j1-league', 'j2-league', 'j3-league',
     'super-lig', 'primeira-liga',
     'eredivisie', 'pro-league'
   ];
 
-  // 2.6 Safely ensure newly added European leagues clubs exist in migrated.clubs
+  // 2.6 Safely ensure newly added European leagues & J3 clubs exist in migrated.clubs
   if (migrated.clubs) {
     ALL_NEW_4_LEAGUES_CLUBS.forEach(c => {
+      if (!migrated.clubs[c.id]) {
+        migrated.clubs[c.id] = { ...c, playerIds: [] };
+      }
+    });
+    J3_20_CLUBS.forEach(c => {
       if (!migrated.clubs[c.id]) {
         migrated.clubs[c.id] = { ...c, playerIds: [] };
       }

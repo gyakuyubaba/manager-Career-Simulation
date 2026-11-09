@@ -75,10 +75,10 @@ export const MUST_CHECK_AND_OVERSEAS_SEEDS: Record<string, RosterSeed[]> = {
     { name: 'Lucas Perri', position: 'GK', age: 28, nationality: 'ブラジル', ovr: 79, shirtNumber: 23 }
   ],
 
-  // --- Arsenal (Tomiyasu & Gyökeres presence in world elite) ---
+  // --- Arsenal (Tomiyasu & Gabriel Jesus presence in world elite) ---
   arsenal: [
     { name: '冨安 健洋 (Takehiro Tomiyasu)', position: 'RB', age: 27, nationality: '日本', ovr: 81, shirtNumber: 18, playstyle: '守備的SB', preferredFoot: '両足' },
-    { name: 'Viktor Gyökeres', position: 'ST', age: 28, nationality: 'スウェーデン', ovr: 87, shirtNumber: 9, playstyle: 'ラインブレイカー' }
+    { name: 'Gabriel Jesus', position: 'ST', age: 29, nationality: 'ブラジル', ovr: 82, shirtNumber: 9, playstyle: 'ラインブレイカー' }
   ],
 
   // --- Liverpool (Wataru Endo) ---

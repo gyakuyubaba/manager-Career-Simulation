@@ -6,7 +6,7 @@ import { EUROPEAN_MAJOR_CLUBS_2026_SEEDS } from './europeanMajorClubsRosters';
 import { makeRealPlayer } from './realPlayersDatabase';
 import { checkPlayerDataIntegrity } from '../engine/dataValidator';
 import { updateTacticsFormation } from '../engine/tacticsEngine';
-import { generateFullJLeaguePlayers, J2_20_CLUBS } from './jLeagueData';
+import { generateFullJLeaguePlayers, J2_20_CLUBS, J3_20_CLUBS } from './jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from './europeanSecondDivisionClubs';
 import { MUST_CHECK_AND_OVERSEAS_SEEDS } from './europeanSecondDivisionPlayers';
 import { FREE_AGENT_SUPERSTARS, FREE_AGENT_CLUB } from './freeAgentsData';
@@ -520,6 +520,7 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   const allClubsToEnsure: Club[] = [
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
+    ...(ENABLE_J_LEAGUE ? J3_20_CLUBS : []),
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
     ...ALL_NEW_4_LEAGUES_CLUBS
   ];

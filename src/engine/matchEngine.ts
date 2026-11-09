@@ -1433,7 +1433,7 @@ export function simulateFullMatch(
 
         events.push({
           minute: actualMin,
-          type: 'substitution',
+          type: 'sub',
           clubId: teamClub.id,
           playerId: inPlayer.id,
           playerName: inPlayer.name,

@@ -781,18 +781,18 @@ export function populateEuropeanKnockoutFixtures(state: GameWorldState): boolean
                 state.news.unshift({
                   id: newsId,
                   date: state.currentDate,
-                  title: `【${cupNameUpper}】リーグフェーズ${userIdx + 1}位！自動ベスト16進出決定（2月プレーオフ免除）`,
-                  category: 'competition',
-                  read: false,
+                  headline: `【${cupNameUpper}】リーグフェーズ${userIdx + 1}位！自動ベスト16進出決定（2月プレーオフ免除）`,
+                  category: 'tournament',
+                  importance: 'high',
                   body: `欧州${cupNameUpper}リーグフェーズ全日程が終了し、自クラブは見事${userIdx + 1}位で上位8枠に入り「自動ベスト16進出」を確定させました！2月の決勝トーナメントプレーオフは免除され、3月中旬のラウンド16まで約1ヶ月間、欧州戦のないインターバルに入ります。過密日程を回避し、国内リーグ戦やカップ戦に全力を注ぎましょう！`
                 });
               } else if (userIdx < 24) {
                 state.news.unshift({
                   id: newsId,
                   date: state.currentDate,
-                  title: `【${cupNameUpper}】リーグフェーズ${userIdx + 1}位で決勝Tプレーオフ進出決定！`,
-                  category: 'competition',
-                  read: false,
+                  headline: `【${cupNameUpper}】リーグフェーズ${userIdx + 1}位で決勝Tプレーオフ進出決定！`,
+                  category: 'tournament',
+                  importance: 'high',
                   body: `欧州${cupNameUpper}リーグフェーズを${userIdx + 1}位で終え、2月中旬に開催される決勝トーナメントプレーオフ（ホーム＆アウェイ2試合制）への進出が決定しました。ラウンド16進出を賭けて激突します！`
                 });
               }
@@ -886,9 +886,9 @@ export function advanceEuropeanPlayoffWinnersToRoundOf16(state: GameWorldState):
               state.news.unshift({
                 id: newsId,
                 date: state.currentDate,
-                title: `【${cupId.toUpperCase()}】決勝Tプレーオフ終了！ラウンド16の対戦カードが正式決定`,
-                category: 'competition',
-                read: false,
+                headline: `【${cupId.toUpperCase()}】決勝Tプレーオフ終了！ラウンド16の対戦カードが正式決定`,
+                category: 'tournament',
+                importance: 'high',
                 body: `欧州${cupId.toUpperCase()}の2月プレーオフ全試合が終了し、勝ち上がった8クラブとリーグフェーズ上位8クラブによる「ラウンド16」の全対戦カードが確定しました！3月中旬より激闘が再開されます。`
               });
             }

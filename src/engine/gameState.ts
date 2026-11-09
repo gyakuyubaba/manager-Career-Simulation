@@ -13,7 +13,7 @@ import {
   DEFAULT_DIFFICULTY_SETTINGS
 } from '../types/game';
 import { ALL_CLUBS, ENABLE_J_LEAGUE } from '../data/clubsData';
-import { J1_20_CLUBS, J2_20_CLUBS } from '../data/jLeagueData';
+import { J1_20_CLUBS, J2_20_CLUBS, J3_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
 import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { FREE_AGENT_CLUB, FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
@@ -273,6 +273,7 @@ export function createNewGameWorld(
   const allClubsList = [
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
+    ...(ENABLE_J_LEAGUE ? J3_20_CLUBS : []),
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
     ...ALL_NEW_4_LEAGUES_CLUBS,
     FREE_AGENT_CLUB
@@ -832,6 +833,7 @@ export function migrateJLeagueIntoExistingState(state: GameWorldState): GameWorl
   const allClubsList = [
     ...ALL_CLUBS,
     ...J2_20_CLUBS,
+    ...J3_20_CLUBS,
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
     ...ALL_NEW_4_LEAGUES_CLUBS,
     FREE_AGENT_CLUB

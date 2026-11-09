@@ -3664,11 +3664,11 @@ export function runAll27Tests(): TestResult[] {
   try {
     const { evaluateMatchBoardConfidence } = require('./boardConfidenceEngine');
     const testState = JSON.parse(JSON.stringify(baseState));
-    testState.userClubId = 'mancity';
+    testState.userClubId = 'man_city';
     testState.boardConfidence = 80;
     testState.consecutiveWinless = 0;
     testState.consecutiveLosses = 0;
-    const fix = { homeClubId: 'mancity', awayClubId: 'chelsea', status: 'finished' };
+    const fix = { homeClubId: 'man_city', awayClubId: 'arsenal', competition: 'premier-league', status: 'finished' };
 
     // Simulate 5 winless matches
     let lastRes: any;
@@ -3738,9 +3738,8 @@ export function runAll27Tests(): TestResult[] {
         const promoRes = processSeasonEndPromotionsAndRelegations(testState);
         const updatedBottomClub = promoRes.state.clubs[bottomClubId];
         const budgetSlashed = updatedBottomClub.transferBudget <= 55_000_000;
-        const playerListed = starP ? promoRes.state.players[starP.id]?.isTransferListed : true;
-
-        const passed = budgetSlashed && playerListed;
+        const playerListed = Boolean(starP ? promoRes.state.players[starP.id]?.isTransferListed : true);
+        const passed: boolean = Boolean(budgetSlashed && playerListed);
         results.push({
           id: 'TEST 108',
           name: '降格クラブ放映権・スポンサー予算45%削減および主力選手移籍志願リスト入り検証',

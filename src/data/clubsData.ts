@@ -1949,11 +1949,13 @@ export const ALL_116_CLUBS: Club[] = [
 // ==========================================
 export const ENABLE_J_LEAGUE = true;
 
-import { J1_20_CLUBS } from './jLeagueData';
+import { J1_20_CLUBS, J2_20_CLUBS, J3_20_CLUBS } from './jLeagueData';
 
 export const ALL_COMBINED_CLUBS: Club[] = [
   ...ALL_116_CLUBS,
-  ...J1_20_CLUBS
+  ...J1_20_CLUBS,
+  ...J2_20_CLUBS,
+  ...J3_20_CLUBS
 ];
 
 export const ALL_CLUBS = ALL_COMBINED_CLUBS;

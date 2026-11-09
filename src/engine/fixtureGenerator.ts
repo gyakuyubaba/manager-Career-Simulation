@@ -94,7 +94,8 @@ export function generateEmperorsCupFixtures(
   const cupFixtures: MatchFixture[] = [];
   const j1Clubs = Object.values(clubs).filter(c => c.league === 'j1-league');
   const j2Clubs = Object.values(clubs).filter(c => c.league === 'j2-league');
-  const allJClubs = [...j1Clubs, ...j2Clubs];
+  const j3Clubs = Object.values(clubs).filter(c => c.league === 'j3-league');
+  const allJClubs = [...j1Clubs, ...j2Clubs, ...j3Clubs];
   if (allJClubs.length < 4) return [];
 
   // Round of 32 (Seeded: J1 and J2 clubs face off or interleave)
@@ -157,7 +158,8 @@ export function generateLevainCupFixtures(
   const cupFixtures: MatchFixture[] = [];
   const j1Clubs = Object.values(clubs).filter(c => c.league === 'j1-league');
   const j2Clubs = Object.values(clubs).filter(c => c.league === 'j2-league');
-  const allJClubs = [...j1Clubs, ...j2Clubs];
+  const j3Clubs = Object.values(clubs).filter(c => c.league === 'j3-league');
+  const allJClubs = [...j1Clubs, ...j2Clubs, ...j3Clubs];
   if (allJClubs.length < 4) return [];
 
   const shuffled = [...allJClubs].sort(() => 0.5 - Math.random());

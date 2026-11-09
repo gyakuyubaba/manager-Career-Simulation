@@ -1384,18 +1384,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setFormerClubInterviewAnswer(1);
-                          if (onUpdateState) {
-                            onUpdateState(prev => ({
-                              ...prev,
-                              boardConfidence: {
-                                ...prev.boardConfidence,
-                                overallScore: Math.min(100, (prev.boardConfidence?.overallScore ?? 75) + 2)
-                              }
-                            }));
-                          }
-                        }}
+                        onClick={() => setFormerClubInterviewAnswer(1)}
                         className="p-3 rounded-2xl bg-slate-950/80 hover:bg-purple-950/50 border border-slate-800 hover:border-purple-500/50 text-left cursor-pointer transition-all space-y-1"
                       >
                         <div className="text-xs font-bold text-purple-300">① 恩義と全力勝負</div>
@@ -1404,18 +1393,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setFormerClubInterviewAnswer(2);
-                          if (onUpdateState) {
-                            onUpdateState(prev => ({
-                              ...prev,
-                              boardConfidence: {
-                                ...prev.boardConfidence,
-                                fanApproval: Math.min(100, (prev.boardConfidence?.fanApproval ?? 75) + 3)
-                              }
-                            }));
-                          }
-                        }}
+                        onClick={() => setFormerClubInterviewAnswer(2)}
                         className="p-3 rounded-2xl bg-slate-950/80 hover:bg-purple-950/50 border border-slate-800 hover:border-purple-500/50 text-left cursor-pointer transition-all space-y-1"
                       >
                         <div className="text-xs font-bold text-purple-300">② 闘志と集中力</div>
