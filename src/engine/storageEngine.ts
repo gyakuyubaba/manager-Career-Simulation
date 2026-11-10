@@ -228,7 +228,7 @@ async function deleteEnvelopeFromIDB(id: string): Promise<void> {
  * Safe Migration: Upgrades any legacy or older schema state to CURRENT_SCHEMA_VERSION.
  * NEVER destroys career trophies, matches, tactics, or records!
  */
-export function migrateGameState(state: GameWorldState, oldVersion: number): GameWorldState {
+export function migrateGameState(state: GameWorldState, oldVersion: number = 1): GameWorldState {
   let migrated = { ...state };
 
   // 1. Ensure youth academy has realistic prospects
@@ -395,6 +395,20 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     };
   });
 
+  // Ensure all official master clubs exist in nextClubs
+  const allMasterClubs: Club[] = [
+    ...ALL_CLUBS,
+    ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
+    ...(ENABLE_J_LEAGUE ? J3_20_CLUBS : []),
+    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    ...ALL_NEW_4_LEAGUES_CLUBS
+  ];
+  allMasterClubs.forEach(c => {
+    if (!nextClubs[c.id]) {
+      nextClubs[c.id] = { ...c, playerIds: [] };
+    }
+  });
+
   Object.values(nextPlayers).forEach(p => {
     if (p.clubId && nextClubs[p.clubId]) {
       if (!nextClubs[p.clubId].playerIds.includes(p.id)) {
@@ -436,12 +450,31 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     };
   }
 
+  // Ensure J3 and other new league standings are initialized if missing in old save
+  const nextStandings = { ...(savedState.standings || {}) };
+  if (!nextStandings['j3-league']) {
+    nextStandings['j3-league'] = J3_20_CLUBS.map(club => ({
+      clubId: club.id,
+      clubName: club.name,
+      played: 0,
+      won: 0,
+      drawn: 0,
+      lost: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      goalDiff: 0,
+      points: 0,
+      form: []
+    }));
+  }
+
   const nextState: GameWorldState = {
     ...savedState,
     season: '2026/27',
     rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
     players: nextPlayers,
     clubs: nextClubs,
+    standings: nextStandings,
     tactics: nextTactics
   };
 

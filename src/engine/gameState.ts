@@ -453,7 +453,7 @@ export function getInitialClubOffers(
 
     // If manager is Japanese, ensure 1-2 struggling J-League clubs
     if (ENABLE_J_LEAGUE) {
-      const jStruggling = shuffledCandidates.filter(c => c.league === 'j1-league' || c.league === 'j2-league');
+      const jStruggling = shuffledCandidates.filter(c => c.league === 'j1-league' || c.league === 'j2-league' || c.league === 'j3-league');
       if (jStruggling.length > 0) {
         tryAdd(jStruggling[0]);
         if (manager?.nationality === '日本' && jStruggling.length > 1) {

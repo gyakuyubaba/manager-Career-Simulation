@@ -204,7 +204,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                     let zoneBadge = '';
 
                     const isTopDivision = ['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1', 'j1-league'].includes(selectedLeague);
-                    const isDiv2 = ['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league'].includes(selectedLeague);
+                    const isDiv2 = ['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league', 'j3-league'].includes(selectedLeague);
 
                     if (isTopDivision) {
                       if (['premier-league', 'laliga', 'serie-a', 'bundesliga'].includes(selectedLeague)) {
@@ -266,6 +266,17 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                         } else if (idx >= standings.length - 3) {
                           zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
                           zoneBadge = '降格圏';
+                        }
+                      } else if (selectedLeague === 'j3-league') {
+                        if (idx < 2) {
+                          zoneBg = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
+                          zoneBadge = '自動昇格';
+                        } else if (idx >= 2 && idx < 6) {
+                          zoneBg = 'border-l-4 border-l-sky-500 bg-sky-950/20';
+                          zoneBadge = 'PO進出';
+                        } else if (idx >= standings.length - 2) {
+                          zoneBg = 'border-l-4 border-l-rose-500 bg-rose-950/20';
+                          zoneBadge = 'JFL降格圏';
                         }
                       } else if (selectedLeague === 'segunda-division') {
                         if (idx < 2) {
@@ -397,7 +408,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                   </div>
                 </>
               )}
-              {['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league'].includes(selectedLeague) && (
+              {['championship', 'segunda-division', '2-bundesliga', 'serie-b', 'ligue-2', 'j2-league', 'j3-league'].includes(selectedLeague) && (
                 <>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span>

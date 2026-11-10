@@ -492,13 +492,18 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     addPlayerIfUnique(player);
   });
 
-  // 3. First load all authentic J-League players (J1 and J2 authentic rosters)
+  // 3. Register Authentic Stars from the 4 New European Leagues
+  REAL_NEW_LEAGUES_STARS.forEach(p => {
+    addPlayerIfUnique(p);
+  });
+
+  // 3b. Load all authentic J-League players (J1, J2, and J3 authentic rosters)
   let baseRegistry = registry;
   if (ENABLE_J_LEAGUE) {
     baseRegistry = generateFullJLeaguePlayers(baseRegistry);
   }
 
-  // 3b. Register Free Agent Superstars (Messi, Ronaldo, Neymar, James Rodriguez, Carvajal, Sergio Ramos)
+  // 3c. Register Free Agent Superstars (Messi, Ronaldo, Neymar, James Rodriguez, Carvajal, Sergio Ramos)
   FREE_AGENT_SUPERSTARS.forEach(fa => {
     baseRegistry[fa.id] = {
       ...fa,
@@ -508,11 +513,6 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
       injury: { isInjured: false },
       suspension: { isSuspended: false, matchesRemaining: 0 }
     };
-  });
-
-  // 3c. Register Authentic Stars from the 4 New European Leagues
-  REAL_NEW_LEAGUES_STARS.forEach(p => {
-    addPlayerIfUnique(p);
   });
 
   // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs + 71 New European League clubs) have at least 25 players across positions
