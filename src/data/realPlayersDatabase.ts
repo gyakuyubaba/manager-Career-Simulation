@@ -102,6 +102,8 @@ export function makeRealPlayer(
     isTransferListed: false,
     isLoanListed: false,
     accumulatedYellowCards: {},
-    accumulatedRedCards: {}
+    accumulatedRedCards: {},
+    isVerified: true,
+    verificationStatus: 'verified'
   };
 }

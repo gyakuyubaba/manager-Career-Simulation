@@ -11,6 +11,8 @@ import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from './europeanSecondDivisionClubs';
 import { MUST_CHECK_AND_OVERSEAS_SEEDS } from './europeanSecondDivisionPlayers';
 import { FREE_AGENT_SUPERSTARS, FREE_AGENT_CLUB } from './freeAgentsData';
 import { ALL_NEW_4_LEAGUES_CLUBS, REAL_NEW_LEAGUES_STARS } from './europeanNewLeaguesData';
+import { J_LEAGUE_2026_ADDITIONAL_ROSTERS } from './jLeagueFullRosters2026';
+import { EUROPEAN_ENGLAND_2026_SEEDS } from './europeanEnglandRosters2026';
 
 // Standard 25 squad positions template (3 GKs, 4 CBs, 2 LBs, 2 RBs, 2 CDMs, 2 CMs, 2 CAMs, 1 LM, 1 RM, 1 LW, 1 RW, 3 STs, 1 CF)
 const SQUAD_POSITIONS_TEMPLATE: Position[] = [
@@ -202,6 +204,8 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
       ...p,
       id: finalId,
       name: finalName,
+      isVerified: p.isVerified !== undefined ? p.isVerified : true,
+      verificationStatus: p.verificationStatus || 'verified',
       currentClubId: p.clubId,
       squadStatus: p.squadStatus || 'OUT_OF_SQUAD',
       injuryStatus: p.injuryStatus || (p.injury?.isInjured ? 'INJURED' : 'FIT'),
@@ -303,6 +307,56 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
         seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
       );
 
+      addPlayerIfUnique(player);
+    });
+  });
+
+  // 2a-3. Register authentic 2026/27 J2 and J3 squad additions
+  Object.entries(J_LEAGUE_2026_ADDITIONAL_ROSTERS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_j26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 75 ? 2500000 : seed.ovr >= 70 ? 1100000 : 500000;
+      const wageMultiplier = seed.ovr >= 75 ? 35000 : seed.ovr >= 70 ? 18000 : 9000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? '守備的GK' : 'ボックストゥボックス')
+      );
+      addPlayerIfUnique(player);
+    });
+  });
+
+  // 2a-4. Register authentic 2026/27 Premier League depth and all 24 Championship clubs
+  Object.entries(EUROPEAN_ENGLAND_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_eng26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;
+      const wageMultiplier = seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 15000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
       addPlayerIfUnique(player);
     });
   });
@@ -507,6 +561,8 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   FREE_AGENT_SUPERSTARS.forEach(fa => {
     baseRegistry[fa.id] = {
       ...fa,
+      isVerified: true,
+      verificationStatus: 'verified',
       currentClubId: fa.clubId,
       squadStatus: 'OUT_OF_SQUAD',
       injuryStatus: 'HEALTHY',
@@ -567,27 +623,11 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
       
       const potential = age <= 22 ? Math.min(90, ovr + 7) : ovr;
 
-      // Unique name generation
-      let uniqueFullName = '';
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const fIdx = (clubIdx * 7 + gIdx * 11 + attempt * 3) % depthData.firstNames.length;
-        const lIdx = (clubIdx * 13 + gIdx * 17 + attempt * 5) % depthData.lastNames.length;
-        const fName = depthData.firstNames[fIdx];
-        const lName = depthData.lastNames[lIdx];
-        const mid = MIDDLE_INITIALS[(clubIdx + gIdx + attempt) % MIDDLE_INITIALS.length];
-        const candidate = isJapan 
-          ? (attempt === 0 ? `${lName} ${fName}` : `${lName} ${fName}${attempt > 1 ? attempt : ''}`)
-          : (attempt === 0 ? `${fName} ${lName}` : `${fName} ${mid} ${lName}`);
-        const norm = candidate.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-        if (!usedGlobalNames.has(norm)) {
-          uniqueFullName = candidate;
-          usedGlobalNames.add(norm);
-          break;
-        }
-      }
-      if (!uniqueFullName) {
-        uniqueFullName = isJapan ? `GK 守備${club.shortName || clubIdx}${gkOrder}` : `${club.shortName || 'Club'} Keeper ${gkOrder}`;
-      }
+      // Transparent unconfirmed squad depth slot for simulation integrity
+      const clubTag = club.shortName || club.name;
+      const uniqueFullName = isJapan 
+        ? `[未確認・U21枠] GK ${gkOrder} (${clubTag})` 
+        : `[未確認・U21] GK ${gkOrder} (${clubTag})`;
 
       const gkPlayer = makeRealPlayer(
         pId,
@@ -608,6 +648,8 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
         '右',
         gkOrder === 2 ? 'ショットストッパー' : '守備的GK'
       );
+      gkPlayer.isVerified = false;
+      gkPlayer.verificationStatus = 'unconfirmed';
 
       // Fine-tune GK stats
       gkPlayer.gk = ovr;
@@ -655,27 +697,11 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
             ? Math.max(ovr, ovr + (i % 2))
             : ovr;
 
-      // Unique name generation
-      let uniqueFullName = '';
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const fIdx = (clubIdx * 5 + i * 2 + attempt * 3) % depthData.firstNames.length;
-        const lIdx = (clubIdx * 7 + i * 3 + attempt * 5) % depthData.lastNames.length;
-        const fName = depthData.firstNames[fIdx];
-        const lName = depthData.lastNames[lIdx];
-        const mid = MIDDLE_INITIALS[(clubIdx * 2 + i + attempt) % MIDDLE_INITIALS.length];
-        const candidate = isJapan 
-          ? (attempt === 0 ? `${lName} ${fName}` : `${lName} ${fName}${attempt > 1 ? attempt : ''}`)
-          : (attempt === 0 ? `${fName} ${lName}` : `${fName} ${mid} ${lName}`);
-        const norm = candidate.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-        if (!usedGlobalNames.has(norm)) {
-          uniqueFullName = candidate;
-          usedGlobalNames.add(norm);
-          break;
-        }
-      }
-      if (!uniqueFullName) {
-        uniqueFullName = isJapan ? `${club.shortName || '選手'}${i + 1}` : `${club.shortName || 'Player'} ${i + 1}`;
-      }
+      // Transparent unconfirmed squad depth slot for simulation integrity
+      const clubTag = club.shortName || club.name;
+      const uniqueFullName = isJapan 
+        ? `[未確認・U21枠] ${pos} ${i + 1} (${clubTag})` 
+        : `[未確認・U21] ${pos} ${i + 1} (${clubTag})`;
 
       const player = makeRealPlayer(
         pId,
@@ -696,6 +722,8 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
         i % 3 === 0 ? '左' : '右',
         pos === 'CB' ? 'ボール運べるCB' : 'チャンスメイカー'
       );
+      player.isVerified = false;
+      player.verificationStatus = 'unconfirmed';
 
       if (!baseRegistry[player.id]) {
         baseRegistry[player.id] = player;
@@ -743,7 +771,10 @@ export function populateClubsWithDefaultSquads(
       const pId = `p_${club.id}_gk_supp_${club.playerIds.length + 1}`;
       const fIdx = (clubIdx * 7 + g * 3) % depthData.firstNames.length;
       const lIdx = (clubIdx * 11 + g * 5) % depthData.lastNames.length;
-      const name = isJapan ? `${depthData.lastNames[lIdx]} ${depthData.firstNames[fIdx]}` : `${depthData.firstNames[fIdx]} ${depthData.lastNames[lIdx]}`;
+      const clubTag = club.shortName || club.name;
+      const name = isJapan 
+        ? `[未確認・U21枠] GK ${gkOrder} (${clubTag})` 
+        : `[未確認・U21] GK ${gkOrder} (${clubTag})`;
       const gkPlayer = makeRealPlayer(
         pId,
         name,
@@ -761,6 +792,8 @@ export function populateClubsWithDefaultSquads(
       );
       gkPlayer.gk = tierBaseOvr - 2;
       gkPlayer.defending = Math.floor(gkPlayer.gk * 0.45);
+      gkPlayer.isVerified = false;
+      gkPlayer.verificationStatus = 'unconfirmed';
       cleanPlayers[pId] = gkPlayer;
       club.playerIds.push(pId);
     }
@@ -772,9 +805,10 @@ export function populateClubsWithDefaultSquads(
     for (let i = 0; i < neededOutfield; i++) {
       const pId = `p_${club.id}_supp_${club.playerIds.length + 1}`;
       const pos = OUTFIELD_POS[i % OUTFIELD_POS.length];
-      const fIdx = (clubIdx * 9 + i * 4) % depthData.firstNames.length;
-      const lIdx = (clubIdx * 13 + i * 6) % depthData.lastNames.length;
-      const name = isJapan ? `${depthData.lastNames[lIdx]} ${depthData.firstNames[fIdx]}` : `${depthData.firstNames[fIdx]} ${depthData.lastNames[lIdx]}`;
+      const clubTag = club.shortName || club.name;
+      const name = isJapan 
+        ? `[未確認・U21枠] ${pos} ${i + 1} (${clubTag})` 
+        : `[未確認・U21] ${pos} ${i + 1} (${clubTag})`;
       const outfieldPlayer = makeRealPlayer(
         pId,
         name,
@@ -790,6 +824,8 @@ export function populateClubsWithDefaultSquads(
         i % 3 === 0 ? '左' : '右',
         'チャンスメイカー'
       );
+      outfieldPlayer.isVerified = false;
+      outfieldPlayer.verificationStatus = 'unconfirmed';
       cleanPlayers[pId] = outfieldPlayer;
       club.playerIds.push(pId);
     }

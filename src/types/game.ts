@@ -263,6 +263,10 @@ export interface Player {
   // Type 2 High School Player Registration (2種登録選手)
   isType2Registered?: boolean;
   isType2?: boolean;
+
+  // Data Verification Status (公式データ再検証ステータス)
+  isVerified?: boolean;
+  verificationStatus?: 'verified' | 'unconfirmed';
   type2HighSchool?: string;
   type2UnavailableDates?: string[];
   competitionStats?: Record<string, PlayerStats>;

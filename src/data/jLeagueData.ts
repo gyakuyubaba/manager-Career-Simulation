@@ -725,7 +725,9 @@ export function generateFullJLeaguePlayers(existingPlayers: Record<string, Playe
         redCards: 0,
         avgRating: 6.0
       },
-      shirtNumber: raw.shirtNumber
+      shirtNumber: raw.shirtNumber,
+      isVerified: true,
+      verificationStatus: 'verified'
     };
     result[p.id] = p;
   });

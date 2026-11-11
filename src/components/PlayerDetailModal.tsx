@@ -80,6 +80,15 @@ export const PlayerDetailModal: React.FC<Props> = ({
                 <span className="px-2 py-0.5 rounded bg-blue-950 text-blue-300 text-xs font-mono font-bold border border-blue-800">
                   {player.position}
                 </span>
+                {player.verificationStatus === 'verified' || player.isVerified ? (
+                  <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 text-[10px] font-bold border border-emerald-800/80">
+                    実在確認済
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 text-[10px] font-bold border border-amber-800/80">
+                    未確認・U21枠
+                  </span>
+                )}
                 
                 {isUserPlayer && onUpdateShirtNumber ? (
                   <div className="flex items-center gap-1.5">
