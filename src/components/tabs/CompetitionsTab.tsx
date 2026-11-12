@@ -530,17 +530,17 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="bg-slate-950/90 sticky top-0 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800 z-10">
                     <tr>
-                      <th className="py-2.5 px-3 text-center w-10 sm:w-12">順位</th>
-                      <th className="py-2.5 px-3 min-w-[140px]">クラブ</th>
-                      <th className="py-2.5 px-2 text-center w-9 sm:w-11">試合</th>
-                      <th className="py-2.5 px-2 text-center w-9 sm:w-11 text-emerald-400">勝</th>
-                      <th className="py-2.5 px-2 text-center w-9 sm:w-11 text-slate-400">分</th>
-                      <th className="py-2.5 px-2 text-center w-9 sm:w-11 text-rose-400">負</th>
-                      <th className="py-2.5 px-2 text-center w-10 hidden sm:table-cell">得点</th>
-                      <th className="py-2.5 px-2 text-center w-10 hidden sm:table-cell">失点</th>
-                      <th className="py-2.5 px-2 text-center w-11 sm:w-12">得失差</th>
-                      <th className="py-2.5 px-2 text-center w-24 hidden md:table-cell">直近5試合</th>
-                      <th className="py-2.5 px-3 text-center w-12 sm:w-14 font-bold text-white">勝点</th>
+                      <th className="py-3 px-3 text-center w-10 sm:w-12">順位</th>
+                      <th className="py-3 px-4 min-w-[140px]">クラブ</th>
+                      <th className="py-3 px-2 sm:px-3 text-center w-9 sm:w-11">試合</th>
+                      <th className="py-3 px-2 sm:px-3 text-center w-9 sm:w-11 text-emerald-400">勝</th>
+                      <th className="py-3 px-2 sm:px-3 text-center w-9 sm:w-11 text-slate-400">分</th>
+                      <th className="py-3 px-2 sm:px-3 text-center w-9 sm:w-11 text-rose-400">負</th>
+                      <th className="py-3 px-2 text-center w-10 hidden sm:table-cell">得点</th>
+                      <th className="py-3 px-2 text-center w-10 hidden sm:table-cell">失点</th>
+                      <th className="py-3 px-2 sm:px-3 text-center w-11 sm:w-12">得失差</th>
+                      <th className="py-3 px-2 text-center w-24 hidden md:table-cell">直近5試合</th>
+                      <th className="py-3 px-3 sm:px-4 text-center w-12 sm:w-14 font-bold text-white text-sm">勝点</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -555,56 +555,54 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                       if (idx < 8) {
                         statusBadge = '直接R16';
                         borderClass = 'border-l-4 border-l-emerald-500 bg-emerald-950/20';
-                        rankTextColor = 'text-emerald-400';
+                        rankTextColor = 'text-emerald-400 font-bold';
                       } else if (idx < 24) {
-                        statusBadge = 'PO進出';
-                        borderClass = 'border-l-4 border-l-cyan-500 bg-cyan-950/15';
-                        rankTextColor = 'text-cyan-400';
+                        statusBadge = 'プレーオフ';
+                        borderClass = 'border-l-4 border-l-sky-500 bg-sky-950/20';
+                        rankTextColor = 'text-sky-400 font-bold';
                       } else {
                         statusBadge = '敗退';
-                        borderClass = 'border-l-4 border-l-rose-500/40 bg-rose-950/10';
+                        borderClass = 'border-l-4 border-l-rose-500/30 bg-rose-950/10';
                         rankTextColor = 'text-slate-500';
                       }
 
                       return (
                         <tr
                           key={row.clubId}
-                          className={`h-11 transition-colors ${borderClass} ${
+                          className={`transition-colors ${borderClass} ${
                             isUserClub ? 'bg-emerald-950/30 text-emerald-300 font-bold' : 'hover:bg-slate-800/30 text-slate-300'
                           }`}
                         >
-                          <td className={`py-2 px-3 text-center font-mono font-bold ${rankTextColor} align-middle`}>
+                          <td className={`py-3 px-3 text-center font-mono font-bold ${rankTextColor}`}>
                             {idx + 1}
                           </td>
-                          <td className="py-2 px-3 align-middle">
-                            <div className="flex items-center gap-1.5 whitespace-nowrap">
-                              <span className="font-bold text-white truncate max-w-[130px] sm:max-w-[200px]">
-                                {clubObj?.name || row.clubName}
+                          <td className="py-3 px-4 flex items-center gap-2">
+                            <span className="font-bold text-white truncate max-w-[130px] sm:max-w-[200px]">
+                              {clubObj?.name || row.clubName}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                              idx < 8 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                              idx < 24 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40' :
+                              'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}>
+                              {statusBadge}
+                            </span>
+                            {isUserClub && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold shrink-0">
+                                自クラブ
                               </span>
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 ${
-                                idx < 8 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                                idx < 24 ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' :
-                                'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                              }`}>
-                                {statusBadge}
-                              </span>
-                              {isUserClub && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold shrink-0">
-                                  自クラブ
-                                </span>
-                              )}
-                            </div>
+                            )}
                           </td>
-                          <td className="py-2 px-2 text-center font-mono align-middle">{row.played}</td>
-                          <td className="py-2 px-2 text-center font-mono text-emerald-400 font-semibold align-middle">{row.won}</td>
-                          <td className="py-2 px-2 text-center font-mono text-slate-400 align-middle">{row.drawn}</td>
-                          <td className="py-2 px-2 text-center font-mono text-rose-400 align-middle">{row.lost}</td>
-                          <td className="py-2 px-2 text-center font-mono hidden sm:table-cell align-middle">{row.goalsFor}</td>
-                          <td className="py-2 px-2 text-center font-mono hidden sm:table-cell align-middle">{row.goalsAgainst}</td>
-                          <td className="py-2 px-2 text-center font-mono font-semibold align-middle">
+                          <td className="py-3 px-2 sm:px-3 text-center font-mono">{row.played}</td>
+                          <td className="py-3 px-2 sm:px-3 text-center font-mono text-emerald-400 font-semibold">{row.won}</td>
+                          <td className="py-3 px-2 sm:px-3 text-center font-mono text-slate-400">{row.drawn}</td>
+                          <td className="py-3 px-2 sm:px-3 text-center font-mono text-rose-400">{row.lost}</td>
+                          <td className="py-3 px-2 text-center font-mono hidden sm:table-cell">{row.goalsFor}</td>
+                          <td className="py-3 px-2 text-center font-mono hidden sm:table-cell">{row.goalsAgainst}</td>
+                          <td className="py-3 px-2 sm:px-3 text-center font-mono font-semibold">
                             {row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}
                           </td>
-                          <td className="py-2 px-2 text-center hidden md:table-cell align-middle">
+                          <td className="py-3 px-2 text-center hidden md:table-cell">
                             <div className="flex items-center justify-center gap-1">
                               {(() => {
                                 const form = getRecentCupForm(row.clubId, selectedCup);
@@ -627,7 +625,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                               })()}
                             </div>
                           </td>
-                          <td className="py-2 px-3 text-center font-mono font-bold text-white text-sm align-middle">
+                          <td className="py-3 px-3 sm:px-4 text-center font-mono font-bold text-white text-sm sm:text-base">
                             {row.points}
                           </td>
                         </tr>

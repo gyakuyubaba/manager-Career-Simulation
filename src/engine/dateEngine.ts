@@ -1227,7 +1227,62 @@ export function scheduleSecondDivisionPlayoffs(state: GameWorldState): boolean {
         }
       }
     }
+  // 3b. J3 League (Japan): 3rd vs 6th, 4th vs 5th -> J2昇格プレーオフ 決勝
+  if ((state.currentDate || '') >= `${currentYear}-11-20`) {
+    const j3Rows = state.standings['j3-league'] || [];
+    if (j3Rows.length >= 6) {
+      const existingJ3Po = state.fixtures.some(f => f.competition === 'j3-playoffs');
+      if (!existingJ3Po) {
+        state.fixtures.push({
+          id: `fix_j3_po_sf1_${currentYear}`,
+          date: `${currentYear}-12-01`,
+          competition: 'j3-playoffs',
+          competitionName: 'J2 昇格プレーオフ (J3) 準決勝',
+          round: '準決勝',
+          homeClubId: j3Rows[2].clubId,
+          awayClubId: j3Rows[5].clubId,
+          status: 'upcoming',
+          isUserMatch: Boolean(state.userClubId && (j3Rows[2].clubId === state.userClubId || j3Rows[5].clubId === state.userClubId))
+        });
+        state.fixtures.push({
+          id: `fix_j3_po_sf2_${currentYear}`,
+          date: `${currentYear}-12-01`,
+          competition: 'j3-playoffs',
+          competitionName: 'J2 昇格プレーオフ (J3) 準決勝',
+          round: '準決勝',
+          homeClubId: j3Rows[3].clubId,
+          awayClubId: j3Rows[4].clubId,
+          status: 'upcoming',
+          isUserMatch: Boolean(state.userClubId && (j3Rows[3].clubId === state.userClubId || j3Rows[4].clubId === state.userClubId))
+        });
+        state.fixtures.push({
+          id: `fix_j3_po_final_${currentYear}`,
+          date: `${currentYear}-12-07`,
+          competition: 'j3-playoffs',
+          competitionName: 'J2 昇格プレーオフ (J3) 決勝',
+          round: '決勝',
+          homeClubId: 'tbd',
+          awayClubId: 'tbd',
+          status: 'upcoming',
+          isUserMatch: false
+        });
+        changed = true;
+      } else {
+        const sf1 = state.fixtures.find(f => f.id === `fix_j3_po_sf1_${currentYear}`);
+        const sf2 = state.fixtures.find(f => f.id === `fix_j3_po_sf2_${currentYear}`);
+        const fin = state.fixtures.find(f => f.id === `fix_j3_po_final_${currentYear}`);
+        if (sf1?.status === 'finished' && sf2?.status === 'finished' && fin && (fin.homeClubId === 'tbd' || !fin.homeClubId)) {
+          const w1 = sf1.penaltyShootout ? (sf1.penaltyShootout.winnerClubId || (sf1.penaltyShootout.homeScore > sf1.penaltyShootout.awayScore ? sf1.homeClubId : sf1.awayClubId)) : ((sf1.homeScore ?? 0) >= (sf1.awayScore ?? 0) ? sf1.homeClubId : sf1.awayClubId);
+          const w2 = sf2.penaltyShootout ? (sf2.penaltyShootout.winnerClubId || (sf2.penaltyShootout.homeScore > sf2.penaltyShootout.awayScore ? sf2.homeClubId : sf2.awayClubId)) : ((sf2.homeScore ?? 0) >= (sf2.awayScore ?? 0) ? sf2.homeClubId : sf2.awayClubId);
+          fin.homeClubId = w1;
+          fin.awayClubId = w2;
+          fin.isUserMatch = Boolean(state.userClubId && (w1 === state.userClubId || w2 === state.userClubId));
+          changed = true;
+        }
+      }
+    }
   }
+}
 
   // 4. Bundesliga Relegation Playoff: 16th of Bundesliga vs 3rd of 2. Bundesliga
   if ((state.currentDate || '') >= `${nextYear}-05-18`) {
@@ -1668,6 +1723,36 @@ export function processSeasonEndPromotionsAndRelegations(
   }
   const j2Promoted = [...j2DirectPromoted, ...(j2PlayoffWinner ? [j2PlayoffWinner] : [])];
 
+  // J2 bottom 3 relegated to J3. J3: 1st, 2nd auto promoted, 3rd-6th enter J3 Playoff
+  const j2Relegated = j2Rows.length >= 20 ? j2Rows.slice(-3).map(r => r.clubId) : (j2Rows.length >= 3 ? j2Rows.slice(-3).map(r => r.clubId) : []);
+  const j3Rows = getStandings('j3-league');
+  const j3DirectPromoted = j3Rows.length >= 2 ? j3Rows.slice(0, 2).map(r => r.clubId) : [];
+  let j3PlayoffWinner = '';
+
+  const existingJ3Final = state.fixtures.find(f => 
+    f.competition === 'j3-playoffs' && 
+    (f.round === '決勝' || f.competitionName?.includes('決勝')) && 
+    f.status === 'finished'
+  );
+
+  if (existingJ3Final && existingJ3Final.homeClubId && existingJ3Final.awayClubId && existingJ3Final.homeClubId !== 'tbd' && existingJ3Final.awayClubId !== 'tbd') {
+    if (existingJ3Final.penaltyShootout) {
+      j3PlayoffWinner = existingJ3Final.penaltyShootout.winnerClubId || (existingJ3Final.penaltyShootout.homeScore > existingJ3Final.penaltyShootout.awayScore ? existingJ3Final.homeClubId : existingJ3Final.awayClubId);
+    } else {
+      j3PlayoffWinner = (existingJ3Final.homeScore ?? 0) >= (existingJ3Final.awayScore ?? 0) ? existingJ3Final.homeClubId : existingJ3Final.awayClubId;
+    }
+  } else if (j3Rows.length >= 6) {
+    const j3Sf1 = simulatePlayoffMatch(j3Rows[2].clubId, j3Rows[5].clubId, 'j3-playoffs', 'J2 昇格プレーオフ (J3) 準決勝', '準決勝', `${currentYear}-12-01`);
+    const j3Sf2 = simulatePlayoffMatch(j3Rows[3].clubId, j3Rows[4].clubId, 'j3-playoffs', 'J2 昇格プレーオフ (J3) 準決勝', '準決勝', `${currentYear}-12-01`);
+    playoffFixtures.push(j3Sf1.fixture, j3Sf2.fixture);
+    const j3Fin = simulatePlayoffMatch(j3Sf1.winnerId, j3Sf2.winnerId, 'j3-playoffs', 'J2 昇格プレーオフ (J3) 決勝', '決勝', `${currentYear}-12-07`);
+    playoffFixtures.push(j3Fin.fixture);
+    j3PlayoffWinner = j3Fin.winnerId;
+  } else {
+    j3PlayoffWinner = j3Rows.length >= 3 ? j3Rows[2]?.clubId : '';
+  }
+  const j3Promoted = [...j3DirectPromoted, ...(j3PlayoffWinner ? [j3PlayoffWinner] : [])];
+
   // Store newly simulated playoff fixtures into state
   if (playoffFixtures.length > 0) {
     state.fixtures.push(...playoffFixtures);
@@ -1692,6 +1777,9 @@ export function processSeasonEndPromotionsAndRelegations(
   j1Relegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'j2-league'; clubs[id].division = 2; } });
   j2Promoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'j1-league'; clubs[id].division = 1; } });
 
+  j2Relegated.forEach(id => { if (clubs[id]) { clubs[id].league = 'j3-league'; clubs[id].division = 3; } });
+  j3Promoted.forEach(id => { if (clubs[id]) { clubs[id].league = 'j2-league'; clubs[id].division = 2; } });
+
   // Combine all promoted and relegated clubs across all leagues
   const allRelegatedClubIds = [
     ...plRelegated,
@@ -1699,7 +1787,8 @@ export function processSeasonEndPromotionsAndRelegations(
     ...blRelegated,
     ...saRelegated,
     ...l1Relegated,
-    ...j1Relegated
+    ...j1Relegated,
+    ...j2Relegated
   ];
 
   const allPromotedClubIds = [
@@ -1708,7 +1797,8 @@ export function processSeasonEndPromotionsAndRelegations(
     ...bl2Promoted,
     ...sbPromoted,
     ...l2Promoted,
-    ...j2Promoted
+    ...j2Promoted,
+    ...j3Promoted
   ];
 
   // =========================================================================

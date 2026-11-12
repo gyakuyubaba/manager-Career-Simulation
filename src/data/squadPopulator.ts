@@ -13,6 +13,7 @@ import { FREE_AGENT_SUPERSTARS, FREE_AGENT_CLUB } from './freeAgentsData';
 import { ALL_NEW_4_LEAGUES_CLUBS, REAL_NEW_LEAGUES_STARS } from './europeanNewLeaguesData';
 import { J_LEAGUE_2026_ADDITIONAL_ROSTERS } from './jLeagueFullRosters2026';
 import { EUROPEAN_ENGLAND_2026_SEEDS } from './europeanEnglandRosters2026';
+import { EUROPEAN_SPAIN_2026_SEEDS } from './europeanSpainRosters2026';
 
 // Standard 25 squad positions template (3 GKs, 4 CBs, 2 LBs, 2 RBs, 2 CDMs, 2 CMs, 2 CAMs, 1 LM, 1 RM, 1 LW, 1 RW, 3 STs, 1 CF)
 const SQUAD_POSITIONS_TEMPLATE: Position[] = [
@@ -340,6 +341,31 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   Object.entries(EUROPEAN_ENGLAND_2026_SEEDS).forEach(([clubId, seeds]) => {
     seeds.forEach((seed, idx) => {
       const pId = `${clubId}_eng26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;
+      const wageMultiplier = seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 15000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
+      addPlayerIfUnique(player);
+    });
+  });
+
+  // 2a-es. Register authentic 2026/27 Spanish rosters (LaLiga and Segunda Division)
+  Object.entries(EUROPEAN_SPAIN_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_esp26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
       const tierMultiplier = seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;
       const wageMultiplier = seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 15000;
       const player = makeRealPlayer(

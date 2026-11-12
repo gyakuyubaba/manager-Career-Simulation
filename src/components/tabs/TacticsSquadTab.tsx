@@ -4,6 +4,7 @@ import { Shield, Users, Activity, Shuffle, Sliders, AlertCircle, AlertTriangle, 
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
 import { executePlayerReplacement, updatePlayerShirtNumber } from '../../engine/dataValidator';
 import { getPositionFitOvr, FORMATION_TEMPLATES, updateTacticsFormation } from '../../engine/tacticsEngine';
+import { FatigueGauge } from '../common/FatigueGauge';
 
 interface Props {
   state: GameWorldState;
@@ -910,6 +911,11 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                         {renderConditionDot(p.condition)}
                         <span className="font-bold truncate max-w-[85px] sm:max-w-[110px]">{p.name.split(' ')[0]}</span>
                         <span className="text-emerald-400 font-mono font-black">{fit.effectiveOvr}</span>
+                      </div>
+
+                      {/* Fatigue Gauge below name badge */}
+                      <div className="w-12 mt-0.5">
+                        <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
                       </div>
 
                       {isUnavailable && (

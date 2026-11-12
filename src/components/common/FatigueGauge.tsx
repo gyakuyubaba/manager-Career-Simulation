@@ -16,34 +16,34 @@ export function getFatigueInfo(fatigue: number): { clamped: number; label: strin
   const clamped = Math.max(0, Math.min(100, Math.round(fatigue)));
 
   // User specification:
-  // - 溜まってなかったら (0〜24%): ゲージはそのままの色 (bg-sky-400 / 鮮やかなベースカラー)
-  // - あまり溜まってなかったら (25〜49%): 緑 (bg-emerald-400)
-  // - まあまあ溜まってたら (50〜74%): オレンジ (bg-amber-400)
-  // - めっちゃ溜まってたら (75〜100%): 赤 (bg-red-500)
-  let barColor = 'bg-sky-400';
-  let textColor = 'text-sky-400';
-  let labelText = '疲労が少ない';
+  // - 溜まってなかったら (0〜25%): 鮮やかな緑 (bg-emerald-400 / 元気・万全)
+  // - あまり溜まってなかったら (26〜50%): ライムグリーン (bg-lime-400 / 軽い疲労)
+  // - まあまあ溜まってたら (51〜74%): オレンジ・アンバー (bg-amber-400 / 疲労あり)
+  // - めっちゃ溜まってたら (75〜100%): 鮮烈な赤 (bg-rose-500 / 限界・高疲労)
+  let barColor = 'bg-emerald-400';
+  let textColor = 'text-emerald-400';
+  let labelText = '疲労なし';
 
-  if (clamped >= 90) {
-    barColor = 'bg-red-500';
-    textColor = 'text-red-400';
-    labelText = '非常に疲労';
-  } else if (clamped >= 75) {
-    barColor = 'bg-red-500';
-    textColor = 'text-red-400';
+  if (clamped >= 85) {
+    barColor = 'bg-rose-500';
+    textColor = 'text-rose-400';
+    labelText = '極度の疲労';
+  } else if (clamped >= 70) {
+    barColor = 'bg-rose-500';
+    textColor = 'text-rose-400';
     labelText = 'かなり疲労';
-  } else if (clamped >= 50) {
+  } else if (clamped >= 45) {
     barColor = 'bg-amber-400';
     textColor = 'text-amber-400';
     labelText = '疲労あり';
-  } else if (clamped >= 25) {
-    barColor = 'bg-emerald-400';
-    textColor = 'text-emerald-400';
+  } else if (clamped >= 20) {
+    barColor = 'bg-lime-400';
+    textColor = 'text-lime-400';
     labelText = '軽い疲労';
   } else {
-    barColor = 'bg-sky-400';
-    textColor = 'text-sky-400';
-    labelText = '疲労が少ない';
+    barColor = 'bg-emerald-400';
+    textColor = 'text-emerald-400';
+    labelText = '疲労なし';
   }
 
   return { clamped, label: labelText, labelText, barColor, textColor };
@@ -61,15 +61,15 @@ export const FatigueGauge: React.FC<Props> = ({
   const { clamped, barColor, textColor } = getFatigueInfo(fatigue);
 
   // Remaining stamina capacity: 100 when fresh (0 fatigue), draining as fatigue grows
-  const staminaRemaining = Math.max(6, 100 - clamped);
+  const staminaRemaining = Math.max(8, 100 - clamped);
 
-  // Height sizing: sleek horizontal bars
-  const hClass = size === 'xs' ? 'h-1.5' : size === 'sm' ? 'h-2' : size === 'md' ? 'h-2.5' : 'h-3';
+  // Height sizing: clearly visible sleek horizontal bars
+  const hClass = size === 'xs' ? 'h-2' : size === 'sm' ? 'h-2.5' : size === 'md' ? 'h-3' : 'h-3.5';
   const textClass = size === 'xs' ? 'text-[9px]' : size === 'sm' ? 'text-[10px]' : 'text-xs';
 
   return (
     <div className={`space-y-0.5 select-none ${className}`}>
-      {/* Optional header row: only if showFraction/showCondition is explicitly requested, NEVER display word labels */}
+      {/* Optional header row: only if showFraction/showCondition is explicitly requested */}
       {(showFraction || (showCondition && condition)) && (
         <div className={`flex items-center justify-between gap-1 leading-none ${textClass}`}>
           {showFraction && (
@@ -83,10 +83,10 @@ export const FatigueGauge: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Progress Bar Track: dark sleek capsule */}
-      <div className={`w-full bg-slate-950/90 rounded-full overflow-hidden p-[1px] border border-slate-700/70 shadow-inner ${hClass}`}>
+      {/* Progress Bar Track: high-contrast dark capsule with vibrant inner gauge */}
+      <div className={`w-full bg-slate-950/95 rounded-full overflow-hidden border border-slate-600/70 shadow-md ${hClass}`}>
         <div 
-          className={`h-full rounded-full transition-all duration-300 shadow-xs ${barColor}`}
+          className={`h-full rounded-full transition-all duration-300 shadow-sm ${barColor}`}
           style={{ width: `${staminaRemaining}%` }}
         />
       </div>
