@@ -258,16 +258,15 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ゴールゲッター"
     }
   ],
-
   "azul-claro-numazu": [
     {
-      "name": "井上 聖也",
+      "name": "大久保 択生",
       "position": "GK",
-      "age": 27,
+      "age": 36,
       "nationality": "日本",
-      "ovr": 68,
+      "ovr": 69,
       "shirtNumber": 1,
-      "preferredFoot": "右",
+      "preferredFoot": "左",
       "playstyle": "ショットストッパー"
     },
     {
@@ -511,7 +510,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "アンカー"
     }
   ],
-
   "tegevajaro-miyazaki": [
     {
       "name": "青木 心",
@@ -764,7 +762,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "俊足ドリブラー"
     }
   ],
-
   "shonan-bellmare": [
     {
       "name": "根本 凌",
@@ -777,7 +774,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ターゲットマン"
     }
   ],
-
   "albirex-niigata": [
     {
       "name": "矢村 健",
@@ -810,7 +806,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "yokohama-fc": [
     {
       "name": "橋本 健人",
@@ -823,7 +818,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "攻撃的SB"
     }
   ],
-
   "jubilo-iwata": [
     {
       "name": "リカルド・グラッサ",
@@ -876,7 +870,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "consadole-sapporo": [
     {
       "name": "中村 桐耶",
@@ -959,7 +952,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボックストゥボックス"
     }
   ],
-
   "sagan-tosu": [
     {
       "name": "原田 亘",
@@ -1022,7 +1014,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "攻撃的SB"
     }
   ],
-
   "montedio-yamagata": [
     {
       "name": "氣田 亮真",
@@ -1095,7 +1086,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ショットストッパー"
     }
   ],
-
   "vegalta-sendai": [
     {
       "name": "堀田 大暉",
@@ -1218,7 +1208,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "守備的SB"
     }
   ],
-
   "blaublitz-akita": [
     {
       "name": "諸岡 裕人",
@@ -1249,16 +1238,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "shirtNumber": 4,
       "preferredFoot": "右",
       "playstyle": "ハードタックラー"
-    },
-    {
-      "name": "喜岡 佳憲",
-      "position": "CB",
-      "age": 28,
-      "nationality": "日本",
-      "ovr": 70,
-      "shirtNumber": 5,
-      "preferredFoot": "右",
-      "playstyle": "ボール運べるCB"
     },
     {
       "name": "才藤 龍治",
@@ -1311,7 +1290,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ターゲットマン"
     }
   ],
-
   "iwaki-fc": [
     {
       "name": "鹿野 修平",
@@ -1474,7 +1452,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "fujieda-myfc": [
     {
       "name": "榎本 啓吾",
@@ -1517,7 +1494,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "攻撃的SB"
     }
   ],
-
   "tokushima-vortis": [
     {
       "name": "エルシンホ",
@@ -1620,7 +1596,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボール運べるCB"
     }
   ],
-
   "ventforet-kofu": [
     {
       "name": "山内 康太",
@@ -1753,7 +1728,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ターゲットマン"
     }
   ],
-
   "oita-trinita": [
     {
       "name": "西川 幸之介",
@@ -1906,7 +1880,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ラインブレイカー"
     }
   ],
-
   "omiya-ardija": [
     {
       "name": "加藤 有輝",
@@ -2029,7 +2002,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "俊足ドリブラー"
     }
   ],
-
   "fc-imabari": [
     {
       "name": "マルクス・ヴィニシウス",
@@ -2072,7 +2044,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "チャンスメイカー"
     }
   ],
-
   "kataller-toyama": [
     {
       "name": "安光 将作",
@@ -2105,7 +2076,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ラインブレイカー"
     }
   ],
-
   "tochigi-sc": [
     {
       "name": "平松 航",
@@ -2138,7 +2108,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ターゲットマン"
     }
   ],
-
   "thespa-gunma": [
     {
       "name": "城和 隼颯",
@@ -2201,7 +2170,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ラインブレイカー"
     }
   ],
-
   "sc-sagamihara": [
     {
       "name": "綿引 康",
@@ -2314,7 +2282,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "チャンスメイカー"
     }
   ],
-
   "matsumoto-yamaga": [
     {
       "name": "馬渡 和彰",
@@ -2397,16 +2364,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "俊足ドリブラー"
     },
     {
-      "name": "浅川 隼人",
-      "position": "ST",
-      "age": 31,
-      "nationality": "日本",
-      "ovr": 70,
-      "shirtNumber": 11,
-      "preferredFoot": "右",
-      "playstyle": "ゴールゲッター"
-    },
-    {
       "name": "菊井 悠介",
       "position": "CAM",
       "age": 26,
@@ -2437,7 +2394,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "ac-nagano-parceiro": [
     {
       "name": "金 珉浩",
@@ -2600,7 +2556,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "zweigen-kanazawa": [
     {
       "name": "庄司 朋乃也",
@@ -2733,7 +2688,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボックストゥボックス"
     }
   ],
-
   "fc-gifu": [
     {
       "name": "後藤 壱成",
@@ -2896,7 +2850,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボックストゥボックス"
     }
   ],
-
   "reilac-shiga": [
     {
       "name": "平尾 壮",
@@ -3049,7 +3002,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "fc-osaka": [
     {
       "name": "山本 透衣",
@@ -3232,14 +3184,13 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "nara-club": [
     {
-      "name": "関 沼 聖",
+      "name": "関沼 海亜",
       "position": "GK",
-      "age": 25,
+      "age": 23,
       "nationality": "日本",
-      "ovr": 68,
+      "ovr": 67,
       "shirtNumber": 1,
       "preferredFoot": "右",
       "playstyle": "守備的GK"
@@ -3315,16 +3266,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボックストゥボックス"
     },
     {
-      "name": "パトリック",
-      "position": "ST",
-      "age": 27,
-      "nationality": "ブラジル",
-      "ovr": 69,
-      "shirtNumber": 9,
-      "preferredFoot": "右",
-      "playstyle": "ターゲットマン"
-    },
-    {
       "name": "酒井 達磨",
       "position": "ST",
       "age": 30,
@@ -3385,16 +3326,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     },
     {
-      "name": "マルク・ビトール",
-      "position": "GK",
-      "age": 28,
-      "nationality": "スペイン",
-      "ovr": 68,
-      "shirtNumber": 31,
-      "preferredFoot": "右",
-      "playstyle": "ショットストッパー"
-    },
-    {
       "name": "吉村 弦",
       "position": "RB",
       "age": 29,
@@ -3415,7 +3346,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "gainare-tottori": [
     {
       "name": "櫻庭 立樹",
@@ -3598,7 +3528,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボール運べるCB"
     }
   ],
-
   "renofa-yamaguchi": [
     {
       "name": "平瀬 大",
@@ -3631,7 +3560,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ラインブレイカー"
     }
   ],
-
   "kamatamare-sanuki": [
     {
       "name": "今村 勇介",
@@ -3804,7 +3732,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ショットストッパー"
     }
   ],
-
   "kochi-united": [
     {
       "name": "タファレル",
@@ -3947,16 +3874,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボックストゥボックス"
     },
     {
-      "name": "井上 聖也",
-      "position": "GK",
-      "age": 24,
-      "nationality": "日本",
-      "ovr": 66,
-      "shirtNumber": 21,
-      "preferredFoot": "右",
-      "playstyle": "ショットストッパー"
-    },
-    {
       "name": "田中 彰馬",
       "position": "CB",
       "age": 23,
@@ -3987,7 +3904,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     }
   ],
-
   "giravanz-kitakyushu": [
     {
       "name": "大野 哲煥",
@@ -4160,7 +4076,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ボール運べるCB"
     }
   ],
-
   "roasso-kumamoto": [
     {
       "name": "藤井 皓也",
@@ -4183,7 +4098,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ゴールゲッター"
     }
   ],
-
   "kagoshima-united": [
     {
       "name": "泉森 涼太",
@@ -4276,16 +4190,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "スピードスター"
     },
     {
-      "name": "端戸 仁",
-      "position": "ST",
-      "age": 36,
-      "nationality": "日本",
-      "ovr": 68,
-      "shirtNumber": 10,
-      "preferredFoot": "左",
-      "playstyle": "チャンスメイカー"
-    },
-    {
       "name": "有田 光希",
       "position": "ST",
       "age": 34,
@@ -4346,7 +4250,6 @@ export const J_LEAGUE_2026_ADDITIONAL_ROSTERS: Record<string, RosterSeed[]> = {
       "playstyle": "ショットストッパー"
     }
   ],
-
   "fc-ryukyu": [
     {
       "name": "鈴木 順也",

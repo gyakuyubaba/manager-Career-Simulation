@@ -65,7 +65,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Endrick",
@@ -75,7 +75,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 16,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Lorenzo Aguado",
@@ -95,7 +95,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 38,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Raúl Asencio",
@@ -207,7 +207,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Diego Kochen",
@@ -299,7 +299,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 12,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Lucien Agoumé",
@@ -329,7 +329,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 7,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Stanis Idumbo",
@@ -339,7 +339,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 27,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Manu Bueno",
@@ -349,7 +349,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 70,
       "shirtNumber": 28,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Loïc Badé",
@@ -389,7 +389,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 21,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Stanis Idumbo",
@@ -399,7 +399,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 27,
       "preferredFoot": "右",
-      "playstyle": "インサイドカッター"
+      "playstyle": "シャドーストライカー"
     },
     {
       "name": "Manu Bueno",
@@ -409,7 +409,37 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 28,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
+    },
+    {
+      "name": "Saúl Ñíguez",
+      "position": "CM",
+      "age": 31,
+      "nationality": "スペイン",
+      "ovr": 78,
+      "shirtNumber": 17,
+      "preferredFoot": "左",
+      "playstyle": "ボックストゥボックス"
+    },
+    {
+      "name": "Álvaro García Pascual",
+      "position": "ST",
+      "age": 24,
+      "nationality": "スペイン",
+      "ovr": 71,
+      "shirtNumber": 42,
+      "preferredFoot": "右",
+      "playstyle": "ターゲットマン"
+    },
+    {
+      "name": "Mateo Mejía",
+      "position": "ST",
+      "age": 23,
+      "nationality": "コロンビア",
+      "ovr": 71,
+      "shirtNumber": 41,
+      "preferredFoot": "右",
+      "playstyle": "ラインブレイカー"
     }
   ],
   "real_sociedad": [
@@ -481,7 +511,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Pablo Marín",
@@ -501,7 +531,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Orri Óskarsson",
@@ -511,7 +541,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Urko González de Zárate",
@@ -571,7 +601,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 24,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Sergio Gómez",
@@ -621,7 +651,17 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
+    },
+    {
+      "name": "Jon Magunazelaia",
+      "position": "CAM",
+      "age": 25,
+      "nationality": "スペイン",
+      "ovr": 73,
+      "shirtNumber": 21,
+      "preferredFoot": "右",
+      "playstyle": "チャンスメイカー"
     }
   ],
   "athletic_club": [
@@ -703,7 +743,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Álvaro Djaló",
@@ -713,7 +753,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Javier Martón",
@@ -723,7 +763,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Nico Serrano",
@@ -733,7 +773,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 22,
       "preferredFoot": "左",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Yeray Álvarez",
@@ -814,6 +854,16 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "shirtNumber": 32,
       "preferredFoot": "左",
       "playstyle": "攻撃的SB"
+    },
+    {
+      "name": "Malcom Adu Ares",
+      "position": "RW",
+      "age": 24,
+      "nationality": "スペイン",
+      "ovr": 73,
+      "shirtNumber": 23,
+      "preferredFoot": "右",
+      "playstyle": "スピードスター"
     }
   ],
   "villarreal": [
@@ -885,7 +935,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 20,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Denis Suárez",
@@ -905,7 +955,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 19,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Thierno Barry",
@@ -915,7 +965,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 15,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Pau Navarro",
@@ -975,7 +1025,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 80,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Pape Gueye",
@@ -996,16 +1046,6 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "shirtNumber": 13,
       "preferredFoot": "右",
       "playstyle": "ショットストッパー"
-    },
-    {
-      "name": "Ramon Terrats",
-      "position": "CM",
-      "age": 25,
-      "nationality": "スペイン",
-      "ovr": 76,
-      "shirtNumber": 20,
-      "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
     },
     {
       "name": "Pau Navarro",
@@ -1036,6 +1076,36 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "shirtNumber": 13,
       "preferredFoot": "右",
       "playstyle": "ショットストッパー"
+    },
+    {
+      "name": "Alfonso Pedraza",
+      "position": "LB",
+      "age": 30,
+      "nationality": "スペイン",
+      "ovr": 77,
+      "shirtNumber": 24,
+      "preferredFoot": "左",
+      "playstyle": "攻撃的SB"
+    },
+    {
+      "name": "Ilias Akhomach",
+      "position": "RW",
+      "age": 22,
+      "nationality": "モロッコ",
+      "ovr": 76,
+      "shirtNumber": 11,
+      "preferredFoot": "左",
+      "playstyle": "スピードスター"
+    },
+    {
+      "name": "Santi Comesaña",
+      "position": "CM",
+      "age": 29,
+      "nationality": "スペイン",
+      "ovr": 77,
+      "shirtNumber": 14,
+      "preferredFoot": "右",
+      "playstyle": "ボックストゥボックス"
     }
   ],
   "valencia": [
@@ -1117,7 +1187,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Fran Pérez",
@@ -1127,7 +1197,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Dani Gómez",
@@ -1137,7 +1207,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Martín Tejón",
@@ -1177,7 +1247,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Martín Tejón",
@@ -1279,7 +1349,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Assane Diao",
@@ -1289,7 +1359,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 38,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Mateo Flores",
@@ -1299,7 +1369,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 70,
       "shirtNumber": 37,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Jesús Rodríguez",
@@ -1309,7 +1379,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 36,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     }
   ],
   "girona": [
@@ -1351,7 +1421,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ビルドアップ型CB"
+      "playstyle": "ボール運べるCB"
     },
     {
       "name": "Jhon Solís",
@@ -1371,7 +1441,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 20,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Cristhian Stuani",
@@ -1381,7 +1451,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Yáser Asprilla",
@@ -1411,7 +1481,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 27,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Antal Yaakobishvili",
@@ -1461,7 +1531,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Jhon Solís",
@@ -1482,6 +1552,36 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "shirtNumber": 19,
       "preferredFoot": "右",
       "playstyle": "チャンスメイカー"
+    },
+    {
+      "name": "Bojan Miovski",
+      "position": "ST",
+      "age": 27,
+      "nationality": "北マケドニア",
+      "ovr": 77,
+      "shirtNumber": 19,
+      "preferredFoot": "左",
+      "playstyle": "ターゲットマン"
+    },
+    {
+      "name": "Donny van de Beek",
+      "position": "CM",
+      "age": 29,
+      "nationality": "オランダ",
+      "ovr": 77,
+      "shirtNumber": 6,
+      "preferredFoot": "右",
+      "playstyle": "ボックストゥボックス"
+    },
+    {
+      "name": "Arnaut Danjuma",
+      "position": "LW",
+      "age": 29,
+      "nationality": "オランダ",
+      "ovr": 78,
+      "shirtNumber": 11,
+      "preferredFoot": "右",
+      "playstyle": "シャドーストライカー"
     }
   ],
   "celta_vigo": [
@@ -1613,7 +1713,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Damián Rodríguez",
@@ -1633,7 +1733,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Williot Swedberg",
@@ -1663,7 +1763,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Anastasios Douvikas",
@@ -1673,7 +1773,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 12,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Tadeo Allende",
@@ -1683,7 +1783,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Franco Cervi",
@@ -1693,7 +1793,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 11,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Hugo Álvarez",
@@ -1703,7 +1803,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 30,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Pablo Durán",
@@ -1713,7 +1813,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Sergio Carreira",
@@ -1733,7 +1833,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     }
   ],
   "osasuna": [
@@ -1865,7 +1965,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 16,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Pablo Ibáñez",
@@ -1895,7 +1995,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Bryan Zaragoza",
@@ -1905,7 +2005,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Ante Budimir",
@@ -1915,7 +2015,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 80,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Raúl García de Haro",
@@ -1925,7 +2025,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "José Arnaiz",
@@ -1935,7 +2035,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Iker Benito",
@@ -1945,7 +2045,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Iker Muñoz",
@@ -1975,7 +2075,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 69,
       "shirtNumber": 27,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Inigo Arguibide",
@@ -2097,7 +2197,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 5,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Álex Sola",
@@ -2107,7 +2207,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Carles Pérez",
@@ -2117,7 +2217,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Christantus Uche",
@@ -2147,7 +2247,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 19,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Borja Mayoral",
@@ -2157,7 +2257,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Bertuğ Yıldırım",
@@ -2167,7 +2267,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Álvaro Rodríguez",
@@ -2177,7 +2277,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 20,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Allan Nyom",
@@ -2197,7 +2297,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 70,
       "shirtNumber": 29,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Yellu Santiago",
@@ -2369,7 +2469,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Óscar Trejo",
@@ -2379,16 +2479,6 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 8,
       "preferredFoot": "右",
-      "playstyle": "チャンスメイカー"
-    },
-    {
-      "name": "James Rodríguez",
-      "position": "CAM",
-      "age": 35,
-      "nationality": "コロンビア",
-      "ovr": 80,
-      "shirtNumber": 10,
-      "preferredFoot": "左",
       "playstyle": "チャンスメイカー"
     },
     {
@@ -2409,7 +2499,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Álvaro García",
@@ -2419,7 +2509,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 18,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Adrián Embarba",
@@ -2429,7 +2519,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 21,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Sergio Camello",
@@ -2439,7 +2529,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Randy Nteka",
@@ -2449,7 +2539,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 11,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Sergi Guardiola",
@@ -2459,7 +2549,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 9,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Pelayo Fernández",
@@ -2489,7 +2579,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 4,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "mallorca": [
@@ -2621,7 +2711,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 8,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Sergi Darder",
@@ -2631,7 +2721,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 10,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Dani Rodríguez",
@@ -2651,7 +2741,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 27,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Takuma Asano",
@@ -2661,7 +2751,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Vedat Muriqi",
@@ -2671,7 +2761,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 80,
       "shirtNumber": 7,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Cyle Larin",
@@ -2681,7 +2771,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Abdón Prats",
@@ -2691,7 +2781,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 9,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Chiquinho",
@@ -2701,7 +2791,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Antonio Sánchez",
@@ -2721,7 +2811,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 16,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Siebe Van der Heyden",
@@ -2741,7 +2831,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 69,
       "shirtNumber": 33,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Siebe Van der Heyden",
@@ -2761,7 +2851,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     }
   ],
   "las_palmas": [
@@ -2873,7 +2963,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 8,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Dário Essugo",
@@ -2893,7 +2983,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Enzo Loiodice",
@@ -2903,7 +2993,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 12,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Adnan Januzaj",
@@ -2913,7 +3003,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 24,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alberto Moleiro",
@@ -2933,7 +3023,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Fábio Silva",
@@ -2943,7 +3033,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 37,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Oli McBurnie",
@@ -2953,7 +3043,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 16,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Jaime Mata",
@@ -2963,7 +3053,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Manu Fuster",
@@ -2983,7 +3073,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 11,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Benito Ramírez",
@@ -3135,7 +3225,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 6,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Joan Jordán",
@@ -3145,7 +3235,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 24,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Carlos Benavídez",
@@ -3175,7 +3265,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Carlos Vicente",
@@ -3185,7 +3275,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 78,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Kike García",
@@ -3195,7 +3285,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 15,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Toni Martínez",
@@ -3205,7 +3295,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Asier Villalibre",
@@ -3215,7 +3305,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 9,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Luka Romero",
@@ -3225,7 +3315,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 20,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Abde Rebbach",
@@ -3235,7 +3325,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 21,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Adrián Pica",
@@ -3407,7 +3497,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 8,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Óscar Rodríguez",
@@ -3437,7 +3527,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 11,
       "preferredFoot": "左",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Sébastien Haller",
@@ -3447,7 +3537,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Munir El Haddadi",
@@ -3457,7 +3547,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 23,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Dani Raba",
@@ -3467,7 +3557,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 10,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Miguel de la Fuente",
@@ -3477,7 +3567,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Julián Chicco",
@@ -3507,7 +3597,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Naim García",
@@ -3517,7 +3607,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 27,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jorge Sáenz",
@@ -3679,7 +3769,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 10,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Álvaro Aguado",
@@ -3689,7 +3779,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Edu Expósito",
@@ -3699,7 +3789,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 8,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Jofre Carreras",
@@ -3709,7 +3799,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Javi Puado",
@@ -3719,7 +3809,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Alejo Véliz",
@@ -3729,7 +3819,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Walid Cheddira",
@@ -3739,7 +3829,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 16,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Irvin Cardona",
@@ -3749,7 +3839,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 24,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Pere Milla",
@@ -3769,7 +3859,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Rafa Bauzà",
@@ -3789,7 +3879,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 31,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     }
   ],
   "valladolid": [
@@ -3921,7 +4011,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 8,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Kike Pérez",
@@ -3951,7 +4041,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 77,
       "shirtNumber": 11,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Iván Sánchez",
@@ -3971,7 +4061,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 7,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Juanmi Latasa",
@@ -3981,7 +4071,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 14,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Marcos André",
@@ -3991,7 +4081,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Anuar Tuhami",
@@ -4011,7 +4101,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 75,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Amath Ndiaye",
@@ -4021,7 +4111,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Chuki",
@@ -4173,7 +4263,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Gonzalo Melero",
@@ -4183,7 +4273,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Gui Guedes",
@@ -4213,7 +4303,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Arnau Puigmal",
@@ -4223,7 +4313,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Luis Suárez",
@@ -4233,7 +4323,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Léo Baptistão",
@@ -4243,7 +4333,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Marko Milovanović",
@@ -4253,7 +4343,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Rachad Fettal",
@@ -4263,7 +4353,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Marcos Peña",
@@ -4273,7 +4363,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Paco Sanz",
@@ -4293,7 +4383,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "granada": [
@@ -4308,12 +4398,12 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "playstyle": "ショットストッパー"
     },
     {
-      "name": "Diego Mariño",
+      "name": "Iker García",
       "position": "GK",
-      "age": 24,
+      "age": 20,
       "nationality": "スペイン",
-      "ovr": 75,
-      "shirtNumber": 2,
+      "ovr": 68,
+      "shirtNumber": 37,
       "preferredFoot": "右",
       "playstyle": "ショットストッパー"
     },
@@ -4425,7 +4515,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Manu Trigueros",
@@ -4435,7 +4525,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Giorgi Tsitaishvili",
@@ -4465,7 +4555,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Shon Weissman",
@@ -4475,7 +4565,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Siren Diao",
@@ -4485,7 +4575,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Theo Corbeanu",
@@ -4495,7 +4585,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Pablo Sáenz",
@@ -4505,7 +4595,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Sergio Rodelas",
@@ -4515,7 +4605,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Oscar Naasei",
@@ -4525,7 +4615,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Mario González",
@@ -4545,7 +4635,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "cadiz": [
@@ -4677,7 +4767,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Álex Fernández",
@@ -4687,7 +4777,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Rominigue Kouamé",
@@ -4717,7 +4807,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Iván Alejo",
@@ -4727,7 +4817,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Chris Ramos",
@@ -4737,7 +4827,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Roger Martí",
@@ -4747,7 +4837,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Carlos Fernández",
@@ -4757,7 +4847,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Francisco Mwepu",
@@ -4767,7 +4857,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "José Antonio de la Rosa",
@@ -4777,7 +4867,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Julio Cabrera",
@@ -4797,7 +4887,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "levante": [
@@ -4929,7 +5019,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Vicente Iborra",
@@ -4939,7 +5029,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Pablo Martínez",
@@ -4969,7 +5059,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Fabrício Santos",
@@ -4979,7 +5069,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Carlos Espí",
@@ -4989,7 +5079,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "José Luis Morales",
@@ -4999,7 +5089,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Iván Romero",
@@ -5009,7 +5099,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Víctor Fernández",
@@ -5019,7 +5109,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Alfonso Algobia",
@@ -5029,7 +5119,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Borja Cortina",
@@ -5049,7 +5139,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "real_oviedo": [
@@ -5181,7 +5271,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Jaime Seoane",
@@ -5191,7 +5281,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Santi Cazorla",
@@ -5221,7 +5311,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Sebas Moyano",
@@ -5231,7 +5321,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alemão",
@@ -5241,7 +5331,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Federico Viñas",
@@ -5251,7 +5341,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Daniel Paraschiv",
@@ -5261,7 +5351,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Paulino de la Fuente",
@@ -5271,7 +5361,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Álex Cardero",
@@ -5281,7 +5371,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Lamine Gueye",
@@ -5301,7 +5391,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "sporting_gijon": [
@@ -5433,7 +5523,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Nacho Martín",
@@ -5443,7 +5533,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "César Gelabert",
@@ -5473,7 +5563,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jonathan Dubasin",
@@ -5483,7 +5573,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Juan Otero",
@@ -5493,7 +5583,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jordy Caicedo",
@@ -5503,7 +5593,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Víctor Campuzano",
@@ -5513,7 +5603,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Nikola Maraš",
@@ -5523,7 +5613,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Alex Oyón",
@@ -5533,7 +5623,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Iker Martínez",
@@ -5553,7 +5643,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "racing_santander": [
@@ -5685,7 +5775,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Gerard Fernández",
@@ -5695,7 +5785,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Andrés Martín",
@@ -5725,7 +5815,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jon Karrikaburu",
@@ -5735,7 +5825,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Lago Junior",
@@ -5745,7 +5835,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Suleiman Camara",
@@ -5755,7 +5845,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jeremy Arévalo",
@@ -5765,7 +5855,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Yeray Cabanzón",
@@ -5775,7 +5865,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Diego Campo",
@@ -5785,7 +5875,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Dani González",
@@ -5805,7 +5895,17 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
+    },
+    {
+      "name": "Clément Michelin",
+      "position": "RB",
+      "age": 29,
+      "nationality": "フランス",
+      "ovr": 72,
+      "shirtNumber": 22,
+      "preferredFoot": "右",
+      "playstyle": "攻撃的SB"
     }
   ],
   "eibar": [
@@ -5937,7 +6037,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Hashimoto Kento",
@@ -5947,7 +6047,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Ander Madariaga",
@@ -5977,7 +6077,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jon Guruzeta",
@@ -5987,7 +6087,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jon Bautista",
@@ -5997,7 +6097,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jorge Pascual",
@@ -6007,7 +6107,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Martín Merquelanz",
@@ -6017,7 +6117,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Slavy",
@@ -6027,7 +6127,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Eric Pérez",
@@ -6037,7 +6137,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Carrasco",
@@ -6057,7 +6157,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "elche": [
@@ -6189,7 +6289,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Nicolás Castro",
@@ -6199,7 +6299,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Nico Fernández",
@@ -6229,7 +6329,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Agustín Álvarez",
@@ -6239,7 +6339,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Sory Kaba",
@@ -6249,7 +6349,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Mourad El Ghezouani",
@@ -6259,7 +6359,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Rodrigo Mendoza",
@@ -6269,7 +6369,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "John Chetauya",
@@ -6279,7 +6379,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Albert Núñez",
@@ -6289,7 +6389,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Bakary Traoré",
@@ -6309,7 +6409,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "real_zaragoza": [
@@ -6441,7 +6541,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Francho Serrano",
@@ -6451,7 +6551,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Ager Aketxe",
@@ -6481,7 +6581,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Mario Soberón",
@@ -6491,17 +6591,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
-    },
-    {
-      "name": "Samed Baždar",
-      "position": "LW",
-      "age": 29,
-      "nationality": "スペイン",
-      "ovr": 71,
-      "shirtNumber": 19,
-      "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alberto Marí",
@@ -6511,7 +6601,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Malcom Adu Ares",
@@ -6521,7 +6611,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Gori Gracia",
@@ -6531,7 +6621,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Sebastian Kosa",
@@ -6541,7 +6631,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Borge",
@@ -6561,7 +6651,17 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
+    },
+    {
+      "name": "Samed Bazdar",
+      "position": "ST",
+      "age": 22,
+      "nationality": "ボスニア・ヘルツェゴビナ",
+      "ovr": 72,
+      "shirtNumber": 11,
+      "preferredFoot": "右",
+      "playstyle": "ラインブレイカー"
     }
   ],
   "tenerife": [
@@ -6693,7 +6793,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Teto Martín",
@@ -6703,7 +6803,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Maikel Mesa",
@@ -6733,7 +6833,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Yanis Senhadji",
@@ -6743,7 +6843,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Enric Gallego",
@@ -6753,7 +6853,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Ángel Rodríguez",
@@ -6763,7 +6863,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Marlos Moreno",
@@ -6773,7 +6873,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Alassan",
@@ -6783,7 +6883,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Aarón Martín",
@@ -6793,7 +6893,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Adri Pérez",
@@ -6813,7 +6913,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "José Amo",
@@ -6843,7 +6943,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 68,
       "shirtNumber": 30,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Alassan",
@@ -6853,39 +6953,39 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 69,
       "shirtNumber": 27,
       "preferredFoot": "右",
-      "playstyle": "インサイドカッター"
+      "playstyle": "シャドーストライカー"
     }
   ],
   "albacete": [
     {
-      "name": "Raúl Lizoain",
+      "name": "Carlos Marín",
       "position": "GK",
-      "age": 23,
+      "age": 29,
       "nationality": "スペイン",
-      "ovr": 75,
+      "ovr": 74,
       "shirtNumber": 1,
-      "preferredFoot": "左",
-      "playstyle": "ショットストッパー"
-    },
-    {
-      "name": "Cristian Rivero",
-      "position": "GK",
-      "age": 24,
-      "nationality": "スペイン",
-      "ovr": 75,
-      "shirtNumber": 2,
       "preferredFoot": "右",
       "playstyle": "ショットストッパー"
     },
     {
       "name": "Diego Mariño",
       "position": "GK",
-      "age": 25,
+      "age": 36,
       "nationality": "スペイン",
-      "ovr": 75,
-      "shirtNumber": 3,
+      "ovr": 73,
+      "shirtNumber": 13,
       "preferredFoot": "右",
-      "playstyle": "ショットストッパー"
+      "playstyle": "守備的GK"
+    },
+    {
+      "name": "Mario Ramos",
+      "position": "GK",
+      "age": 22,
+      "nationality": "スペイン",
+      "ovr": 68,
+      "shirtNumber": 30,
+      "preferredFoot": "右",
+      "playstyle": "守備的GK"
     },
     {
       "name": "Jon García",
@@ -6985,7 +7085,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Javi Villar",
@@ -6995,7 +7095,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Agus Medina",
@@ -7025,7 +7125,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alberto Quiles",
@@ -7035,7 +7135,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Higinio Marín",
@@ -7045,7 +7145,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Nabil Touaizi",
@@ -7055,7 +7155,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Juanma García",
@@ -7065,7 +7165,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Lazo",
@@ -7075,7 +7175,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Antonio Puche",
@@ -7085,7 +7185,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Marcos Moreno",
@@ -7105,67 +7205,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
-    },
-    {
-      "name": "Raúl Lizoain",
-      "position": "GK",
-      "age": 35,
-      "nationality": "スペイン",
-      "ovr": 74,
-      "shirtNumber": 1,
-      "preferredFoot": "右",
-      "playstyle": "ショットストッパー"
-    },
-    {
-      "name": "Cristian Rivero",
-      "position": "GK",
-      "age": 28,
-      "nationality": "スペイン",
-      "ovr": 72,
-      "shirtNumber": 13,
-      "preferredFoot": "右",
-      "playstyle": "守備的GK"
-    },
-    {
-      "name": "Diego Mariño",
-      "position": "GK",
-      "age": 36,
-      "nationality": "スペイン",
-      "ovr": 73,
-      "shirtNumber": 25,
-      "preferredFoot": "右",
-      "playstyle": "守備的GK"
-    },
-    {
-      "name": "Jon García",
-      "position": "CB",
-      "age": 35,
-      "nationality": "スペイン",
-      "ovr": 73,
-      "shirtNumber": 5,
-      "preferredFoot": "右",
-      "playstyle": "ハードタックラー"
-    },
-    {
-      "name": "Diego Mariño Extra",
-      "position": "GK",
-      "age": 36,
-      "nationality": "スペイン",
-      "ovr": 74,
-      "shirtNumber": 25,
-      "preferredFoot": "右",
-      "playstyle": "守備的GK"
-    },
-    {
-      "name": "Raúl Lizoain Extra",
-      "position": "GK",
-      "age": 35,
-      "nationality": "スペイン",
-      "ovr": 73,
-      "shirtNumber": 13,
-      "preferredFoot": "右",
-      "playstyle": "ショットストッパー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Juan Antonio Ros",
@@ -7307,7 +7347,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Kevin Appin",
@@ -7317,7 +7357,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Curro Sánchez",
@@ -7347,7 +7387,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Fer Niño",
@@ -7357,7 +7397,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Edu Espiau",
@@ -7367,7 +7407,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Thomas Rodríguez",
@@ -7377,7 +7417,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Marcelo Expósito",
@@ -7387,7 +7427,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "David González",
@@ -7397,7 +7437,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Mario Cantero",
@@ -7407,7 +7447,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Hugo Pascual",
@@ -7427,7 +7467,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "David López",
@@ -7447,7 +7487,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 10,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     }
   ],
   "racing_ferrol": [
@@ -7579,7 +7619,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Josep Señé",
@@ -7589,7 +7629,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Luis Perea",
@@ -7619,7 +7659,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Nacho Sánchez",
@@ -7629,7 +7669,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Álvaro Giménez",
@@ -7639,7 +7679,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Eneko Jauregi",
@@ -7649,7 +7689,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Christian Borrego",
@@ -7659,7 +7699,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Manu Vallejo",
@@ -7669,7 +7709,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "David Carballo",
@@ -7679,7 +7719,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Chiki",
@@ -7699,7 +7739,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Naldo",
@@ -7851,7 +7891,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Lucas de Vega",
@@ -7860,16 +7900,6 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "nationality": "スペイン",
       "ovr": 73,
       "shirtNumber": 14,
-      "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
-    },
-    {
-      "name": "Cedric Teguia",
-      "position": "CAM",
-      "age": 25,
-      "nationality": "スペイン",
-      "ovr": 73,
-      "shirtNumber": 15,
       "preferredFoot": "右",
       "playstyle": "チャンスメイカー"
     },
@@ -7891,7 +7921,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alfredo Ortuño",
@@ -7901,7 +7931,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Hugo González",
@@ -7911,7 +7941,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Pocho Román",
@@ -7921,7 +7951,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Luis Muñoz",
@@ -7931,7 +7961,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Carmelo Sánchez",
@@ -7941,7 +7971,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Checo",
@@ -7951,7 +7981,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Baldo",
@@ -7971,7 +8001,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "huesca": [
@@ -8103,7 +8133,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Javi Pérez",
@@ -8113,7 +8143,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Jordi Martín",
@@ -8143,7 +8173,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Sergi Enrich",
@@ -8153,7 +8183,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Iker Unzueta",
@@ -8163,7 +8193,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Hugo Vallejo",
@@ -8173,7 +8203,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Ayman Arguigue",
@@ -8183,7 +8213,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Diego Aznar",
@@ -8193,7 +8223,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Manu Rico",
@@ -8203,7 +8233,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Alex Fita",
@@ -8223,7 +8253,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "eldense": [
@@ -8355,7 +8385,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Álex Bernal",
@@ -8365,7 +8395,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Cris Montes",
@@ -8395,7 +8425,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Nacho Quintana",
@@ -8405,7 +8435,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alan Godoy",
@@ -8415,7 +8445,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Sixtus Ogbuehi",
@@ -8425,7 +8455,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Joel Jorquera",
@@ -8435,7 +8465,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Nacho Monsalve",
@@ -8445,7 +8475,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Unai Ropero",
@@ -8455,7 +8485,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Geraldo",
@@ -8475,7 +8505,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "mirandes": [
@@ -8607,7 +8637,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Santiago Homenchenko",
@@ -8617,7 +8647,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Álex Calvo",
@@ -8647,7 +8677,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Joaquín Panichelli",
@@ -8657,7 +8687,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Ander Martín",
@@ -8667,7 +8697,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Joel Roca",
@@ -8677,7 +8707,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Sergio Postigo",
@@ -8687,7 +8717,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Asier Ortiz",
@@ -8697,7 +8727,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Izeta",
@@ -8707,7 +8737,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Binke",
@@ -8727,7 +8757,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Tachi",
@@ -8747,7 +8777,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 7,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Victor Parada",
@@ -8767,7 +8797,57 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 70,
       "shirtNumber": 9,
       "preferredFoot": "右",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
+    },
+    {
+      "name": "Iker Benito",
+      "position": "RW",
+      "age": 24,
+      "nationality": "スペイン",
+      "ovr": 70,
+      "shirtNumber": 14,
+      "preferredFoot": "右",
+      "playstyle": "スピードスター"
+    },
+    {
+      "name": "Mathis Lachuer",
+      "position": "CM",
+      "age": 26,
+      "nationality": "フランス",
+      "ovr": 71,
+      "shirtNumber": 8,
+      "preferredFoot": "右",
+      "playstyle": "チャンスメイカー"
+    },
+    {
+      "name": "Sergio Postigo",
+      "position": "CB",
+      "age": 37,
+      "nationality": "スペイン",
+      "ovr": 70,
+      "shirtNumber": 15,
+      "preferredFoot": "右",
+      "playstyle": "ハードタックラー"
+    },
+    {
+      "name": "Adrián Butzke",
+      "position": "ST",
+      "age": 27,
+      "nationality": "スペイン",
+      "ovr": 70,
+      "shirtNumber": 19,
+      "preferredFoot": "右",
+      "playstyle": "ターゲットマン"
+    },
+    {
+      "name": "Carlo Adriano",
+      "position": "CM",
+      "age": 25,
+      "nationality": "スペイン",
+      "ovr": 71,
+      "shirtNumber": 16,
+      "preferredFoot": "右",
+      "playstyle": "ボックストゥボックス"
     }
   ],
   "cordoba": [
@@ -8899,7 +8979,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Jacobo González",
@@ -8909,7 +8989,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Cristian Carracedo",
@@ -8939,7 +9019,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Nikolay Obolskiy",
@@ -8949,7 +9029,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jude Soonsup-Bell",
@@ -8959,7 +9039,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Adilson Mendes",
@@ -8969,7 +9049,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Theo Zidane",
@@ -8979,7 +9059,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Mati Barboza",
@@ -8989,7 +9069,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Vázquez",
@@ -8999,7 +9079,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Peregrina",
@@ -9019,7 +9099,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "malaga": [
@@ -9151,7 +9231,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Juanpe",
@@ -9161,7 +9241,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Ramón Enríquez",
@@ -9191,7 +9271,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Kevin Medina",
@@ -9201,7 +9281,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Antonio Cordero",
@@ -9211,7 +9291,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Roko Baturina",
@@ -9221,7 +9301,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Dioni Villalba",
@@ -9231,7 +9311,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Julen Lobete",
@@ -9241,7 +9321,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Haitam Abaida",
@@ -9251,7 +9331,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Chupete",
@@ -9271,7 +9351,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Einar Galilea",
@@ -9321,7 +9401,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 72,
       "shirtNumber": 26,
       "preferredFoot": "右",
-      "playstyle": "インサイドカッター"
+      "playstyle": "シャドーストライカー"
     },
     {
       "name": "Aaron Ochoa",
@@ -9463,7 +9543,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Kenneth Mamah",
@@ -9473,7 +9553,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Raúl Sánchez",
@@ -9503,7 +9583,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Jesús de Miguel",
@@ -9513,7 +9593,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Ousmane Camara",
@@ -9523,7 +9603,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Pere Marco",
@@ -9533,7 +9613,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Brian Cipenga",
@@ -9543,7 +9623,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Albert Lottin",
@@ -9553,7 +9633,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Villahermosa",
@@ -9563,7 +9643,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Borja Granero",
@@ -9583,7 +9663,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "deportivo": [
@@ -9715,7 +9795,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 13,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Charlie Patiño",
@@ -9725,7 +9805,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 73,
       "shirtNumber": 14,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Hugo Rama",
@@ -9755,7 +9835,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 17,
       "preferredFoot": "左",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "David Mella",
@@ -9765,7 +9845,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 18,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Lucas Pérez",
@@ -9775,7 +9855,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Mohamed Bouldini",
@@ -9785,7 +9865,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 20,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Barbero",
@@ -9795,7 +9875,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 21,
       "preferredFoot": "左",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Cristian Herrera",
@@ -9805,7 +9885,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Davo",
@@ -9815,7 +9895,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 23,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Kevin Sánchez",
@@ -9835,7 +9915,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 71,
       "shirtNumber": 25,
       "preferredFoot": "左",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     }
   ],
   "atletico_madrid": [
@@ -9897,7 +9977,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 79,
       "shirtNumber": 17,
       "preferredFoot": "右",
-      "playstyle": "ドリブラー"
+      "playstyle": "俊足ドリブラー"
     },
     {
       "name": "Alexander Sørloth",
@@ -9907,7 +9987,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 82,
       "shirtNumber": 9,
       "preferredFoot": "左",
-      "playstyle": "ポストプレイヤー"
+      "playstyle": "ターゲットマン"
     },
     {
       "name": "Giuliano Simeone",
@@ -9917,7 +9997,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 76,
       "shirtNumber": 22,
       "preferredFoot": "右",
-      "playstyle": "ウイングストライカー"
+      "playstyle": "スピードスター"
     },
     {
       "name": "Javi Serrano",
@@ -9937,7 +10017,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 74,
       "shirtNumber": 29,
       "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "José María Giménez",
@@ -9980,16 +10060,6 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "playstyle": "ハードタックラー"
     },
     {
-      "name": "Reinildo Mandava",
-      "position": "LB",
-      "age": 32,
-      "nationality": "モザンビーク",
-      "ovr": 78,
-      "shirtNumber": 23,
-      "preferredFoot": "左",
-      "playstyle": "守備的SB"
-    },
-    {
       "name": "Nahuel Molina",
       "position": "RB",
       "age": 28,
@@ -10007,7 +10077,7 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "ovr": 81,
       "shirtNumber": 6,
       "preferredFoot": "右",
-      "playstyle": "ゲームメイカー"
+      "playstyle": "チャンスメイカー"
     },
     {
       "name": "Pablo Barrios",
@@ -10028,16 +10098,6 @@ export const EUROPEAN_SPAIN_2026_SEEDS: Record<string, RosterSeed[]> = {
       "shirtNumber": 4,
       "preferredFoot": "右",
       "playstyle": "ボックストゥボックス"
-    },
-    {
-      "name": "Julián Álvarez",
-      "position": "ST",
-      "age": 26,
-      "nationality": "アルゼンチン",
-      "ovr": 85,
-      "shirtNumber": 19,
-      "preferredFoot": "右",
-      "playstyle": "ラインブレーカー"
     }
   ]
 };

@@ -67,7 +67,6 @@ export const AUTHENTIC_J3_PLAYERS: RawJPlayer[] = [
   { id: 'JP_J3_MAT_03', name: '野々村 鷹人', clubId: 'matsumoto-yamaga', shirtNumber: 44, position: 'CB', age: 27, nationality: '日本', preferredFoot: '右', ovr: 70, potential: 73, pace: 70, shooting: 35, passing: 66, dribbling: 58, defending: 73, physical: 79, gk: 10, marketValue: 420000, wage: 8500, contractYears: 2, squadRole: '絶対的主力' },
   { id: 'JP_J3_MAT_04', name: '安藤 翼', clubId: 'matsumoto-yamaga', shirtNumber: 8, position: 'CM', age: 29, nationality: '日本', preferredFoot: '右', ovr: 70, potential: 71, pace: 73, shooting: 67, passing: 73, dribbling: 72, defending: 68, physical: 72, gk: 10, marketValue: 420000, wage: 8500, contractYears: 2, squadRole: '重要選手' },
   { id: 'JP_J3_MAT_05', name: '菊井 悠介', clubId: 'matsumoto-yamaga', shirtNumber: 10, position: 'CAM', age: 26, nationality: '日本', preferredFoot: '右', ovr: 72, potential: 76, pace: 77, shooting: 74, passing: 77, dribbling: 78, defending: 55, physical: 72, gk: 10, marketValue: 750000, wage: 12000, contractYears: 3, squadRole: '絶対的主力' },
-  { id: 'JP_J3_MAT_06', name: '浅川 隼人', clubId: 'matsumoto-yamaga', shirtNumber: 9, position: 'ST', age: 30, nationality: '日本', preferredFoot: '右', ovr: 71, potential: 71, pace: 78, shooting: 75, passing: 66, dribbling: 72, defending: 44, physical: 75, gk: 10, marketValue: 550000, wage: 10000, contractYears: 2, squadRole: '絶対的主力' },
 
   // ==========================================
   // 6. AC NAGANO PARCEIRO (AC長野パルセイロ)

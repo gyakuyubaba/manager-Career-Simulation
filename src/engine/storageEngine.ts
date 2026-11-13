@@ -21,7 +21,7 @@ import { REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
 import { rebuildStandingsFromMatchResults, determineMatchOutcome } from './dateEngine';
 
 export const CURRENT_SCHEMA_VERSION = 7;
-export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V3_OFFICIAL';
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V4_ALL17_OFFICIAL';
 export const APP_CODE_VERSION = '2026.2.3';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
@@ -376,13 +376,37 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
         initialOvr: masterPlayer.initialOvr || masterPlayer.ovr,
         potential: Math.max(existing.potential, masterPlayer.potential),
         birthDate: masterPlayer.birthDate || existing.birthDate,
-        age: masterPlayer.age
+        age: masterPlayer.age,
+        isVerified: true,
+        verificationStatus: 'verified'
       };
       updatedCount++;
     } else {
       // New official 2026/27 player not present in old save
       nextPlayers[masterPlayer.id] = { ...masterPlayer };
       addedCount++;
+    }
+  });
+
+  // Safely prune obsolete unconfirmed placeholder slots & duplicate J-league clones from pre-V4 saves
+  const masterNameToId = new Map<string, string>();
+  Object.values(masterPlayers).forEach(mp => {
+    const norm = mp.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+    if (norm && !masterNameToId.has(norm)) {
+      masterNameToId.set(norm, mp.id);
+    }
+  });
+
+  Object.entries(nextPlayers).forEach(([pId, p]) => {
+    if (masterPlayers[pId] || inGameTransferredPlayerIds.has(pId)) return;
+    if (!p.isVerified || p.name.includes('[未確認')) {
+      delete nextPlayers[pId];
+      return;
+    }
+    const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+    const canonicalId = norm ? masterNameToId.get(norm) : undefined;
+    if (canonicalId && canonicalId !== pId && nextPlayers[canonicalId]) {
+      delete nextPlayers[pId];
     }
   });
 
@@ -807,7 +831,12 @@ export function importSaveDataFromJSON(jsonString: string): { success: boolean; 
       return { success: false, error: `インポート失敗: ${validation.errors.join(', ')}` };
     }
 
-    const migratedState = migrateGameState(candidateState, parsed.schemaVersion || 1);
+    let migratedState = migrateGameState(candidateState, parsed.schemaVersion || 1);
+    const saveRosterVer = parsed.rosterDataVersion || migratedState.rosterDataVersion;
+    if (!saveRosterVer || saveRosterVer !== CURRENT_ROSTER_DATA_VERSION) {
+      migratedState = merge2026_27MasterRosterIntoSave(migratedState).state;
+    }
+    migratedState = REPAIR_SAVE_DATA_INTEGRITY(migratedState).state;
     return { success: true, state: migratedState };
   } catch (err: any) {
     return { success: false, error: `JSONパース失敗: ${err?.message || '無効なファイル形式です'}` };

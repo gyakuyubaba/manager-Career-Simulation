@@ -528,7 +528,6 @@ export const AUTHENTIC_J_PLAYERS: RawJPlayer[] = [
   { id: 'JP_000026', name: 'トルガイ・アルスラン', clubId: 'sanfrecce-hiroshima', shirtNumber: 30, position: 'CAM', age: 34, nationality: 'ドイツ', preferredFoot: '右', ovr: 76, potential: 76, pace: 70, shooting: 78, passing: 81, dribbling: 79, defending: 62, physical: 74, gk: 10, marketValue: 900000, wage: 28000, contractYears: 1, squadRole: '絶対的主力' },
   { id: 'JP_000027', name: '満田 誠', clubId: 'sanfrecce-hiroshima', shirtNumber: 11, position: 'CAM', age: 25, nationality: '日本', preferredFoot: '右', ovr: 75, potential: 81, pace: 78, shooting: 75, passing: 77, dribbling: 78, defending: 64, physical: 74, gk: 10, marketValue: 1800000, wage: 22000, contractYears: 3, squadRole: '重要選手' },
   { id: 'JP_000028', name: '加藤 陸次樹', clubId: 'sanfrecce-hiroshima', shirtNumber: 51, position: 'CF', age: 27, nationality: '日本', preferredFoot: '右', ovr: 73, potential: 75, pace: 77, shooting: 73, passing: 70, dribbling: 74, defending: 52, physical: 73, gk: 10, marketValue: 900000, wage: 16000, contractYears: 2, squadRole: '重要選手' },
-  { id: 'JP_000029', name: 'マツエ・ヴィエイラ', clubId: 'sanfrecce-hiroshima', shirtNumber: 9, position: 'ST', age: 37, nationality: 'ブラジル', preferredFoot: '左', ovr: 72, potential: 72, pace: 68, shooting: 76, passing: 66, dribbling: 70, defending: 40, physical: 78, gk: 10, marketValue: 400000, wage: 18000, contractYears: 1, squadRole: '控え・バックアップ' },
   { id: 'JP_000030', name: '東 俊希', clubId: 'sanfrecce-hiroshima', shirtNumber: 24, position: 'LM', age: 24, nationality: '日本', preferredFoot: '左', ovr: 73, potential: 79, pace: 78, shooting: 68, passing: 76, dribbling: 73, defending: 65, physical: 71, gk: 10, marketValue: 1100000, wage: 15000, contractYears: 3, squadRole: '重要選手' },
 
   // --- FC MACHIDA ZELVIA (FC町田ゼルビア) ---
@@ -665,9 +664,20 @@ export const ALL_AUTHENTIC_J1_PLAYERS: RawJPlayer[] = [
 // Helper to expand squad rosters for all 20 J1 clubs (pure authentic, zero fake players)
 export function generateFullJLeaguePlayers(existingPlayers: Record<string, Player>): Record<string, Player> {
   const result: Record<string, Player> = { ...existingPlayers };
+  const seenClubName = new Set<string>();
+  Object.values(result).forEach(p => {
+    const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+    if (norm) seenClubName.add(`${p.clubId}:${norm}`);
+  });
 
   // Register authentic curated J1 players (guaranteed real names, positions, birth dates, shirt numbers)
   ALL_AUTHENTIC_J1_PLAYERS.forEach(raw => {
+    const norm = raw.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+    if (norm && seenClubName.has(`${raw.clubId}:${norm}`)) {
+      return; // Skip duplicate clone in the same club
+    }
+    if (norm) seenClubName.add(`${raw.clubId}:${norm}`);
+
     // Determine birthDate deterministically from age
     const bMonth = ((raw.shirtNumber * 7) % 12) + 1;
     const bDay = ((raw.shirtNumber * 13) % 28) + 1;

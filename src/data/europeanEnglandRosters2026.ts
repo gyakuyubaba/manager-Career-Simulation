@@ -1280,16 +1280,6 @@ export const EUROPEAN_ENGLAND_2026_SEEDS: Record<string, RosterSeed[]> = {
       "playstyle": "攻撃的SB"
     },
     {
-      "name": "Seamus Coleman",
-      "position": "RB",
-      "age": 37,
-      "nationality": "アイルランド",
-      "ovr": 74,
-      "shirtNumber": 23,
-      "preferredFoot": "右",
-      "playstyle": "守備的SB"
-    },
-    {
       "name": "Ashley Young",
       "position": "LB",
       "age": 41,
@@ -7837,12 +7827,12 @@ export const EUROPEAN_ENGLAND_2026_SEEDS: Record<string, RosterSeed[]> = {
       "playstyle": "ショットストッパー"
     },
     {
-      "name": "Carl Rushworth (HUL)",
+      "name": "Dillon Phillips",
       "position": "GK",
-      "age": 25,
+      "age": 31,
       "nationality": "イングランド",
-      "ovr": 74,
-      "shirtNumber": 22,
+      "ovr": 72,
+      "shirtNumber": 12,
       "preferredFoot": "右",
       "playstyle": "ショットストッパー"
     },
@@ -8037,14 +8027,14 @@ export const EUROPEAN_ENGLAND_2026_SEEDS: Record<string, RosterSeed[]> = {
       "playstyle": "ターゲットマン"
     },
     {
-      "name": "João Pedro (HUL)",
+      "name": "Kyle Joseph",
       "position": "ST",
-      "age": 34,
-      "nationality": "イタリア",
-      "ovr": 76,
-      "shirtNumber": 12,
+      "age": 24,
+      "nationality": "スコットランド",
+      "ovr": 72,
+      "shirtNumber": 19,
       "preferredFoot": "右",
-      "playstyle": "ゴールゲッター"
+      "playstyle": "ラインブレイカー"
     },
     {
       "name": "Mason Burstow",

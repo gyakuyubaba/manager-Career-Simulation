@@ -131,7 +131,6 @@ export const ADDITIONAL_CLUB_SEEDS: Record<string, RosterSeed[]> = {
     { name: 'Nahuel Molina', position: 'RB', age: 28, nationality: 'アルゼンチン', ovr: 81, shirtNumber: 16 },
     { name: 'Robin Le Normand', position: 'CB', age: 29, nationality: 'スペイン', ovr: 84, shirtNumber: 24 },
     { name: 'José María Giménez', position: 'CB', age: 31, nationality: 'ウルグアイ', ovr: 83, shirtNumber: 2 },
-    { name: 'Reinildo', position: 'LB', age: 32, nationality: 'モザンビーク', ovr: 80, shirtNumber: 23 },
     { name: 'Koke', position: 'CM', age: 34, nationality: 'スペイン', ovr: 83, shirtNumber: 6 },
     { name: 'Rodrigo De Paul', position: 'CM', age: 32, nationality: 'アルゼンチン', ovr: 84, shirtNumber: 5 },
     { name: 'Conor Gallagher', position: 'CM', age: 26, nationality: 'イングランド', ovr: 82, shirtNumber: 4 },

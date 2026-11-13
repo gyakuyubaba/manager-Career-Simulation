@@ -14,6 +14,11 @@ import { ALL_NEW_4_LEAGUES_CLUBS, REAL_NEW_LEAGUES_STARS } from './europeanNewLe
 import { J_LEAGUE_2026_ADDITIONAL_ROSTERS } from './jLeagueFullRosters2026';
 import { EUROPEAN_ENGLAND_2026_SEEDS } from './europeanEnglandRosters2026';
 import { EUROPEAN_SPAIN_2026_SEEDS } from './europeanSpainRosters2026';
+import { J_LEAGUE_COMPLETE_TOPUP_2026 } from './jLeagueCompleteTopUp2026';
+import { EUROPEAN_GERMANY_2026_SEEDS } from './europeanGermanyRosters2026';
+import { EUROPEAN_ITALY_2026_SEEDS } from './europeanItalyRosters2026';
+import { EUROPEAN_FRANCE_2026_SEEDS } from './europeanFranceRosters2026';
+import { EUROPEAN_NEW_LEAGUES_2026_SEEDS } from './europeanNewLeaguesFullRosters2026';
 
 // Standard 25 squad positions template (3 GKs, 4 CBs, 2 LBs, 2 RBs, 2 CDMs, 2 CMs, 2 CAMs, 1 LM, 1 RM, 1 LW, 1 RW, 3 STs, 1 CF)
 const SQUAD_POSITIONS_TEMPLATE: Position[] = [
@@ -387,6 +392,81 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     });
   });
 
+  // 2a-de. Register authentic 2026/27 German rosters (Bundesliga and 2. Bundesliga)
+  Object.entries(EUROPEAN_GERMANY_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_ger26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;
+      const wageMultiplier = seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 15000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
+      addPlayerIfUnique(player);
+    });
+  });
+
+  // 2a-it. Register authentic 2026/27 Italian rosters (Serie A and Serie B)
+  Object.entries(EUROPEAN_ITALY_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_ita26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;
+      const wageMultiplier = seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 15000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
+      addPlayerIfUnique(player);
+    });
+  });
+
+  // 2a-fr. Register authentic 2026/27 French rosters (Ligue 1 and Ligue 2)
+  Object.entries(EUROPEAN_FRANCE_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_fra26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 80 ? 30000000 : seed.ovr >= 75 ? 12000000 : 3500000;
+      const wageMultiplier = seed.ovr >= 80 ? 100000 : seed.ovr >= 75 ? 40000 : 15000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
+      addPlayerIfUnique(player);
+    });
+  });
+
   // 2b. Register must-check stars and European 2nd division authentic seeds
   Object.entries(MUST_CHECK_AND_OVERSEAS_SEEDS).forEach(([clubId, seeds]) => {
     seeds.forEach((seed, idx) => {
@@ -577,10 +657,71 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     addPlayerIfUnique(p);
   });
 
+  // 3a. Register Full Authentic 2026/27 Rosters for Turkey, Portugal, Netherlands, and Belgium
+  Object.entries(EUROPEAN_NEW_LEAGUES_2026_SEEDS).forEach(([clubId, seeds]) => {
+    seeds.forEach((seed, idx) => {
+      const pId = `${clubId}_new26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+      const tierMultiplier = seed.ovr >= 80 ? 22000000 : seed.ovr >= 75 ? 9000000 : 2800000;
+      const wageMultiplier = seed.ovr >= 80 ? 75000 : seed.ovr >= 75 ? 32000 : 12000;
+      const player = makeRealPlayer(
+        pId,
+        seed.name,
+        clubId,
+        seed.position,
+        seed.age,
+        seed.nationality,
+        seed.ovr,
+        seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+        tierMultiplier,
+        wageMultiplier,
+        seed.shirtNumber,
+        seed.preferredFoot || '右',
+        seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'チャンスメイカー')
+      );
+      addPlayerIfUnique(player);
+    });
+  });
+
   // 3b. Load all authentic J-League players (J1, J2, and J3 authentic rosters)
   let baseRegistry = registry;
   if (ENABLE_J_LEAGUE) {
     baseRegistry = generateFullJLeaguePlayers(baseRegistry);
+
+    const seenJNames = new Set<string>();
+    Object.values(baseRegistry).forEach(p => {
+      const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+      if (norm) seenJNames.add(norm);
+    });
+
+    Object.entries(J_LEAGUE_COMPLETE_TOPUP_2026).forEach(([clubId, seeds]) => {
+      seeds.forEach((seed, idx) => {
+        const norm = seed.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
+        if (norm && seenJNames.has(norm)) return;
+        if (norm) seenJNames.add(norm);
+
+        const pId = `${clubId}_jtop26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || idx}`;
+        const tierMultiplier = seed.ovr >= 75 ? 2500000 : seed.ovr >= 70 ? 1100000 : 500000;
+        const wageMultiplier = seed.ovr >= 75 ? 35000 : seed.ovr >= 70 ? 18000 : 9000;
+        const player = makeRealPlayer(
+          pId,
+          seed.name,
+          clubId,
+          seed.position,
+          seed.age,
+          seed.nationality,
+          seed.ovr,
+          seed.ovr + (seed.age <= 23 ? 5 : seed.age <= 27 ? 2 : 0),
+          tierMultiplier,
+          wageMultiplier,
+          seed.shirtNumber,
+          seed.preferredFoot || '右',
+          seed.playstyle || (seed.position === 'GK' ? '守備的GK' : 'ボックストゥボックス')
+        );
+        player.isVerified = true;
+        player.verificationStatus = 'verified';
+        baseRegistry[pId] = player;
+      });
+    });
   }
 
   // 3c. Register Free Agent Superstars (Messi, Ronaldo, Neymar, James Rodriguez, Carvajal, Sergio Ramos)

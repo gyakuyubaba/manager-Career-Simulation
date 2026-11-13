@@ -12,6 +12,68 @@ export interface IntegrityCheckResult {
 }
 
 /**
+ * Shared Unicode NFD + punctuation normalization for player identity matching.
+ * Prevents accented-vs-ASCII clones (e.g. Éderson vs Ederson, Šeško vs Sesko).
+ */
+export function normalizePlayerNameKey(name: string): string {
+  return (name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af]/g, '');
+}
+
+/**
+ * Extracts normalized identity tokens including bilingual "Local (Latin)" variants
+ * while keeping short 2-3 letter country disambiguators like "(ENG)" intact.
+ */
+export function extractNameMatchTokens(name: string): string[] {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return [];
+  const tokens = new Set<string>();
+  const full = normalizePlayerNameKey(trimmed);
+  if (full) tokens.add(full);
+
+  const m = trimmed.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (m) {
+    const inner = m[2].trim();
+    const isShortTag = /^[A-Z0-9]{1,4}$/.test(inner);
+    if (!isShortTag) {
+      const t1 = normalizePlayerNameKey(m[1]);
+      const t2 = normalizePlayerNameKey(inner);
+      if (t1) tokens.add(t1);
+      if (t2) tokens.add(t2);
+    }
+  }
+  return Array.from(tokens);
+}
+
+/**
+ * Explicitly verified distinct real-world individuals who share the exact same name.
+ * Each entry maps normalized name key -> allowed distinct player IDs.
+ */
+export const ALLOWED_DISTINCT_HOMONYMS: Record<string, string[]> = {
+  ederson: ['mci_ederson', 'atalanta_eur26_9_derson'],
+  aaronramsey: ['burnley_eng26_16_aaronramse', 'cardiff_city_eng26_16_aaronramse']
+};
+
+export function areAllowedDistinctHomonyms(a: Player, b: Player): boolean {
+  const aBase = normalizePlayerNameKey(a.name.replace(/\s*\([A-Z]{2,4}\)\s*$/g, ''));
+  const bBase = normalizePlayerNameKey(b.name.replace(/\s*\([A-Z]{2,4}\)\s*$/g, ''));
+  if (!aBase || aBase !== bBase) return false;
+  const allowedIds = ALLOWED_DISTINCT_HOMONYMS[aBase];
+  if (allowedIds && allowedIds.includes(a.id) && allowedIds.includes(b.id) && a.id !== b.id) {
+    return true;
+  }
+  // Distinct football individuals with genuinely different nationalities/positions and distinct IDs
+  if (aBase === 'joaopedro' && a.id !== b.id && a.nationality !== b.nationality) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * 【11.1 PLAYER_DUPLICATE_CHECK (選手ID重複チェック)】
  * Checks that every playerId is 100% globally unique and no player is cloned.
  */
@@ -19,7 +81,7 @@ export function PLAYER_DUPLICATE_CHECK(
   players: Record<string, Player>
 ): { valid: boolean; duplicates: string[]; logs: string[] } {
   const seenIds = new Set<string>();
-  const seenNames = new Map<string, string>();
+  const seenTokens = new Map<string, string>();
   const duplicates: string[] = [];
   const logs: string[] = [];
 
@@ -30,12 +92,29 @@ export function PLAYER_DUPLICATE_CHECK(
     }
     seenIds.add(id);
 
-    const norm = player.name.trim().toLowerCase().replace(/[^a-z0-9ぁ-んァ-ヶ一-龥]/g, '');
-    if (seenNames.has(norm)) {
+    const tokens = extractNameMatchTokens(player.name);
+    let duplicateHit: string | undefined;
+    for (const tok of tokens) {
+      const existingId = seenTokens.get(tok);
+      if (existingId && existingId !== id) {
+        const existingPlayer = players[existingId];
+        if (existingPlayer && areAllowedDistinctHomonyms(existingPlayer, player)) {
+          continue;
+        }
+        duplicateHit = existingId;
+        break;
+      }
+    }
+
+    if (duplicateHit) {
       duplicates.push(id);
-      logs.push(`[DUPLICATE_NAME] 同一選手 "${player.name}" が別ID (${seenNames.get(norm)} と ${id}) で重複登録されています。`);
+      logs.push(`[DUPLICATE_NAME] 同一選手 "${player.name}" が別ID (${duplicateHit} と ${id}) で重複登録されています。`);
     } else {
-      seenNames.set(norm, id);
+      for (const tok of tokens) {
+        if (!seenTokens.has(tok)) {
+          seenTokens.set(tok, id);
+        }
+      }
     }
   }
 
@@ -311,22 +390,25 @@ export function checkPlayerDataIntegrity(
       continue;
     }
 
-    // Remove punctuation, spaces, and separators while preserving Kanji, Hiragana, Katakana, Hangul, and Latin characters
-    let canonicalName = player.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') || player.name.trim().toLowerCase();
+    const tokens = extractNameMatchTokens(player.name);
+    let duplicateExistingId: string | undefined;
 
-    if (canonicalName && seenCanonical.has(canonicalName)) {
-      const existingId = seenCanonical.get(canonicalName)!;
-      const existingPlayer = cleanPlayers[existingId];
-      // If belongs to a different club, disambiguate name to prevent stripping squad of players
-      if (existingPlayer && existingPlayer.clubId !== player.clubId) {
-        player.name = `${player.name} (${clubs[player.clubId]?.shortName || player.clubId})`;
-        canonicalName = player.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-      } else {
-        result.duplicateNames.push(player.name);
-        result.logs.push(`[DUPLICATE DETECTED] Duplicate player found: "${player.name}" (${existingId} vs ${player.id}). Eliminating duplicate clone.`);
-        result.repairedCount++;
-        continue;
+    for (const tok of tokens) {
+      const existingId = seenCanonical.get(tok);
+      if (existingId && cleanPlayers[existingId]) {
+        if (areAllowedDistinctHomonyms(cleanPlayers[existingId], player)) {
+          continue;
+        }
+        duplicateExistingId = existingId;
+        break;
       }
+    }
+
+    if (duplicateExistingId) {
+      result.duplicateNames.push(player.name);
+      result.logs.push(`[DUPLICATE DETECTED] Duplicate player found: "${player.name}" (${duplicateExistingId} vs ${player.id}). Eliminating duplicate clone.`);
+      result.repairedCount++;
+      continue;
     }
 
     let assignedId = player.id;
@@ -356,7 +438,11 @@ export function checkPlayerDataIntegrity(
     };
 
     cleanPlayers[assignedId] = normalizedPlayer;
-    seenCanonical.set(canonicalName, assignedId);
+    for (const tok of tokens) {
+      if (!seenCanonical.has(tok)) {
+        seenCanonical.set(tok, assignedId);
+      }
+    }
   }
 
   const cleanClubs: Record<string, Club> = {};
@@ -938,7 +1024,7 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
 
   // 3a. Ko Itakura (板倉 滉) club assignment audit: strictly Borussia Mönchengladbach (mgladbach)
   Object.values(repairedPlayers).forEach(p => {
-    if (p.name.includes('板倉') && p.clubId !== 'mgladbach') {
+    if ((p.name.includes('板倉 滉') || p.id === 'mgladbach_ko_itakura') && p.clubId !== 'mgladbach') {
       const oldClubId = p.clubId;
       if (repairedClubs[oldClubId]) {
         repairedClubs[oldClubId].playerIds = repairedClubs[oldClubId].playerIds.filter(id => id !== p.id);
@@ -970,9 +1056,16 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
     'mainz_kaishu_sano',
     'parma_zion_suzuki',
     'monaco_takumi_minamino',
-    'reims_junya_ito',
     'reims_keito_nakamura',
-    'leeds_ao_tanaka'
+    'leeds_ao_tanaka',
+    'scp_morita',
+    'fey_ueda',
+    'usg_machida',
+    'nec_nijmegen_new26_13_kodaisano',
+    'krc_genk_new26_17_junyaito',
+    'holstein_kiel_ger26_20_shutomachi',
+    'kaa_gent_new26_4_tsuyoshiwa',
+    'kaa_gent_new26_13_atsukiito'
   ]);
 
   const INVALID_J3_ORPHAN_IDS = new Set(['JP_000401', 'JP_000402', 'JP_000403', 'JP_000404', 'JP_000405']);
@@ -1019,7 +1112,13 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
           return;
         }
         if (p.nationality === '日本') {
-          const isAllowedEuroJapanese = VALID_EURO_JAPANESE_PLAYERS.has(p.id) ||
+          const isVerifiedEuroRosterPlayer =
+            p.isVerified === true &&
+            p.verificationStatus === 'verified' &&
+            !p.id.startsWith('JP_') &&
+            !p.id.startsWith('j_');
+          const isAllowedEuroJapanese = isVerifiedEuroRosterPlayer ||
+            VALID_EURO_JAPANESE_PLAYERS.has(p.id) ||
             p.name.includes('冨安') ||
             p.name.includes('遠藤 航') ||
             p.name.includes('三笘') ||
@@ -1030,11 +1129,17 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
             p.name.includes('鎌田') ||
             p.name.includes('菅原') ||
             p.name.includes('佐野 海舟') ||
+            p.name.includes('佐野 航大') ||
             p.name.includes('鈴木 彩艶') ||
             p.name.includes('南野') ||
             p.name.includes('伊東 純也') ||
             p.name.includes('中村 敬斗') ||
-            p.name.includes('田中 碧');
+            p.name.includes('田中 碧') ||
+            p.name.includes('上田 綺世') ||
+            p.name.includes('守田 英正') ||
+            p.name.includes('町田 浩樹') ||
+            p.name.includes('町野 修斗') ||
+            p.name.includes('渡辺 剛');
 
           if (!isAllowedEuroJapanese) {
             playersToEvict.push(pId);

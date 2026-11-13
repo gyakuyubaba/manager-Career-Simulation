@@ -328,7 +328,7 @@ export interface Club {
   name: string;
   shortName: string;
   league: LeagueKey;
-  division?: 1 | 2;
+  division?: 1 | 2 | 3;
   country: string;
   tier: 'Elite' | 'Upper' | 'Mid' | 'Lower';
   reputation: number; // 1-100
