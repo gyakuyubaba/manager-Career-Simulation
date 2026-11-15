@@ -479,10 +479,39 @@ export interface MatchEvent {
   playerName: string;
   assistPlayerId?: string;
   assistPlayerName?: string;
+  subOutPlayerId?: string;
+  subOutPlayerName?: string;
   subInPlayerId?: string;
   subInPlayerName?: string;
   description: string;
   goalDetail?: GoalDetail;
+}
+
+export interface MatchSubstitutionRecord {
+  minute: number;
+  clubId: string;
+  outPlayerId: string;
+  outPlayerName: string;
+  inPlayerId: string;
+  inPlayerName: string;
+}
+
+export interface PlayerMatchStatSummary {
+  clubId: string;
+  isStarter: boolean;
+  enteredMinute: number;
+  exitedMinute: number;
+  minutesPlayed: number;
+  goals: number;
+  assists: number;
+  shots: number;
+  shotsOnTarget: number;
+  passesCompleted: number;
+  saves: number;
+  yellowCards: number;
+  redCards: number;
+  rating: number;
+  cleanSheet: boolean;
 }
 
 export interface MatchStats {
@@ -497,6 +526,8 @@ export interface MatchStats {
   passesCompleted: [number, number];
   passAccuracy: [number, number];
   playerRatings: Record<string, number>; // playerId -> rating 1.0 - 10.0
+  substitutions?: MatchSubstitutionRecord[];
+  playerMatchStats?: Record<string, PlayerMatchStatSummary>;
 }
 
 export interface PenaltyKickerResult {

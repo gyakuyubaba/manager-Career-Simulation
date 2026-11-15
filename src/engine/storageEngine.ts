@@ -17,11 +17,11 @@ import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionC
 import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateRandomYouthAcademy } from '../data/youthGenerator';
-import { REPAIR_SAVE_DATA_INTEGRITY } from './dataValidator';
+import { REPAIR_SAVE_DATA_INTEGRITY, extractNameMatchTokens } from './dataValidator';
 import { rebuildStandingsFromMatchResults, determineMatchOutcome } from './dateEngine';
 
 export const CURRENT_SCHEMA_VERSION = 7;
-export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V4_ALL17_OFFICIAL';
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V5_2026_27_FULL_VERIFIED';
 export const APP_CODE_VERSION = '2026.2.3';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
@@ -388,26 +388,45 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     }
   });
 
-  // Safely prune obsolete unconfirmed placeholder slots & duplicate J-league clones from pre-V4 saves
-  const masterNameToId = new Map<string, string>();
+  // Safely prune obsolete unconfirmed placeholder slots, name clones, and departed official players from pre-V5 saves
+  // while preserving in-game transferred players, youth regen graduates, Type-2 HS players, and scouted prospects.
+  const masterTokenToId = new Map<string, string>();
   Object.values(masterPlayers).forEach(mp => {
-    const norm = mp.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-    if (norm && !masterNameToId.has(norm)) {
-      masterNameToId.set(norm, mp.id);
-    }
+    extractNameMatchTokens(mp.name).forEach(tok => {
+      if (tok && !masterTokenToId.has(tok)) {
+        masterTokenToId.set(tok, mp.id);
+      }
+    });
   });
 
   Object.entries(nextPlayers).forEach(([pId, p]) => {
     if (masterPlayers[pId] || inGameTransferredPlayerIds.has(pId)) return;
+    if (
+      p.isYouthRegen ||
+      p.isType2Registered ||
+      pId.startsWith('youth_') ||
+      pId.startsWith('gen_') ||
+      pId.startsWith('signed_') ||
+      pId.startsWith('promoted_') ||
+      pId.startsWith('academy_')
+    ) {
+      return;
+    }
+
     if (!p.isVerified || p.name.includes('[未確認')) {
       delete nextPlayers[pId];
       return;
     }
-    const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-    const canonicalId = norm ? masterNameToId.get(norm) : undefined;
+
+    const tokens = extractNameMatchTokens(p.name);
+    const canonicalId = tokens.map(tok => masterTokenToId.get(tok)).find(Boolean);
     if (canonicalId && canonicalId !== pId && nextPlayers[canonicalId]) {
       delete nextPlayers[pId];
+      return;
     }
+
+    // Prune retired / departed official players removed in the verified 2026/27 master database
+    delete nextPlayers[pId];
   });
 
   // Re-synchronize each club's playerIds array to prevent duplicate or missing assignments

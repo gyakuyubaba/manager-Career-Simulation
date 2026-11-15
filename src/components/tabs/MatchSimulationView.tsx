@@ -1,6 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player, CompetitionCategory, FormationName } from '../../types/game';
-import { simulateFullMatch, generateAssistantCoachAdvice, finalMatchEligibilityCheck, MatchEligibilityCheckResult, fastForwardRemainingMatch, isMatchRequiringDecider } from '../../engine/matchEngine';
+import {
+  simulateFullMatch,
+  generateAssistantCoachAdvice,
+  finalMatchEligibilityCheck,
+  MatchEligibilityCheckResult,
+  fastForwardRemainingMatch,
+  isMatchRequiringDecider,
+  applyMatchEventToTactics,
+  applySubstitutionToTactics,
+  removePlayerFromTacticsPitch,
+  resimulateRemainingMatchFromMinute,
+  finalizeMatchResultAndPlayerStats,
+  createPRNG,
+  hashStringToNumber
+} from '../../engine/matchEngine';
 import { autoReplaceIneligiblePlayers } from '../../engine/dataValidator';
 import { getDefaultTacticsForClub } from '../../data/squadPopulator';
 import { updateTacticsFormation } from '../../engine/tacticsEngine';
@@ -75,18 +89,131 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Track players who have already been subbed off to strictly forbid re-entry
   const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
 
-  // In-match user tactical instructions
+  // In-match user tactical instructions & live pitch state for BOTH home and away teams
   const [tactics, setTactics] = useState<TeamTactics>(state.tactics);
+  const [homeLiveTactics, setHomeLiveTactics] = useState<TeamTactics>(() =>
+    isUserHome ? state.tactics : (homeClub ? getDefaultTacticsForClub(homeClub, state.players) : state.tactics)
+  );
+  const [awayLiveTactics, setAwayLiveTactics] = useState<TeamTactics>(() =>
+    !isUserHome ? state.tactics : (awayClub ? getDefaultTacticsForClub(awayClub, state.players) : state.tactics)
+  );
+  const homeLiveTacticsRef = useRef<TeamTactics>(homeLiveTactics);
+  const awayLiveTacticsRef = useRef<TeamTactics>(awayLiveTactics);
+  const initialHomeStarterIdsRef = useRef<string[]>(
+    homeLiveTactics.lineup.starters.map(s => s.playerId).filter(Boolean)
+  );
+  const initialAwayStarterIdsRef = useRef<string[]>(
+    awayLiveTactics.lineup.starters.map(s => s.playerId).filter(Boolean)
+  );
+  const subbedOutPlayerIdsRef = useRef<string[]>([]);
+
   const [inMatchMentality, setInMatchMentality] = useState<'攻撃的' | 'バランス' | '守備的' | 'ゲーゲンプレス' | 'カウンター'>('バランス');
 
   // Pre-simulated full events & stats pool
   const [simulatedResult, setSimulatedResult] = useState<any>(null);
+  const simulatedResultRef = useRef<any>(null);
   const [currentScore, setCurrentScore] = useState<[number, number]>([0, 0]);
   const [revealedEvents, setRevealedEvents] = useState<MatchEvent[]>([]);
   const [subCount, setSubCount] = useState<number>(0);
   const scoreRef = useRef<[number, number]>([0, 0]);
   const revealedEventsRef = useRef<MatchEvent[]>([]);
   const completedFinalFixtureRef = useRef<MatchFixture | null>(null);
+  const completedUpdatedPlayersRef = useRef<Record<string, Player> | null>(null);
+
+  const isRegularGoal = (e: MatchEvent) =>
+    e.type === 'goal' || (e.type === 'penalty' && !(e.description && e.description.includes('PK戦')));
+
+  const syncUserAndLiveTactics = (nextUserTactics: TeamTactics, isPreMatchUpdate: boolean = false) => {
+    setTactics(nextUserTactics);
+    if (isUserHome) {
+      homeLiveTacticsRef.current = nextUserTactics;
+      setHomeLiveTactics(nextUserTactics);
+      if (isPreMatchUpdate) {
+        initialHomeStarterIdsRef.current = nextUserTactics.lineup.starters.map(s => s.playerId).filter(Boolean);
+      }
+    } else {
+      awayLiveTacticsRef.current = nextUserTactics;
+      setAwayLiveTactics(nextUserTactics);
+      if (isPreMatchUpdate) {
+        initialAwayStarterIdsRef.current = nextUserTactics.lineup.starters.map(s => s.playerId).filter(Boolean);
+      }
+    }
+  };
+
+  const applyEventsToLiveTactics = (eventsToApply: MatchEvent[]) => {
+    if (!homeClub || !awayClub || eventsToApply.length === 0) return;
+    let nextHomeTac = homeLiveTacticsRef.current;
+    let nextAwayTac = awayLiveTacticsRef.current;
+    let nextSubbedOut = subbedOutPlayerIdsRef.current;
+    let homeChanged = false;
+    let awayChanged = false;
+    let subOutChanged = false;
+
+    eventsToApply.forEach(ev => {
+      if (ev.clubId === homeClub.id) {
+        const updated = applyMatchEventToTactics(nextHomeTac, homeClub.id, ev);
+        if (updated !== nextHomeTac) {
+          nextHomeTac = updated;
+          homeChanged = true;
+        }
+      } else if (ev.clubId === awayClub.id) {
+        const updated = applyMatchEventToTactics(nextAwayTac, awayClub.id, ev);
+        if (updated !== nextAwayTac) {
+          nextAwayTac = updated;
+          awayChanged = true;
+        }
+      }
+      if (ev.type === 'sub') {
+        const outId = ev.subOutPlayerId || ev.playerId;
+        if (outId && !nextSubbedOut.includes(outId)) {
+          nextSubbedOut = [...nextSubbedOut, outId];
+          subOutChanged = true;
+        }
+      }
+    });
+
+    if (homeChanged) {
+      homeLiveTacticsRef.current = nextHomeTac;
+      setHomeLiveTactics(nextHomeTac);
+      if (isUserHome) setTactics(nextHomeTac);
+    }
+    if (awayChanged) {
+      awayLiveTacticsRef.current = nextAwayTac;
+      setAwayLiveTactics(nextAwayTac);
+      if (!isUserHome) setTactics(nextAwayTac);
+    }
+    if (subOutChanged) {
+      subbedOutPlayerIdsRef.current = nextSubbedOut;
+      setSubbedOutPlayerIds(nextSubbedOut);
+    }
+  };
+
+  const triggerRemainingResim = (
+    atMinute: number,
+    lockedEvts: MatchEvent[],
+    currScore: [number, number]
+  ) => {
+    if (!homeClub || !awayClub || matchPhase === 'finished' || atMinute >= 90) return;
+    const resim = resimulateRemainingMatchFromMinute(
+      atMinute,
+      lockedEvts,
+      currScore,
+      fixture,
+      homeClub,
+      awayClub,
+      homeLiveTacticsRef.current,
+      awayLiveTacticsRef.current,
+      state.players,
+      {
+        skipAutoSubsForClubId: state.userClubId || undefined,
+        subbedOutPlayerIds: subbedOutPlayerIdsRef.current,
+        initialHomeStarterIds: initialHomeStarterIdsRef.current,
+        initialAwayStarterIds: initialAwayStarterIdsRef.current
+      }
+    );
+    simulatedResultRef.current = resim;
+    setSimulatedResult(resim);
+  };
 
   // Pause modals (Requirements 1 & 2)
   const [showHalftimeModal, setShowHalftimeModal] = useState<boolean>(false);
@@ -165,7 +292,8 @@ export const MatchSimulationView: React.FC<Props> = ({
     setCurrentScore(finalScore);
     setRevealedEvents(finalEvents);
 
-    if (simulatedResult) {
+    const activeSim = simulatedResultRef.current || simulatedResult;
+    if (activeSim && homeClub && awayClub) {
       const isQuarterOrSemi = Boolean(
         (fixture.round && (
           fixture.round.includes('準') || 
@@ -182,7 +310,7 @@ export const MatchSimulationView: React.FC<Props> = ({
         fixture.round === 'Final' ||
         (fixture.round && fixture.round.endsWith('決勝') && !fixture.round.includes('準'))
       );
-      const finalPk = customPenaltyShootout || simulatedResult.fixture.penaltyShootout;
+      const finalPk = customPenaltyShootout || activeSim.fixture.penaltyShootout;
       
       const outcome = determineMatchOutcome({
         homeClubId: homeClub.id,
@@ -192,26 +320,72 @@ export const MatchSimulationView: React.FC<Props> = ({
         penaltyShootout: finalPk
       });
 
+      const effectiveSeed =
+        activeSim.fixture.matchSeed ??
+        fixture.matchSeed ??
+        hashStringToNumber(`${fixture.id}_${homeClub.id}_${awayClub.id}_${fixture.date || '2026-08-01'}`);
+
+      // Prepare clean base players preserving any explicit in-match medical injury diagnosis recorded live
+      const registryForFinal: Record<string, Player> = { ...state.players };
+      Object.entries(activeSim.updatedPlayers || {}).forEach(([pId, up]: [string, any]) => {
+        if (up?.injury?.isInjured && registryForFinal[pId] && !registryForFinal[pId].injury?.isInjured) {
+          registryForFinal[pId] = {
+            ...registryForFinal[pId],
+            injuryStatus: up.injuryStatus,
+            injuryStartDate: up.injuryStartDate,
+            injuryReturnDate: up.injuryReturnDate,
+            injuryType: up.injuryType,
+            injuryDaysRemaining: up.injuryDaysRemaining,
+            injury: up.injury,
+            squadStatus: up.squadStatus
+          };
+        }
+      });
+
+      const finalized = finalizeMatchResultAndPlayerStats({
+        fixture: activeSim.fixture,
+        homeClub,
+        awayClub,
+        initialHomeStarterIds: initialHomeStarterIdsRef.current,
+        initialAwayStarterIds: initialAwayStarterIdsRef.current,
+        homeTactics: homeLiveTacticsRef.current,
+        awayTactics: awayLiveTacticsRef.current,
+        events: finalEvents,
+        homeScore: finalScore[0],
+        awayScore: finalScore[1],
+        extraTimePlayed: minute > 90 || activeSim.fixture.extraTimePlayed,
+        penaltyShootout: finalPk as any,
+        playersRegistry: registryForFinal,
+        rng: createPRNG(effectiveSeed),
+        homePossession: activeSim.fixture.stats?.possession,
+        homeShots: activeSim.fixture.stats?.shots?.[0],
+        awayShots: activeSim.fixture.stats?.shots?.[1],
+        homeShotsOnTarget: activeSim.fixture.stats?.shotsOnTarget?.[0],
+        awayShotsOnTarget: activeSim.fixture.stats?.shotsOnTarget?.[1],
+        homeCorners: activeSim.fixture.stats?.corners?.[0],
+        awayCorners: activeSim.fixture.stats?.corners?.[1],
+        homeFouls: activeSim.fixture.stats?.fouls?.[0],
+        awayFouls: activeSim.fixture.stats?.fouls?.[1]
+      });
+
       const finalFixture: MatchFixture = {
-        ...simulatedResult.fixture,
+        ...finalized.fixture,
         status: 'finished',
         homeScore: finalScore[0],
         awayScore: finalScore[1],
         winnerClubId: outcome.winnerClubId,
         resultType: outcome.resultType,
-        extraTimePlayed: minute > 90 || simulatedResult.fixture.extraTimePlayed,
+        extraTimePlayed: minute > 90 || activeSim.fixture.extraTimePlayed,
         penaltyShootout: finalPk,
         events: finalEvents,
-        stats: {
-          ...simulatedResult.fixture.stats,
-          homeScore: finalScore[0],
-          awayScore: finalScore[1]
-        },
         isResultApplied: false
       };
 
       completedFinalFixtureRef.current = finalFixture;
-      onFinishMatch(finalFixture, simulatedResult.updatedPlayers);
+      completedUpdatedPlayersRef.current = finalized.updatedPlayers;
+      simulatedResultRef.current = { fixture: finalFixture, updatedPlayers: finalized.updatedPlayers };
+      setSimulatedResult({ fixture: finalFixture, updatedPlayers: finalized.updatedPlayers });
+      onFinishMatch(finalFixture, finalized.updatedPlayers);
 
       if (isFinal) {
         if (outcome.winnerClubId === state.userClubId) {
@@ -226,10 +400,15 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Initialize simulation pool on mount
   useEffect(() => {
     if (!homeClub || !awayClub) return;
-    const homeTac = isUserHome ? state.tactics : getDefaultTacticsForClub(homeClub, state.players);
-    const awayTac = !isUserHome ? state.tactics : getDefaultTacticsForClub(awayClub, state.players);
+    const homeTac = homeLiveTacticsRef.current;
+    const awayTac = awayLiveTacticsRef.current;
 
-    const result = simulateFullMatch(fixture, homeClub, awayClub, homeTac, awayTac, state.players);
+    const result = simulateFullMatch(fixture, homeClub, awayClub, homeTac, awayTac, state.players, undefined, {
+      skipAutoSubsForClubId: state.userClubId || undefined,
+      initialHomeStarterIds: initialHomeStarterIdsRef.current,
+      initialAwayStarterIds: initialAwayStarterIdsRef.current
+    });
+    simulatedResultRef.current = result;
     setSimulatedResult(result);
   }, []);
 
@@ -314,8 +493,9 @@ export const MatchSimulationView: React.FC<Props> = ({
         const nextMin = prev + 1;
 
         // Check for events in this minute
-        if (simulatedResult?.fixture?.events) {
-          const newEvents = simulatedResult.fixture.events.filter((e: MatchEvent) => e.minute === nextMin);
+        const activeSimEvents = simulatedResultRef.current?.fixture?.events || simulatedResult?.fixture?.events;
+        if (activeSimEvents) {
+          const newEvents = activeSimEvents.filter((e: MatchEvent) => e.minute === nextMin);
           if (newEvents.length > 0) {
             const incident = newEvents.find((e: MatchEvent) => 
               (e.type === 'injury' || e.type === 'red_card' || e.type === 'second_yellow') &&
@@ -324,8 +504,9 @@ export const MatchSimulationView: React.FC<Props> = ({
 
             revealedEventsRef.current = [...revealedEventsRef.current, ...newEvents];
             setRevealedEvents(revealedEventsRef.current);
+            applyEventsToLiveTactics(newEvents);
             newEvents.forEach((e: MatchEvent) => {
-              if (e.type === 'goal') {
+              if (isRegularGoal(e)) {
                 if (e.clubId === homeClub.id) {
                   scoreRef.current = [scoreRef.current[0] + 1, scoreRef.current[1]];
                 } else {
@@ -463,7 +644,26 @@ export const MatchSimulationView: React.FC<Props> = ({
       }
     };
 
-    setTactics(newTactics);
+    syncUserAndLiveTactics(newTactics, matchPhase === 'pre');
+
+    if (matchPhase === 'pre' && homeClub && awayClub) {
+      const resSim = simulateFullMatch(
+        fixture,
+        homeClub,
+        awayClub,
+        homeLiveTacticsRef.current,
+        awayLiveTacticsRef.current,
+        state.players,
+        undefined,
+        {
+          skipAutoSubsForClubId: state.userClubId || undefined,
+          initialHomeStarterIds: initialHomeStarterIdsRef.current,
+          initialAwayStarterIds: initialAwayStarterIdsRef.current
+        }
+      );
+      simulatedResultRef.current = resSim;
+      setSimulatedResult(resSim);
+    }
 
     const check = finalMatchEligibilityCheck(
       res.starters,
@@ -589,7 +789,8 @@ export const MatchSimulationView: React.FC<Props> = ({
     else if (minute < 105) targetMin = 105;
     else targetMin = 120;
 
-    const allEvents: MatchEvent[] = simulatedResult?.fixture?.events || [];
+    const currentSim = simulatedResultRef.current || simulatedResult;
+    const allEvents: MatchEvent[] = currentSim?.fixture?.events || [];
 
     // Search ahead for any unhandled incident
     const upcomingIncidents = allEvents.filter(
@@ -603,16 +804,18 @@ export const MatchSimulationView: React.FC<Props> = ({
     if (upcomingIncidents.length > 0) {
       const incident = upcomingIncidents[0];
       const stopMin = incident.minute;
-      const eventsUpToStop = allEvents.filter((e: MatchEvent) => e.minute <= stopMin);
+      const newlyRevealed = allEvents.filter((e: MatchEvent) => e.minute > minute && e.minute <= stopMin);
+      const eventsUpToStop = [...revealedEventsRef.current, ...newlyRevealed];
       
       let hScore = 0;
       let aScore = 0;
       eventsUpToStop.forEach((e: MatchEvent) => {
-        if (e.type === 'goal') {
+        if (isRegularGoal(e)) {
           if (e.clubId === homeClub.id) hScore++;
           else aScore++;
         }
       });
+      applyEventsToLiveTactics(newlyRevealed);
       scoreRef.current = [hScore, aScore];
       revealedEventsRef.current = eventsUpToStop;
       setCurrentScore([hScore, aScore]);
@@ -623,8 +826,14 @@ export const MatchSimulationView: React.FC<Props> = ({
       return;
     }
 
-    const homeTac = isUserHome ? tactics : getDefaultTacticsForClub(homeClub, state.players);
-    const awayTac = !isUserHome ? tactics : getDefaultTacticsForClub(awayClub, state.players);
+    const homeTac = homeLiveTacticsRef.current;
+    const awayTac = awayLiveTacticsRef.current;
+    const ffOptions = {
+      initialHomeStarterIds: initialHomeStarterIdsRef.current,
+      initialAwayStarterIds: initialAwayStarterIdsRef.current,
+      skipAutoSubsForClubId: state.userClubId || undefined,
+      subbedOutPlayerIds: subbedOutPlayerIdsRef.current
+    };
 
     if (minute < 45) {
       const res = fastForwardRemainingMatch(
@@ -637,14 +846,19 @@ export const MatchSimulationView: React.FC<Props> = ({
         homeTac,
         awayTac,
         state.players,
-        simulatedResult
+        currentSim,
+        ffOptions
       );
 
+      simulatedResultRef.current = res;
+      setSimulatedResult(res);
       const firstHalfEvents = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 45);
+      const newlyRevealed = firstHalfEvents.filter((e: MatchEvent) => e.minute > minute);
+      applyEventsToLiveTactics(newlyRevealed);
       let hScore = 0;
       let aScore = 0;
       firstHalfEvents.forEach((e: MatchEvent) => {
-        if (e.type === 'goal') {
+        if (isRegularGoal(e)) {
           if (e.clubId === homeClub.id) hScore++;
           else aScore++;
         }
@@ -668,14 +882,19 @@ export const MatchSimulationView: React.FC<Props> = ({
         homeTac,
         awayTac,
         state.players,
-        simulatedResult
+        currentSim,
+        ffOptions
       );
 
+      simulatedResultRef.current = res;
+      setSimulatedResult(res);
       const events90 = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 90);
+      const newlyRevealed = events90.filter((e: MatchEvent) => e.minute > minute);
+      applyEventsToLiveTactics(newlyRevealed);
       let hScore = 0;
       let aScore = 0;
       events90.forEach((e: MatchEvent) => {
-        if (e.type === 'goal') {
+        if (isRegularGoal(e)) {
           if (e.clubId === homeClub.id) hScore++;
           else aScore++;
         }
@@ -721,14 +940,19 @@ export const MatchSimulationView: React.FC<Props> = ({
         homeTac,
         awayTac,
         state.players,
-        simulatedResult
+        currentSim,
+        ffOptions
       );
 
+      simulatedResultRef.current = res;
+      setSimulatedResult(res);
       const events120 = (res.fixture.events || []).filter((e: MatchEvent) => e.minute <= 120);
+      const newlyRevealed = events120.filter((e: MatchEvent) => e.minute > minute);
+      applyEventsToLiveTactics(newlyRevealed);
       let hScore = 0;
       let aScore = 0;
       events120.forEach((e: MatchEvent) => {
-        if (e.type === 'goal') {
+        if (isRegularGoal(e)) {
           if (e.clubId === homeClub.id) hScore++;
           else aScore++;
         }
@@ -764,44 +988,35 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Perform substitution
   const handleExecuteSub = () => {
     if (!subPlayerOffId || !subPlayerOnId || subCount >= 5) return;
-    if (subbedOutPlayerIds.includes(subPlayerOnId)) return; // Strictly forbid re-entry of subbed off player
+    if (subbedOutPlayerIdsRef.current.includes(subPlayerOnId)) return; // Strictly forbid re-entry of subbed off player
 
     const offPlayer = state.players[subPlayerOffId];
     const onPlayer = state.players[subPlayerOnId];
-
-    // Add sub event
     const subEvent: MatchEvent = {
       minute,
       type: 'sub',
       clubId: state.userClubId || '',
-      playerId: offPlayer?.id || '',
+      playerId: offPlayer?.id || subPlayerOffId,
       playerName: offPlayer?.name || '',
-      subInPlayerId: onPlayer?.id,
-      subInPlayerName: onPlayer?.name,
+      subOutPlayerId: offPlayer?.id || subPlayerOffId,
+      subOutPlayerName: offPlayer?.name || '',
+      subInPlayerId: onPlayer?.id || subPlayerOnId,
+      subInPlayerName: onPlayer?.name || '',
       description: `🔄 選手交代: OUT: ${offPlayer?.name} (${offPlayer?.position}) ➔ IN: ${onPlayer?.name} (${onPlayer?.position})`
     };
 
-    setRevealedEvents(prev => [...prev, subEvent]);
+    const nextRevealed = [...revealedEventsRef.current, subEvent];
+    revealedEventsRef.current = nextRevealed;
+    setRevealedEvents(nextRevealed);
     setSubCount(c => c + 1);
-    setSubbedOutPlayerIds(prev => [...prev, subPlayerOffId]);
 
-    // Swap in active tactics
-    const newStarters = tactics.lineup.starters.map(s => {
-      if (s.playerId === subPlayerOffId) {
-        return { ...s, playerId: subPlayerOnId };
-      }
-      return s;
-    });
-    const newBench = tactics.lineup.bench.map(id => id === subPlayerOnId ? subPlayerOffId : id);
+    const nextSubbedOut = [...subbedOutPlayerIdsRef.current, subPlayerOffId];
+    subbedOutPlayerIdsRef.current = nextSubbedOut;
+    setSubbedOutPlayerIds(nextSubbedOut);
 
-    setTactics({
-      ...tactics,
-      lineup: {
-        ...tactics.lineup,
-        starters: newStarters,
-        bench: newBench
-      }
-    });
+    const nextUserTactics = applySubstitutionToTactics(tactics, subPlayerOffId, subPlayerOnId);
+    syncUserAndLiveTactics(nextUserTactics, false);
+    triggerRemainingResim(minute, nextRevealed, scoreRef.current);
 
     setSubPlayerOffId(null);
     setSubPlayerOnId(null);
@@ -811,6 +1026,8 @@ export const MatchSimulationView: React.FC<Props> = ({
   const handleConfirmIncident = (resumeMatch = true) => {
     if (!activeIncidentNotice) return;
     const inc = activeIncidentNotice;
+    let needsRemainingResim = false;
+    let nextRevealed = revealedEventsRef.current;
 
     if (inc.type === 'injury') {
       const injuredPlayer = inc.player as Player;
@@ -819,6 +1036,13 @@ export const MatchSimulationView: React.FC<Props> = ({
       const returnDate = inc.injuryDetails?.returnDate || '未定';
 
       if (inc.isUserClub) {
+        needsRemainingResim = true;
+        if (!subbedOutPlayerIdsRef.current.includes(injuredPlayer.id)) {
+          const nextOut = [...subbedOutPlayerIdsRef.current, injuredPlayer.id];
+          subbedOutPlayerIdsRef.current = nextOut;
+          setSubbedOutPlayerIds(nextOut);
+        }
+
         if (injurySubChoiceId && subCount < 5) {
           const subInPlayer = state.players[injurySubChoiceId];
           const subEvent: MatchEvent = {
@@ -827,30 +1051,20 @@ export const MatchSimulationView: React.FC<Props> = ({
             clubId: state.userClubId || '',
             playerId: injuredPlayer.id,
             playerName: injuredPlayer.name,
-            subInPlayerId: subInPlayer?.id,
+            subOutPlayerId: injuredPlayer.id,
+            subOutPlayerName: injuredPlayer.name,
+            subInPlayerId: subInPlayer?.id || injurySubChoiceId,
             subInPlayerName: subInPlayer?.name,
             description: `🔄 負傷交代 (${inc.minute}分): OUT: ${injuredPlayer.name} (負傷退場・全治${recoveryDays}日) ➔ IN: ${subInPlayer?.name} (${subInPlayer?.position})`
           };
 
-          setRevealedEvents(prev => [...prev, subEvent]);
+          nextRevealed = [...revealedEventsRef.current, subEvent];
+          revealedEventsRef.current = nextRevealed;
+          setRevealedEvents(nextRevealed);
           setSubCount(c => c + 1);
 
-          const newStarters = tactics.lineup.starters.map(s => {
-            if (s.playerId === injuredPlayer.id) {
-              return { ...s, playerId: injurySubChoiceId };
-            }
-            return s;
-          });
-          const newBench = tactics.lineup.bench.filter(id => id !== injurySubChoiceId);
-
-          setTactics({
-            ...tactics,
-            lineup: {
-              ...tactics.lineup,
-              starters: newStarters,
-              bench: newBench
-            }
-          });
+          const nextUserTactics = applySubstitutionToTactics(tactics, injuredPlayer.id, injurySubChoiceId);
+          syncUserAndLiveTactics(nextUserTactics, false);
         } else {
           const tenManEvent: MatchEvent = {
             minute: inc.minute,
@@ -858,46 +1072,46 @@ export const MatchSimulationView: React.FC<Props> = ({
             clubId: state.userClubId || '',
             playerId: injuredPlayer.id,
             playerName: injuredPlayer.name,
+            subOutPlayerId: injuredPlayer.id,
+            subOutPlayerName: injuredPlayer.name,
             description: `🚑 負傷退場 (${inc.minute}分): ${injuredPlayer.name}が負傷によりピッチを去りました（交代枠なし・10名で試合続行）`
           };
-          setRevealedEvents(prev => [...prev, tenManEvent]);
+          nextRevealed = [...revealedEventsRef.current, tenManEvent];
+          revealedEventsRef.current = nextRevealed;
+          setRevealedEvents(nextRevealed);
 
-          const newStarters = tactics.lineup.starters.filter(s => s.playerId !== injuredPlayer.id);
-          setTactics({
-            ...tactics,
-            lineup: {
-              ...tactics.lineup,
-              starters: newStarters,
-              bench: tactics.lineup.bench
-            }
-          });
+          const nextUserTactics = removePlayerFromTacticsPitch(tactics, injuredPlayer.id);
+          syncUserAndLiveTactics(nextUserTactics, false);
         }
       }
 
-      if (simulatedResult?.updatedPlayers?.[injuredPlayer.id]) {
-        simulatedResult.updatedPlayers[injuredPlayer.id].injury = {
+      const activeSim = simulatedResultRef.current || simulatedResult;
+      if (activeSim?.updatedPlayers?.[injuredPlayer.id]) {
+        activeSim.updatedPlayers[injuredPlayer.id].injury = {
           isInjured: true,
           type: injuryType,
           recoveryDays,
           returnDate
         };
-        simulatedResult.updatedPlayers[injuredPlayer.id].injuryStatus = 'INJURED';
-        simulatedResult.updatedPlayers[injuredPlayer.id].injuryReturnDate = returnDate;
-        simulatedResult.updatedPlayers[injuredPlayer.id].squadStatus = 'OUT_OF_SQUAD';
+        activeSim.updatedPlayers[injuredPlayer.id].injuryStatus = 'INJURED';
+        activeSim.updatedPlayers[injuredPlayer.id].injuryReturnDate = returnDate;
+        activeSim.updatedPlayers[injuredPlayer.id].squadStatus = 'OUT_OF_SQUAD';
       }
     } else if (inc.type === 'red_card' || inc.type === 'second_yellow') {
       if (inc.isUserClub) {
-        // Red card on user club: player removed from active starters (plays with 10)
-        const newStarters = tactics.lineup.starters.filter(s => s.playerId !== inc.player.id);
-        setTactics({
-          ...tactics,
-          lineup: {
-            ...tactics.lineup,
-            starters: newStarters,
-            bench: tactics.lineup.bench
-          }
-        });
+        needsRemainingResim = true;
+        if (!subbedOutPlayerIdsRef.current.includes(inc.player.id)) {
+          const nextOut = [...subbedOutPlayerIdsRef.current, inc.player.id];
+          subbedOutPlayerIdsRef.current = nextOut;
+          setSubbedOutPlayerIds(nextOut);
+        }
+        const nextUserTactics = removePlayerFromTacticsPitch(tactics, inc.player.id);
+        syncUserAndLiveTactics(nextUserTactics, false);
       }
+    }
+
+    if (needsRemainingResim) {
+      triggerRemainingResim(inc.minute, nextRevealed, scoreRef.current);
     }
 
     setActiveIncidentNotice(null);
@@ -908,15 +1122,15 @@ export const MatchSimulationView: React.FC<Props> = ({
   };
 
   // Extract all goals scored so far for header display
-  const homeGoals = revealedEvents.filter(e => e.type === 'goal' && e.clubId === homeClub.id);
-  const awayGoals = revealedEvents.filter(e => e.type === 'goal' && e.clubId === awayClub.id);
+  const homeGoals = revealedEvents.filter(e => isRegularGoal(e) && e.clubId === homeClub.id);
+  const awayGoals = revealedEvents.filter(e => isRegularGoal(e) && e.clubId === awayClub.id);
 
-  // User club and opponent starters for lineup and fatigue view
+  // User club and opponent starters for lineup and fatigue view (always live)
   const userStarters = tactics.lineup.starters.map(s => state.players[s.playerId]).filter(Boolean);
   const userBench = tactics.lineup.bench.map(id => state.players[id]).filter(Boolean);
 
-  const homeTactics = isUserHome ? tactics : getDefaultTacticsForClub(homeClub, state.players);
-  const awayTactics = !isUserHome ? tactics : getDefaultTacticsForClub(awayClub, state.players);
+  const homeTactics = homeLiveTactics;
+  const awayTactics = awayLiveTactics;
 
   const homeStartersList = homeTactics.lineup.starters.map(s => ({
     ...s,
@@ -1856,6 +2070,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                     <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
                     <span className="font-bold text-white text-sm">{homeClub?.name}</span>
                     {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${homeStartersList.length < 11 ? 'bg-red-900/70 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
+                      {homeStartersList.length}人
+                    </span>
                   </div>
                   <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
                     {homeTactics.formation}
@@ -1870,6 +2087,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                     const p = s.player;
                     const dynamicFatigue = Math.min(100, Math.round((p.fatigue || 20) + (minute * 0.25)));
                     const isUserPlayer = isUserHome;
+                    const isSubIn = !initialHomeStarterIdsRef.current.includes(p.id);
                     return (
                       <div
                         key={p.id || idx}
@@ -1885,12 +2103,17 @@ export const MatchSimulationView: React.FC<Props> = ({
                         }`}
                       >
                         <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md relative"
+                          className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md relative ${
+                            isSubIn ? 'border-amber-300 ring-2 ring-amber-400/50' : 'border-white/80'
+                          }`}
                           style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
                         >
                           {p.shirtNumber || s.position}
                           {isUserPlayer && matchPhase !== 'finished' && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
+                          )}
+                          {isSubIn && (
+                            <span className="absolute -bottom-1 -right-1 px-1 rounded bg-amber-400 text-slate-950 text-[7px] font-black">IN</span>
                           )}
                         </div>
                         <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
@@ -1903,6 +2126,12 @@ export const MatchSimulationView: React.FC<Props> = ({
                     );
                   })}
                 </div>
+                <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1">
+                  <span>控え待機: {homeBenchList.length}名</span>
+                  <span>
+                    交代: {revealedEvents.filter(e => e.type === 'sub' && e.clubId === homeClub?.id && e.subInPlayerId).length}/5
+                  </span>
+                </div>
               </div>
 
               {/* Away Pitch */}
@@ -1912,6 +2141,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                     <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
                     <span className="font-bold text-white text-sm">{awayClub?.name}</span>
                     {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${awayStartersList.length < 11 ? 'bg-red-900/70 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
+                      {awayStartersList.length}人
+                    </span>
                   </div>
                   <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
                     {awayTactics.formation}
@@ -1926,6 +2158,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                     const p = s.player;
                     const dynamicFatigue = Math.min(100, Math.round((p.fatigue ?? 0) + (minute * 0.25)));
                     const isUserPlayer = !isUserHome;
+                    const isSubIn = !initialAwayStarterIdsRef.current.includes(p.id);
                     return (
                       <div
                         key={p.id || idx}
@@ -1941,12 +2174,17 @@ export const MatchSimulationView: React.FC<Props> = ({
                         }`}
                       >
                         <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md relative"
+                          className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md relative ${
+                            isSubIn ? 'border-amber-300 ring-2 ring-amber-400/50' : 'border-white/80'
+                          }`}
                           style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
                         >
                           {p.shirtNumber || s.position}
                           {isUserPlayer && matchPhase !== 'finished' && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
+                          )}
+                          {isSubIn && (
+                            <span className="absolute -bottom-1 -right-1 px-1 rounded bg-amber-400 text-slate-950 text-[7px] font-black">IN</span>
                           )}
                         </div>
                         <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
@@ -1958,6 +2196,12 @@ export const MatchSimulationView: React.FC<Props> = ({
                       </div>
                     );
                   })}
+                </div>
+                <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1">
+                  <span>控え待機: {awayBenchList.length}名</span>
+                  <span>
+                    交代: {revealedEvents.filter(e => e.type === 'sub' && e.clubId === awayClub?.id && e.subInPlayerId).length}/5
+                  </span>
                 </div>
               </div>
             </div>
@@ -1974,7 +2218,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   ※疲労が高まると後半の決定力・反応速度が低下し、負傷リスクが上昇します。
                 </p>
               </div>
-              <span className="text-xs font-mono text-emerald-400 font-bold">11 Players</span>
+              <span className="text-xs font-mono text-emerald-400 font-bold">{userStarters.length} Players</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
@@ -2304,8 +2548,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                   onChange={e => {
                     const newForm = e.target.value as FormationName;
                     const updated = updateTacticsFormation(tactics, newForm);
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`フォーメーションを ${newForm} に変更しました`);
                     setTimeout(() => setInMatchTacticsToast(null), 3000);
                   }}
@@ -2366,8 +2611,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       type="button"
                       onClick={() => {
                         const updated = updateTacticsFormation(tactics, preset as FormationName);
-                        setTactics(updated);
+                        syncUserAndLiveTactics(updated, false);
                         onUpdateTactics?.(updated);
+                        triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                         setInMatchTacticsToast(`フォーメーションを ${preset} に変更しました`);
                         setTimeout(() => setInMatchTacticsToast(null), 3000);
                       }}
@@ -2396,8 +2642,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       ...tactics,
                       instructions: { ...tactics.instructions, attackingStyle: e.target.value as any }
                     };
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`攻撃スタイルを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
                   }}
@@ -2424,8 +2671,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       ...tactics,
                       instructions: { ...tactics.instructions, defensiveStyle: e.target.value as any }
                     };
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`守備スタイルを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
                   }}
@@ -2451,8 +2699,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       ...tactics,
                       instructions: { ...tactics.instructions, pressIntensity: e.target.value as any }
                     };
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`プレス強度を「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
                   }}
@@ -2476,8 +2725,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       ...tactics,
                       instructions: { ...tactics.instructions, defensiveLine: e.target.value as any }
                     };
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`ライン高さを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
                   }}
@@ -2501,8 +2751,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       ...tactics,
                       instructions: { ...tactics.instructions, tempo: e.target.value as any }
                     };
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`テンポを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
                   }}
@@ -2526,8 +2777,9 @@ export const MatchSimulationView: React.FC<Props> = ({
                       ...tactics,
                       instructions: { ...tactics.instructions, counterUrgency: e.target.value as any }
                     };
-                    setTactics(updated);
+                    syncUserAndLiveTactics(updated, false);
                     onUpdateTactics?.(updated);
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`カウンター意識を「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
                   }}
@@ -2680,8 +2932,8 @@ export const MatchSimulationView: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (completedFinalFixtureRef.current) {
-                    onFinishMatch(completedFinalFixtureRef.current, simulatedResult.updatedPlayers);
+                  if (completedFinalFixtureRef.current && completedUpdatedPlayersRef.current) {
+                    onFinishMatch(completedFinalFixtureRef.current, completedUpdatedPlayersRef.current);
                   }
                   onClose();
                 }}
@@ -3188,8 +3440,8 @@ export const MatchSimulationView: React.FC<Props> = ({
             oldPlayer={manualReplaceTarget}
             state={state}
             tactics={tactics}
-            onCompleteReplacement={(newTactics, updatedPlayers, msg) => {
-              setTactics(newTactics);
+            onCompleteReplacement={(newTactics, updatedPlayers) => {
+              syncUserAndLiveTactics(newTactics, true);
               if (onUpdateTactics) onUpdateTactics(newTactics);
               
               // Re-check eligibility
@@ -3206,9 +3458,16 @@ export const MatchSimulationView: React.FC<Props> = ({
 
               // Re-initialize simulatedResult with new valid lineup
               if (homeClub && awayClub) {
-                const homeTac = isUserHome ? newTactics : getDefaultTacticsForClub(homeClub, updatedPlayers);
-                const awayTac = !isUserHome ? newTactics : getDefaultTacticsForClub(awayClub, updatedPlayers);
-                const newRes = simulateFullMatch(fixture, homeClub, awayClub, homeTac, awayTac, updatedPlayers);
+                const homeTac = isUserHome ? newTactics : awayLiveTacticsRef.current;
+                const awayTac = !isUserHome ? newTactics : homeLiveTacticsRef.current;
+                const newRes = simulateFullMatch(fixture, homeClub, awayClub, isUserHome ? newTactics : homeLiveTacticsRef.current, !isUserHome ? newTactics : awayLiveTacticsRef.current, updatedPlayers, undefined, {
+                  skipAutoSubsForClubId: state.userClubId || undefined,
+                  initialHomeStarterIds: initialHomeStarterIdsRef.current,
+                  initialAwayStarterIds: initialAwayStarterIdsRef.current
+                });
+                void homeTac;
+                void awayTac;
+                simulatedResultRef.current = newRes;
                 setSimulatedResult(newRes);
               }
             }}

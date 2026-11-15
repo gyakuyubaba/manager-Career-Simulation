@@ -1,4 +1,18 @@
-import { MatchFixture, MatchEvent, MatchStats, TeamTactics, Player, Club, PlayerCondition, GoalDetail, CompetitionCategory, PenaltyShootoutResult, PenaltyKickerResult } from '../types/game';
+import {
+  MatchFixture,
+  MatchEvent,
+  MatchStats,
+  MatchSubstitutionRecord,
+  PlayerMatchStatSummary,
+  TeamTactics,
+  Player,
+  Club,
+  PlayerCondition,
+  GoalDetail,
+  CompetitionCategory,
+  PenaltyShootoutResult,
+  PenaltyKickerResult
+} from '../types/game';
 import { addDays, getCompetitionCategory } from './dateEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 
@@ -695,7 +709,7 @@ export function isMatchRequiringDecider(fixture: MatchFixture): { requiresDecide
   if (fixture.needsDecider) {
     return { requiresDecider: true, isTwoLeggedSecondLeg: false };
   }
-  if (['premier-league', 'championship', 'laliga', 'segunda-division', 'serie-a', 'serie-b', 'bundesliga', '2-bundesliga', 'ligue-1', 'ligue-2', 'j1-league', 'j2-league', 'j3-league'].includes(fixture.competition)) {
+  if (['premier-league', 'championship', 'laliga', 'segunda-division', 'serie-a', 'serie-b', 'bundesliga', '2-bundesliga', 'ligue-1', 'ligue-2', 'j1-league', 'j2-league', 'j3-league', 'super-lig', 'primeira-liga', 'eredivisie', 'pro-league'].includes(fixture.competition)) {
     return { requiresDecider: false, isTwoLeggedSecondLeg: false };
   }
   if (fixture.competition === 'pre-season' || fixture.competitionType === 'preseason') {
@@ -865,7 +879,548 @@ export function simulatePenaltyShootoutKickers(
 }
 
 // -------------------------------------------------------------
-// 【3 & 4. 試合シミュレーションエンジン (0-0過多解消 & 時間帯展開)】
+// 【純粋ヘルパー：交代・退場・負傷に伴うフォーメーション＆ベンチ即時同期】
+// -------------------------------------------------------------
+export function applySubstitutionToTactics(
+  tactics: TeamTactics,
+  outPlayerId: string,
+  inPlayerId: string
+): TeamTactics {
+  if (!outPlayerId || !inPlayerId || outPlayerId === inPlayerId) return tactics;
+  const currentStarters = tactics.lineup?.starters || [];
+  const hasOut = currentStarters.some(s => s.playerId === outPlayerId);
+  const newStarters = hasOut
+    ? currentStarters.map(s => (s.playerId === outPlayerId ? { ...s, playerId: inPlayerId } : s))
+    : currentStarters;
+
+  // Remove BOTH incoming player and outgoing player from active selectable bench
+  const newBench = (tactics.lineup?.bench || []).filter(
+    id => id !== inPlayerId && id !== outPlayerId
+  );
+
+  const existingReserves = tactics.lineup?.reserves || [];
+  const newReserves = existingReserves.filter(id => id !== inPlayerId && id !== outPlayerId);
+  if (hasOut) {
+    newReserves.push(outPlayerId);
+  }
+
+  return {
+    ...tactics,
+    lineup: {
+      starters: newStarters,
+      bench: newBench,
+      reserves: newReserves
+    }
+  };
+}
+
+export function removePlayerFromTacticsPitch(
+  tactics: TeamTactics,
+  playerId: string
+): TeamTactics {
+  if (!playerId) return tactics;
+  return {
+    ...tactics,
+    lineup: {
+      starters: (tactics.lineup?.starters || []).filter(s => s.playerId !== playerId),
+      bench: (tactics.lineup?.bench || []).filter(id => id !== playerId),
+      reserves: (tactics.lineup?.reserves || []).filter(id => id !== playerId)
+    }
+  };
+}
+
+export function applyMatchEventToTactics(
+  tactics: TeamTactics,
+  clubId: string,
+  event: MatchEvent
+): TeamTactics {
+  if (!event || event.clubId !== clubId) return tactics;
+  if (event.type === 'sub') {
+    const outId = event.subOutPlayerId || event.playerId;
+    const inId = event.subInPlayerId;
+    if (outId && inId) {
+      return applySubstitutionToTactics(tactics, outId, inId);
+    }
+    if (outId) {
+      return removePlayerFromTacticsPitch(tactics, outId);
+    }
+    return tactics;
+  }
+  if (event.type === 'red_card' || event.type === 'second_yellow') {
+    return removePlayerFromTacticsPitch(tactics, event.playerId);
+  }
+  if (event.type === 'injury') {
+    // Only drop from pitch if not replaced by a sub at the same minute (10-man handling occurs via sub event or explicit)
+    return tactics;
+  }
+  return tactics;
+}
+
+export interface SimulateMatchOptions {
+  skipAutoSubsForClubId?: string;
+  forcedSubMinutes?: number[];
+  startMinute?: number;
+  lockedEvents?: MatchEvent[];
+  initialScore?: [number, number];
+  subbedOutPlayerIds?: string[];
+  initialHomeStarterIds?: string[];
+  initialAwayStarterIds?: string[];
+}
+
+function isRegularGoalEvent(e: MatchEvent): boolean {
+  if (e.type === 'goal') return true;
+  if (e.type === 'penalty') {
+    return !(e.description && e.description.includes('PK戦'));
+  }
+  return false;
+}
+
+function isPositionGroupCompatible(outPos: string, inPos: string): boolean {
+  if (outPos === inPos) return true;
+  if (['ST', 'CF', 'LW', 'RW'].includes(outPos) && ['ST', 'CF', 'LW', 'RW'].includes(inPos)) return true;
+  if (['CM', 'CAM', 'CDM', 'LM', 'RM'].includes(outPos) && ['CM', 'CAM', 'CDM', 'LM', 'RM'].includes(inPos)) return true;
+  if (['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(outPos) && ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(inPos)) return true;
+  return false;
+}
+
+export function finalizeMatchResultAndPlayerStats(params: {
+  fixture: MatchFixture;
+  homeClub: Club;
+  awayClub: Club;
+  initialHomeStarterIds: string[];
+  initialAwayStarterIds: string[];
+  homeTactics: TeamTactics;
+  awayTactics: TeamTactics;
+  events: MatchEvent[];
+  homeScore: number;
+  awayScore: number;
+  extraTimePlayed: boolean;
+  penaltyShootout?: PenaltyShootoutResult;
+  playersRegistry: Record<string, Player>;
+  rng: () => number;
+  homePossession?: number;
+  homeShots?: number;
+  awayShots?: number;
+  homeShotsOnTarget?: number;
+  awayShotsOnTarget?: number;
+  homeCorners?: number;
+  awayCorners?: number;
+  homeFouls?: number;
+  awayFouls?: number;
+  playerShots?: Record<string, number>;
+  playerShotsOnTarget?: Record<string, number>;
+}): {
+  fixture: MatchFixture;
+  updatedPlayers: Record<string, Player>;
+} {
+  const {
+    fixture,
+    homeClub,
+    awayClub,
+    initialHomeStarterIds,
+    initialAwayStarterIds,
+    homeTactics,
+    awayTactics,
+    events: rawEvents,
+    homeScore,
+    awayScore,
+    extraTimePlayed,
+    penaltyShootout,
+    playersRegistry,
+    rng
+  } = params;
+
+  const events = [...rawEvents].sort((a, b) => a.minute - b.minute);
+  const matchEndMinute = extraTimePlayed ? 120 : 90;
+  const isPreseason = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
+  const compCat = getCompetitionCategory(fixture.competition);
+
+  // Build deep-enough cloned updatedPlayers (clean pre-match stats snapshot + new updates)
+  const updatedPlayers: Record<string, Player> = { ...playersRegistry };
+
+  const participants: Record<string, PlayerMatchStatSummary> = {};
+  const initParticipant = (pId: string, clubId: string, isStarter: boolean, enteredMinute: number) => {
+    if (!pId || participants[pId]) return;
+    participants[pId] = {
+      clubId,
+      isStarter,
+      enteredMinute,
+      exitedMinute: matchEndMinute,
+      minutesPlayed: Math.max(1, matchEndMinute - enteredMinute),
+      goals: 0,
+      assists: 0,
+      shots: 0,
+      shotsOnTarget: 0,
+      passesCompleted: 0,
+      saves: 0,
+      yellowCards: 0,
+      redCards: 0,
+      rating: +( (isStarter ? 6.0 : 6.2) + rng() * 0.6 ).toFixed(1),
+      cleanSheet: false
+    };
+  };
+
+  initialHomeStarterIds.forEach(id => initParticipant(id, homeClub.id, true, 0));
+  initialAwayStarterIds.forEach(id => initParticipant(id, awayClub.id, true, 0));
+
+  const substitutions: MatchSubstitutionRecord[] = [];
+  const homePossession = params.homePossession ?? 50;
+
+  let countedShotsHome = 0;
+  let countedShotsAway = 0;
+  let countedOnTargetHome = 0;
+  let countedOnTargetAway = 0;
+  let countedFoulsHome = 0;
+  let countedFoulsAway = 0;
+
+  events.forEach(e => {
+    if (e.type === 'sub') {
+      const outId = e.subOutPlayerId || e.playerId;
+      const inId = e.subInPlayerId;
+      if (outId && participants[outId]) {
+        participants[outId].exitedMinute = Math.min(matchEndMinute, Math.max(participants[outId].enteredMinute + 1, e.minute));
+      }
+      if (inId) {
+        initParticipant(inId, e.clubId, false, Math.min(matchEndMinute - 1, Math.max(1, e.minute)));
+        substitutions.push({
+          minute: e.minute,
+          clubId: e.clubId,
+          outPlayerId: outId,
+          outPlayerName: e.subOutPlayerName || e.playerName || playersRegistry[outId]?.name || '',
+          inPlayerId: inId,
+          inPlayerName: e.subInPlayerName || playersRegistry[inId]?.name || ''
+        });
+      }
+      return;
+    }
+
+    if (isRegularGoalEvent(e)) {
+      if (e.playerId) {
+        initParticipant(e.playerId, e.clubId, false, 0);
+        const ps = participants[e.playerId];
+        ps.goals += 1;
+        ps.shots += 1;
+        ps.shotsOnTarget += 1;
+        ps.rating = Math.min(9.9, +(ps.rating + 1.2).toFixed(1));
+        if (e.clubId === homeClub.id) {
+          countedShotsHome++;
+          countedOnTargetHome++;
+        } else {
+          countedShotsAway++;
+          countedOnTargetAway++;
+        }
+      }
+      if (e.assistPlayerId) {
+        initParticipant(e.assistPlayerId, e.clubId, false, 0);
+        const aps = participants[e.assistPlayerId];
+        aps.assists += 1;
+        aps.rating = Math.min(9.6, +(aps.rating + 0.6).toFixed(1));
+      }
+      return;
+    }
+
+    if (e.type === 'save' && e.playerId) {
+      initParticipant(e.playerId, e.clubId, false, 0);
+      const gkPs = participants[e.playerId];
+      gkPs.saves += 1;
+      gkPs.rating = Math.min(9.3, +(gkPs.rating + 0.4).toFixed(1));
+      if (e.clubId === homeClub.id) {
+        countedShotsAway++;
+        countedOnTargetAway++;
+      } else {
+        countedShotsHome++;
+        countedOnTargetHome++;
+      }
+      return;
+    }
+
+    if (e.type === 'woodwork' && e.playerId) {
+      initParticipant(e.playerId, e.clubId, false, 0);
+      participants[e.playerId].shots += 1;
+      if (e.clubId === homeClub.id) countedShotsHome++;
+      else countedShotsAway++;
+      return;
+    }
+
+    if (e.type === 'yellow_card' && e.playerId) {
+      initParticipant(e.playerId, e.clubId, false, 0);
+      participants[e.playerId].yellowCards += 1;
+      participants[e.playerId].rating = Math.max(4.5, +(participants[e.playerId].rating - 0.2).toFixed(1));
+      if (e.clubId === homeClub.id) countedFoulsHome++;
+      else countedFoulsAway++;
+      return;
+    }
+
+    if ((e.type === 'second_yellow' || e.type === 'red_card') && e.playerId) {
+      initParticipant(e.playerId, e.clubId, false, 0);
+      const ps = participants[e.playerId];
+      if (e.type === 'second_yellow') ps.yellowCards += 1;
+      ps.redCards += 1;
+      ps.exitedMinute = Math.min(matchEndMinute, Math.max(ps.enteredMinute + 1, e.minute));
+      ps.rating = Math.max(3.8, +(ps.rating - 0.8).toFixed(1));
+      if (e.clubId === homeClub.id) countedFoulsHome++;
+      else countedFoulsAway++;
+
+      if (updatedPlayers[e.playerId]) {
+        const baseP = updatedPlayers[e.playerId];
+        const cardDetails = determineRedCardSeverityAndSuspension(e.type === 'second_yellow', rng);
+        const existingSuspMatches = baseP.suspension?.matchesRemaining || 0;
+        if (!baseP.suspension?.isSuspended || existingSuspMatches === 0) {
+          updatedPlayers[e.playerId] = {
+            ...baseP,
+            squadStatus: 'OUT_OF_SQUAD',
+            suspension: {
+              isSuspended: true,
+              matchesRemaining: cardDetails.matchesRemaining,
+              reason: cardDetails.reason,
+              competitionCategory: compCat,
+              competitionSuspensions: {
+                ...(baseP.suspension?.competitionSuspensions || {}),
+                [compCat]: cardDetails.matchesRemaining
+              }
+            }
+          };
+        }
+      }
+      return;
+    }
+
+    if (e.type === 'injury' && e.playerId) {
+      if (participants[e.playerId]) {
+        participants[e.playerId].exitedMinute = Math.min(matchEndMinute, Math.max(participants[e.playerId].enteredMinute + 1, e.minute));
+      }
+      if (updatedPlayers[e.playerId]) {
+        const baseP = updatedPlayers[e.playerId];
+        if (!baseP.injury?.isInjured && baseP.injuryStatus !== 'INJURED') {
+          const chosenInj = getRandomWeightedInjury();
+          const returnDate = addDays(fixture.date, chosenInj.days);
+          updatedPlayers[e.playerId] = {
+            ...baseP,
+            injuryStatus: 'INJURED',
+            injuryStartDate: fixture.date,
+            injuryReturnDate: returnDate,
+            injuryType: chosenInj.name,
+            injuryDaysRemaining: chosenInj.days,
+            injury: {
+              isInjured: true,
+              type: chosenInj.name,
+              recoveryDays: chosenInj.days,
+              returnDate
+            },
+            squadStatus: 'OUT_OF_SQUAD'
+          };
+        }
+      }
+    }
+  });
+
+  // Finalize minutes, per-player shots/passes, clean sheets, ratings
+  const playerRatings: Record<string, number> = {};
+  let bestRating = 0;
+  let motmId = initialHomeStarterIds[0] || Object.keys(participants)[0];
+
+  Object.entries(participants).forEach(([pId, ps]) => {
+    const pObj = updatedPlayers[pId];
+    ps.minutesPlayed = Math.max(1, Math.min(matchEndMinute, ps.exitedMinute - ps.enteredMinute));
+
+    if (params.playerShots && params.playerShots[pId]) {
+      ps.shots = Math.max(ps.shots, params.playerShots[pId]);
+    }
+    if (params.playerShotsOnTarget && params.playerShotsOnTarget[pId]) {
+      ps.shotsOnTarget = Math.max(ps.shotsOnTarget, params.playerShotsOnTarget[pId]);
+    }
+
+    const pos = pObj?.position || 'CM';
+    const isDefenderOrGk = pos === 'GK' || ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(pos);
+    const concededByClub = ps.clubId === homeClub.id ? awayScore : homeScore;
+    ps.cleanSheet = isDefenderOrGk && concededByClub === 0 && ps.minutesPlayed >= 30;
+
+    if (ps.cleanSheet) {
+      ps.rating = Math.min(9.5, +(ps.rating + 0.4).toFixed(1));
+    }
+
+    const teamPoss = ps.clubId === homeClub.id ? homePossession : 100 - homePossession;
+    const posPassRate = pos === 'GK' ? 0.28 : ['CB', 'CDM', 'CM'].includes(pos) ? 0.65 : 0.44;
+    ps.passesCompleted = Math.max(1, Math.round((ps.minutesPlayed / 90) * teamPoss * posPassRate * (0.85 + rng() * 0.3)));
+
+    playerRatings[pId] = ps.rating;
+    if (ps.rating > bestRating) {
+      bestRating = ps.rating;
+      motmId = pId;
+    }
+  });
+
+  // Apply cumulative stats, fatigue, and OVR growth for ALL match participants (starters + subs)
+  Object.entries(participants).forEach(([pId, ps]) => {
+    const existing = updatedPlayers[pId];
+    if (!existing) return;
+
+    const updated: Player = {
+      ...existing,
+      stats: { ...existing.stats },
+      preseasonStats: existing.preseasonStats ? { ...existing.preseasonStats } : undefined,
+      competitionStats: existing.competitionStats ? { ...existing.competitionStats } : {}
+    };
+
+    const playerStamina = existing.stamina || existing.physical || 75;
+    const staminaFactor = Math.max(0.65, Math.min(1.35, 1.0 - (playerStamina - 75) * 0.012));
+
+    let positionWorkrate = 1.0;
+    if (['LWB', 'RWB', 'LM', 'RM'].includes(existing.position)) {
+      positionWorkrate = 1.25;
+    } else if (['CM', 'CDM', 'CAM'].includes(existing.position)) {
+      positionWorkrate = 1.15;
+    } else if (['ST', 'CF', 'LW', 'RW'].includes(existing.position)) {
+      positionWorkrate = 1.05;
+    } else if (['CB', 'LB', 'RB'].includes(existing.position)) {
+      positionWorkrate = 0.9;
+    } else if (existing.position === 'GK') {
+      positionWorkrate = 0.35;
+    }
+
+    const timeFactor = ps.minutesPlayed / 90;
+    const tacticsPress =
+      (ps.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
+    const pressMultiplier =
+      tacticsPress === '非常に激しい' || tacticsPress === '相手CB・GK限定猛プレス'
+        ? 1.2
+        : tacticsPress === '自陣引き気味'
+          ? 0.85
+          : 1.0;
+
+    const calculatedFatigueDelta = Math.round(15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier);
+    updated.fatigue = Math.max(0, Math.min(100, (updated.fatigue || 0) + calculatedFatigueDelta));
+
+    const conceded = ps.clubId === homeClub.id ? awayScore : homeScore;
+
+    if (isPreseason) {
+      if (!updated.preseasonStats) {
+        updated.preseasonStats = {
+          appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
+          cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0
+        };
+      }
+      const prevApps = updated.preseasonStats.appearances;
+      const prevAvg = updated.preseasonStats.avgRating || 6.5;
+      updated.preseasonStats.appearances += 1;
+      updated.preseasonStats.starts += ps.isStarter ? 1 : 0;
+      updated.preseasonStats.minutes += ps.minutesPlayed;
+      updated.preseasonStats.goals += ps.goals;
+      updated.preseasonStats.assists += ps.assists;
+      updated.preseasonStats.saves = (updated.preseasonStats.saves || 0) + ps.saves;
+      updated.preseasonStats.yellowCards += ps.yellowCards;
+      updated.preseasonStats.redCards += ps.redCards;
+      updated.preseasonStats.avgRating = +((prevAvg * prevApps + ps.rating) / (prevApps + 1)).toFixed(2);
+      if (ps.cleanSheet) updated.preseasonStats.cleanSheets += 1;
+      if (existing.position === 'GK') {
+        updated.preseasonStats.goalsConceded = (updated.preseasonStats.goalsConceded || 0) + conceded;
+      }
+    } else {
+      const prevApps = updated.stats.appearances;
+      const prevAvg = updated.stats.avgRating || 6.5;
+      updated.stats.appearances += 1;
+      updated.stats.starts += ps.isStarter ? 1 : 0;
+      updated.stats.minutes += ps.minutesPlayed;
+      updated.stats.goals += ps.goals;
+      updated.stats.assists += ps.assists;
+      updated.stats.saves = (updated.stats.saves || 0) + ps.saves;
+      updated.stats.yellowCards += ps.yellowCards;
+      updated.stats.redCards += ps.redCards;
+      updated.stats.avgRating = +((prevAvg * prevApps + ps.rating) / (prevApps + 1)).toFixed(2);
+      if (ps.cleanSheet) updated.stats.cleanSheets += 1;
+      if (existing.position === 'GK') {
+        updated.stats.goalsConceded = (updated.stats.goalsConceded || 0) + conceded;
+      }
+
+      const compKey = fixture.competition;
+      const existingCs = updated.competitionStats![compKey]
+        ? { ...updated.competitionStats![compKey] }
+        : {
+            appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
+            cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0
+          };
+      const csPrevApps = existingCs.appearances;
+      const csPrevAvg = existingCs.avgRating || 6.5;
+      existingCs.appearances += 1;
+      existingCs.starts += ps.isStarter ? 1 : 0;
+      existingCs.minutes += ps.minutesPlayed;
+      existingCs.goals += ps.goals;
+      existingCs.assists += ps.assists;
+      existingCs.saves = (existingCs.saves || 0) + ps.saves;
+      existingCs.yellowCards += ps.yellowCards;
+      existingCs.redCards += ps.redCards;
+      existingCs.avgRating = +((csPrevAvg * csPrevApps + ps.rating) / (csPrevApps + 1)).toFixed(2);
+      if (ps.cleanSheet) existingCs.cleanSheets += 1;
+      if (existing.position === 'GK') {
+        existingCs.goalsConceded = (existingCs.goalsConceded || 0) + conceded;
+      }
+      updated.competitionStats![compKey] = existingCs;
+    }
+
+    const growthResult = processPlayerPerformanceGrowth(updated, {
+      rating: ps.rating,
+      minutes: ps.minutesPlayed,
+      goals: ps.goals,
+      assists: ps.assists,
+      cleanSheet: ps.cleanSheet,
+      isMotm: motmId === pId
+    });
+    updated.exactOvr = growthResult.exactOvr;
+    updated.ovr = growthResult.ovr;
+    updated.matchRatingsHistory = growthResult.matchRatingsHistory;
+
+    updatedPlayers[pId] = updated;
+  });
+
+  const finalHomeShots = Math.max(homeScore, params.homeShots ?? countedShotsHome);
+  const finalAwayShots = Math.max(awayScore, params.awayShots ?? countedShotsAway);
+  const finalHomeOnTarget = Math.max(homeScore, params.homeShotsOnTarget ?? countedOnTargetHome);
+  const finalAwayOnTarget = Math.max(awayScore, params.awayShotsOnTarget ?? countedOnTargetAway);
+  const finalHomeCorners = Math.max(1, params.homeCorners ?? Math.max(1, Math.round(finalHomeShots * 0.4)));
+  const finalAwayCorners = Math.max(1, params.awayCorners ?? Math.max(1, Math.round(finalAwayShots * 0.4)));
+  const finalHomeFouls = Math.max(4, params.homeFouls ?? countedFoulsHome + 4);
+  const finalAwayFouls = Math.max(4, params.awayFouls ?? countedFoulsAway + 4);
+
+  const homeXG = +(finalHomeOnTarget * 0.32 + (finalHomeShots - finalHomeOnTarget) * 0.06).toFixed(2);
+  const awayXG = +(finalAwayOnTarget * 0.30 + (finalAwayShots - finalAwayOnTarget) * 0.06).toFixed(2);
+
+  const stats: MatchStats = {
+    homeScore,
+    awayScore,
+    possession: homePossession,
+    shots: [finalHomeShots, finalAwayShots],
+    shotsOnTarget: [finalHomeOnTarget, finalAwayOnTarget],
+    xG: [homeXG, awayXG],
+    corners: [finalHomeCorners, finalAwayCorners],
+    fouls: [finalHomeFouls, finalAwayFouls],
+    passesCompleted: [Math.floor(homePossession * 8.5), Math.floor((100 - homePossession) * 8.5)],
+    passAccuracy: [83 + Math.floor(rng() * 7), 81 + Math.floor(rng() * 7)],
+    playerRatings,
+    substitutions,
+    playerMatchStats: participants
+  };
+
+  const updatedFixture: MatchFixture = {
+    ...fixture,
+    status: 'finished',
+    homeScore,
+    awayScore,
+    extraTimePlayed,
+    penaltyShootout,
+    events,
+    stats,
+    motmPlayerId: motmId,
+    isResultApplied: false
+  };
+
+  return {
+    fixture: updatedFixture,
+    updatedPlayers
+  };
+}
+
+// -------------------------------------------------------------
+// 【3 & 4. 試合シミュレーションエンジン (0-0過多解消・時系列交代連動・時間帯展開)】
 // -------------------------------------------------------------
 export function simulateFullMatch(
   fixture: MatchFixture,
@@ -874,36 +1429,41 @@ export function simulateFullMatch(
   homeTactics: TeamTactics,
   awayTactics: TeamTactics,
   playersRegistry: Record<string, Player>,
-  forcedSeed?: number
+  forcedSeed?: number,
+  options?: SimulateMatchOptions
 ): {
   fixture: MatchFixture;
   updatedPlayers: Record<string, Player>;
 } {
-  const events: MatchEvent[] = [];
-  const updatedPlayers = { ...playersRegistry };
+  const startMinute = options?.startMinute ?? 0;
+  const events: MatchEvent[] = options?.lockedEvents ? [...options.lockedEvents] : [];
+  const tempPlayers = { ...playersRegistry };
 
-  // Requirement 7 & 8: MATCH_SIMULATION_SEED guarantees 100% deterministic scenario
-  const effectiveSeed = forcedSeed ?? fixture.matchSeed ?? hashStringToNumber(`${fixture.id}_${homeClub.id}_${awayClub.id}_${fixture.date || '2026-08-01'}`);
+  const effectiveSeed =
+    forcedSeed ??
+    fixture.matchSeed ??
+    hashStringToNumber(`${fixture.id}_${homeClub.id}_${awayClub.id}_${fixture.date || '2026-08-01'}_${startMinute}`);
   const rng = createPRNG(effectiveSeed);
 
-  // Sanitize on-pitch starters (filter out any injured, suspended, or invalid club membership)
   const sanitizeStarters = (club: Club, tactics?: TeamTactics): string[] => {
-    const rawStarters = (tactics?.lineup?.starters || []).map((s: any) => typeof s === 'string' ? s : s?.playerId).filter(Boolean);
+    const rawStarters = (tactics?.lineup?.starters || [])
+      .map((s: any) => (typeof s === 'string' ? s : s?.playerId))
+      .filter(Boolean);
     const valid: string[] = [];
     const clubPlayerIds = club?.playerIds || [];
 
     rawStarters.forEach(pId => {
-      const p = updatedPlayers[pId];
+      const p = tempPlayers[pId];
       if (p && p.injuryStatus !== 'INJURED' && !p.injury?.isInjured && !p.suspension?.isSuspended && p.clubId === club.id) {
         valid.push(pId);
       }
     });
 
-    if (valid.length < 11) {
+    if (startMinute === 0 && valid.length < 11) {
       for (const pId of clubPlayerIds) {
         if (valid.length >= 11) break;
         if (!valid.includes(pId)) {
-          const p = updatedPlayers[pId];
+          const p = tempPlayers[pId];
           if (p && p.injuryStatus !== 'INJURED' && !p.injury?.isInjured && !p.suspension?.isSuspended) {
             valid.push(pId);
           }
@@ -917,42 +1477,35 @@ export function simulateFullMatch(
   let homePitchPlayers = sanitizeStarters(homeClub, homeTactics);
   let awayPitchPlayers = sanitizeStarters(awayClub, awayTactics);
 
-  const homeStartersList = homePitchPlayers.map(id => updatedPlayers[id]).filter(Boolean);
-  const awayStartersList = awayPitchPlayers.map(id => updatedPlayers[id]).filter(Boolean);
+  const initialHomeStarterIds = options?.initialHomeStarterIds
+    ? [...options.initialHomeStarterIds]
+    : [...homePitchPlayers];
+  const initialAwayStarterIds = options?.initialAwayStarterIds
+    ? [...options.initialAwayStarterIds]
+    : [...awayPitchPlayers];
 
-  // Compute attack and defense ratings
+  const homeStartersList = homePitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
+  const awayStartersList = awayPitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
+
   const getSubRating = (list: Player[], positions: string[], fallback: number): number => {
     const filtered = list.filter(p => positions.includes(p.position));
     if (filtered.length === 0) return fallback;
     return filtered.reduce((acc, p) => acc + calculateEffectivePlayerPower(p), 0) / filtered.length;
   };
 
-  const homeFWPower = getSubRating(homeStartersList, ['ST', 'CF', 'RW', 'LW'], 72);
-  const homeMFPower = getSubRating(homeStartersList, ['CAM', 'CM', 'CDM', 'RM', 'LM'], 72);
-  const homeDFPower = getSubRating(homeStartersList, ['CB', 'RB', 'LB', 'LWB', 'RWB'], 72);
-  const homeGKPower = homeStartersList.find(p => p.position === 'GK')?.ovr || 72;
-
-  const awayFWPower = getSubRating(awayStartersList, ['ST', 'CF', 'RW', 'LW'], 72);
-  const awayMFPower = getSubRating(awayStartersList, ['CAM', 'CM', 'CDM', 'RM', 'LM'], 72);
-  const awayDFPower = getSubRating(awayStartersList, ['CB', 'RB', 'LB', 'LWB', 'RWB'], 72);
-  const awayGKPower = awayStartersList.find(p => p.position === 'GK')?.ovr || 72;
-
-  // Analyze formation profiles and tactical setup (Requirement 5 & 6)
   const getFormationProfile = (tactics: TeamTactics, startersList: Player[]) => {
     const f = tactics.formation;
     const is5Back = f.startsWith('5-') || startersList.filter(p => ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position)).length >= 5;
     const is3Back = f.startsWith('3-');
     const is4Back = f.startsWith('4-');
-
     const wingCount = startersList.filter(p => ['LW', 'RW', 'LM', 'RM', 'LWB', 'RWB'].includes(p.position)).length;
     const centralCount = startersList.filter(p => ['CAM', 'CM', 'CDM', 'ST', 'CF'].includes(p.position)).length;
     const fwCount = startersList.filter(p => ['ST', 'CF', 'RW', 'LW'].includes(p.position)).length;
     const mfCount = startersList.filter(p => ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(p.position)).length;
-
-    // Custom pitch positioning metrics (Requirement 6: free positioning influence)
-    const avgPitchY = tactics.lineup.starters.length > 0 
-      ? tactics.lineup.starters.reduce((acc, s) => acc + (s.pitchY || 50), 0) / tactics.lineup.starters.length 
-      : 50;
+    const avgPitchY =
+      tactics.lineup.starters.length > 0
+        ? tactics.lineup.starters.reduce((acc, s) => acc + (s.pitchY || 50), 0) / tactics.lineup.starters.length
+        : 50;
     const pushUpFactor = Math.max(0.85, Math.min(1.18, (55 - avgPitchY) * 0.012 + 1.0));
 
     return {
@@ -971,26 +1524,32 @@ export function simulateFullMatch(
     };
   };
 
-  const homeProfile = getFormationProfile(homeTactics, homeStartersList);
-  const awayProfile = getFormationProfile(awayTactics, awayStartersList);
+  const computeTeamRatings = (
+    pitchIds: string[],
+    tactics: TeamTactics,
+    isHomeTeam: boolean,
+    freshBoostCount: number
+  ) => {
+    const pitchList = pitchIds.map(id => tempPlayers[id]).filter(Boolean);
+    const fwPower = getSubRating(pitchList, ['ST', 'CF', 'RW', 'LW'], 72);
+    const mfPower = getSubRating(pitchList, ['CAM', 'CM', 'CDM', 'RM', 'LM'], 72);
+    const dfPower = getSubRating(pitchList, ['CB', 'RB', 'LB', 'LWB', 'RWB'], 72);
+    const gkPower = pitchList.find(p => p.position === 'GK')?.ovr || 72;
+    const profile = getFormationProfile(tactics, pitchList);
+    const freshMult = 1 + Math.min(0.06, freshBoostCount * 0.015);
 
-  // Home advantage (+6% home power) and formation tactical influence (Requirement 5)
-  let homeAttack = (homeFWPower * 0.55 + homeMFPower * 0.45) * 1.06 * homeProfile.pushUpFactor;
-  if (homeProfile.isWingOriented || homeProfile.fwCount >= 3) homeAttack *= 1.05;
-  if (homeProfile.isMidfieldDominant) homeAttack *= 1.03;
+    let attack = (fwPower * 0.55 + mfPower * 0.45) * (isHomeTeam ? 1.06 : 1.0) * profile.pushUpFactor * freshMult;
+    if (profile.isWingOriented || profile.fwCount >= 3) attack *= 1.05;
+    if (profile.isMidfieldDominant) attack *= 1.03;
 
-  let awayDefense = awayDFPower * 0.65 + awayGKPower * 0.35;
-  if (awayProfile.isSolidDefense) awayDefense *= 1.14;
+    let defense = (dfPower * 0.65 + gkPower * 0.35) * (isHomeTeam ? 1.03 : 1.0) * freshMult;
+    if (profile.isSolidDefense) defense *= 1.14;
 
-  let awayAttack = (awayFWPower * 0.55 + awayMFPower * 0.45) * awayProfile.pushUpFactor;
-  if (awayProfile.isWingOriented || awayProfile.fwCount >= 3) awayAttack *= 1.05;
-  if (awayProfile.isMidfieldDominant) awayAttack *= 1.03;
+    return { fwPower, mfPower, dfPower, gkPower, attack, defense };
+  };
 
-  let homeDefense = (homeDFPower * 0.65 + homeGKPower * 0.35) * 1.03;
-  if (homeProfile.isSolidDefense) homeDefense *= 1.14;
-
-  let homeScore = 0;
-  let awayScore = 0;
+  let homeScore = options?.initialScore ? options.initialScore[0] : 0;
+  let awayScore = options?.initialScore ? options.initialScore[1] : 0;
   let homeShots = 0;
   let awayShots = 0;
   let homeShotsOnTarget = 0;
@@ -1000,15 +1559,139 @@ export function simulateFullMatch(
   let homeFouls = 0;
   let awayFouls = 0;
 
+  const playerShots: Record<string, number> = {};
+  const playerShotsOnTarget: Record<string, number> = {};
   const yellowCardCounts: Record<string, number> = {};
-  const playerRatings: Record<string, number> = {};
-  [...homeStartersList, ...awayStartersList].forEach(p => {
-    playerRatings[p.id] = +(6.0 + (rng() * 0.6)).toFixed(1);
+  const subbedOutSet = new Set<string>(options?.subbedOutPlayerIds || []);
+  const usedHomeBenchIds = new Set<string>();
+  const usedAwayBenchIds = new Set<string>();
+  const homeSubbedInIds = new Set<string>();
+  const awaySubbedInIds = new Set<string>();
+
+  // Seed card/sub tracking from prior locked events when resuming mid-match
+  events.forEach(e => {
+    if (e.type === 'yellow_card' && e.playerId) {
+      yellowCardCounts[e.playerId] = (yellowCardCounts[e.playerId] || 0) + 1;
+    } else if (e.type === 'sub') {
+      const outId = e.subOutPlayerId || e.playerId;
+      const inId = e.subInPlayerId;
+      if (outId) subbedOutSet.add(outId);
+      if (inId) {
+        if (e.clubId === homeClub.id) {
+          usedHomeBenchIds.add(inId);
+          homeSubbedInIds.add(inId);
+        } else {
+          usedAwayBenchIds.add(inId);
+          awaySubbedInIds.add(inId);
+        }
+      }
+    } else if (isRegularGoalEvent(e)) {
+      if (!options?.initialScore) {
+        if (e.clubId === homeClub.id) homeScore++;
+        else awayScore++;
+      }
+      if (e.playerId) {
+        playerShots[e.playerId] = (playerShots[e.playerId] || 0) + 1;
+        playerShotsOnTarget[e.playerId] = (playerShotsOnTarget[e.playerId] || 0) + 1;
+      }
+      if (e.clubId === homeClub.id) {
+        homeShots++;
+        homeShotsOnTarget++;
+      } else {
+        awayShots++;
+        awayShotsOnTarget++;
+      }
+    }
   });
 
-  // -------------------------------------------------------------
-  // Dynamic Simulation across 22 paced match phases (every 4-5 mins)
-  // -------------------------------------------------------------
+  const subCheckpoints = (options?.forcedSubMinutes || [60, 68, 75, 82]).slice().sort((a, b) => a - b);
+  let homeSubCount = events.filter(e => e.type === 'sub' && e.clubId === homeClub.id).length;
+  let awaySubCount = events.filter(e => e.type === 'sub' && e.clubId === awayClub.id).length;
+  const triggeredHomeSubWindows = new Set<number>();
+  const triggeredAwaySubWindows = new Set<number>();
+
+  // Prevent re-running past sub windows when resuming after minute > window
+  subCheckpoints.forEach(cp => {
+    if (cp <= startMinute) {
+      triggeredHomeSubWindows.add(cp);
+      triggeredAwaySubWindows.add(cp);
+    }
+  });
+
+  const executeSingleAiSubAtMinute = (
+    teamClub: Club,
+    pitchIds: string[],
+    tactics: TeamTactics,
+    usedBenchSet: Set<string>,
+    subbedInSet: Set<string>,
+    minute: number
+  ): { didSub: boolean; newPitchIds: string[] } => {
+    const benchIds = tactics.lineup?.bench || [];
+    const availableBench = benchIds
+      .map(id => tempPlayers[id])
+      .filter(
+        p =>
+          p &&
+          p.position !== 'GK' &&
+          !p.injury?.isInjured &&
+          !p.suspension?.isSuspended &&
+          !usedBenchSet.has(p.id) &&
+          !subbedOutSet.has(p.id) &&
+          !pitchIds.includes(p.id)
+      );
+
+    if (availableBench.length === 0) return { didSub: false, newPitchIds: pitchIds };
+
+    const candidates = pitchIds
+      .map(id => tempPlayers[id])
+      .filter(p => p && p.position !== 'GK' && !subbedInSet.has(p.id));
+
+    if (candidates.length === 0) return { didSub: false, newPitchIds: pitchIds };
+
+    candidates.sort((a, b) => {
+      const aYellow = yellowCardCounts[a.id] ? 1 : 0;
+      const bYellow = yellowCardCounts[b.id] ? 1 : 0;
+      if (aYellow !== bYellow) return bYellow - aYellow;
+      const aFatigue = (a.fatigue || 0) + Math.round(minute * 0.25);
+      const bFatigue = (b.fatigue || 0) + Math.round(minute * 0.25);
+      return bFatigue - aFatigue;
+    });
+
+    const outPlayer = candidates[0];
+    if (!outPlayer) return { didSub: false, newPitchIds: pitchIds };
+
+    const inPlayer =
+      availableBench.find(bp => isPositionGroupCompatible(outPlayer.position, bp.position)) || availableBench[0];
+
+    if (!inPlayer) return { didSub: false, newPitchIds: pitchIds };
+
+    usedBenchSet.add(inPlayer.id);
+    subbedInSet.add(inPlayer.id);
+    subbedOutSet.add(outPlayer.id);
+
+    const updatedPitchIds = [...pitchIds];
+    const idx = updatedPitchIds.indexOf(outPlayer.id);
+    if (idx !== -1) {
+      updatedPitchIds[idx] = inPlayer.id;
+    }
+
+    events.push({
+      minute,
+      type: 'sub',
+      clubId: teamClub.id,
+      playerId: outPlayer.id,
+      playerName: outPlayer.name,
+      subOutPlayerId: outPlayer.id,
+      subOutPlayerName: outPlayer.name,
+      subInPlayerId: inPlayer.id,
+      subInPlayerName: inPlayer.name,
+      description: `【選手交代】${teamClub.name}: IN ${inPlayer.name} (${inPlayer.position}) ⇄ OUT ${outPlayer.name} (${outPlayer.position})`
+    });
+
+    return { didSub: true, newPitchIds: updatedPitchIds };
+  };
+
+  // Dynamic Simulation across 20 paced match phases (every 4-5 mins)
   const timePhases = [
     { min: 4, phase: 'probing' },
     { min: 8, phase: 'probing' },
@@ -1032,30 +1715,80 @@ export function simulateFullMatch(
     { min: 92, phase: 'stoppage' }
   ];
 
+  let homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
+  let awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
+
   timePhases.forEach(({ min, phase }) => {
+    if (min <= startMinute) return;
+
     const jitter = Math.floor(rng() * 3) - 1;
-    const eventMin = Math.max(1, Math.min(94, min + jitter));
+    const eventMin = Math.max(startMinute + 1, Math.min(94, min + jitter));
 
-    const currentHomePitch = homePitchPlayers.map(id => updatedPlayers[id]).filter(Boolean);
-    const currentAwayPitch = awayPitchPlayers.map(id => updatedPlayers[id]).filter(Boolean);
+    // CHRONOLOGICAL AI SUBSTITUTIONS (happen BEFORE post-sub attacks so subs can score/assist/shoot/save!)
+    for (const subCheckpoint of subCheckpoints) {
+      if (eventMin >= subCheckpoint) {
+        if (
+          !triggeredHomeSubWindows.has(subCheckpoint) &&
+          options?.skipAutoSubsForClubId !== homeClub.id &&
+          homeSubCount < 5
+        ) {
+          triggeredHomeSubWindows.add(subCheckpoint);
+          const subRes = executeSingleAiSubAtMinute(
+            homeClub,
+            homePitchPlayers,
+            homeTactics,
+            usedHomeBenchIds,
+            homeSubbedInIds,
+            Math.max(startMinute + 1, Math.min(88, subCheckpoint + (Math.floor(rng() * 3) - 1)))
+          );
+          if (subRes.didSub) {
+            homePitchPlayers = subRes.newPitchIds;
+            homeSubCount++;
+            homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
+          }
+        }
 
-    // Phase modifiers (Requirement 4)
-    let phaseChanceMultiplier = 1.0;
-    if (phase === 'probing') {
-      phaseChanceMultiplier = 0.65; // 0-15m 様子見
-    } else if (phase === 'ramp_up') {
-      phaseChanceMultiplier = 0.95; // 15-30m チャンス増加
-    } else if (phase === 'late_first') {
-      phaseChanceMultiplier = 1.15; // 30-45m 疲労・前半終了間際
-    } else if (phase === 'restart') {
-      phaseChanceMultiplier = 0.85; // 45-60m ハーフタイム後立て直し
-    } else if (phase === 'subs_impact') {
-      phaseChanceMultiplier = 1.10; // 60-75m 交代による活性化
-    } else if (phase === 'high_risk' || phase === 'stoppage') {
-      phaseChanceMultiplier = 1.35; // 75-90m+ 疲労蓄積・リスク冒して前がかり
+        if (
+          !triggeredAwaySubWindows.has(subCheckpoint) &&
+          options?.skipAutoSubsForClubId !== awayClub.id &&
+          awaySubCount < 5
+        ) {
+          triggeredAwaySubWindows.add(subCheckpoint);
+          const subRes = executeSingleAiSubAtMinute(
+            awayClub,
+            awayPitchPlayers,
+            awayTactics,
+            usedAwayBenchIds,
+            awaySubbedInIds,
+            Math.max(startMinute + 1, Math.min(88, subCheckpoint + (Math.floor(rng() * 3) - 1)))
+          );
+          if (subRes.didSub) {
+            awayPitchPlayers = subRes.newPitchIds;
+            awaySubCount++;
+            awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
+          }
+        }
+      }
     }
 
-    // Trailing team tactical desperation (behind teams push forward)
+    const currentHomePitch = homePitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
+    const currentAwayPitch = awayPitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
+
+    let phaseChanceMultiplier = 1.0;
+    if (phase === 'probing') {
+      phaseChanceMultiplier = 0.65;
+    } else if (phase === 'ramp_up') {
+      phaseChanceMultiplier = 0.95;
+    } else if (phase === 'late_first') {
+      phaseChanceMultiplier = 1.15;
+    } else if (phase === 'restart') {
+      phaseChanceMultiplier = 0.85;
+    } else if (phase === 'subs_impact') {
+      phaseChanceMultiplier = 1.15;
+    } else if (phase === 'high_risk' || phase === 'stoppage') {
+      phaseChanceMultiplier = 1.35;
+    }
+
     let homeTrailingBonus = 1.0;
     let awayTrailingBonus = 1.0;
     if (eventMin >= 60) {
@@ -1064,26 +1797,25 @@ export function simulateFullMatch(
     }
 
     // --- HOME ATTACK ATTEMPT ---
-    const homeAttackRatio = Math.max(0.70, Math.min(1.4, homeAttack / Math.max(40, awayDefense)));
+    const homeAttackRatio = Math.max(0.7, Math.min(1.4, homeRatings.attack / Math.max(40, awayRatings.defense)));
     const homeChanceThreshold = 0.42 * homeAttackRatio * phaseChanceMultiplier * homeTrailingBonus;
 
     if (rng() < homeChanceThreshold && currentHomePitch.length > 0) {
       homeShots++;
-      const onTargetChance = 0.48 + (homeFWPower - awayGKPower) * 0.005;
+      const onTargetChance = 0.48 + (homeRatings.fwPower - awayRatings.gkPower) * 0.005;
       const onTarget = rng() < Math.max(0.32, Math.min(0.68, onTargetChance));
 
       if (onTarget) {
         homeShotsOnTarget++;
-        // Goal conversion probability (Requirement 3: realistic goal distribution)
-        const conversionChance = 0.38 + (homeFWPower - awayGKPower) * 0.006;
+        const conversionChance = 0.38 + (homeRatings.fwPower - awayRatings.gkPower) * 0.006;
         const isGoal = rng() < Math.max(0.24, Math.min(0.55, conversionChance));
 
         if (isGoal) {
           homeScore++;
-
-          // Weighted Scorer Selection (Requirement 5: ST/Winger/MF/CB variety)
-          const scorer = selectScorer(currentHomePitch.length > 0 ? currentHomePitch : homeStartersList, homeTactics);
-          const assister = selectAssister(currentHomePitch.length > 0 ? currentHomePitch : homeStartersList, scorer.id);
+          const scorer = selectScorer(currentHomePitch, homeTactics, rng);
+          const assister = selectAssister(currentHomePitch, scorer.id, rng);
+          playerShots[scorer.id] = (playerShots[scorer.id] || 0) + 1;
+          playerShotsOnTarget[scorer.id] = (playerShotsOnTarget[scorer.id] || 0) + 1;
 
           const isFoulPenalty = rng() < 0.04;
           const goalDetail = generateGoalDetail(scorer, isFoulPenalty ? undefined : assister, isFoulPenalty, false, rng, eventMin);
@@ -1098,13 +1830,11 @@ export function simulateFullMatch(
             description: goalDetail.narrative,
             goalDetail
           });
-
-          playerRatings[scorer.id] = Math.min(9.9, (playerRatings[scorer.id] || 6.0) + 1.2);
-          if (assister) playerRatings[assister.id] = Math.min(9.5, (playerRatings[assister.id] || 6.0) + 0.6);
         } else {
-          // Goalkeeper Save
           const awayGK = currentAwayPitch.find(p => p.position === 'GK') || currentAwayPitch[0] || awayStartersList[0];
-          const shooter = currentHomePitch[Math.floor(rng() * currentHomePitch.length)] || homeStartersList[0];
+          const shooter = selectScorer(currentHomePitch, homeTactics, rng);
+          playerShots[shooter.id] = (playerShots[shooter.id] || 0) + 1;
+          playerShotsOnTarget[shooter.id] = (playerShotsOnTarget[shooter.id] || 0) + 1;
           if (awayGK && shooter) {
             const saveFn = SAVE_COMMENTARIES[Math.floor(rng() * SAVE_COMMENTARIES.length)];
             events.push({
@@ -1116,23 +1846,13 @@ export function simulateFullMatch(
               description: saveFn(awayGK.name, shooter.name)
             });
             homeCorners++;
-            playerRatings[awayGK.id] = Math.min(9.2, (playerRatings[awayGK.id] || 6.0) + 0.4);
-            if (updatedPlayers[awayGK.id]) {
-              const gkObj = updatedPlayers[awayGK.id];
-              const isPre = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
-              if (isPre) {
-                if (!gkObj.preseasonStats) gkObj.preseasonStats = { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
-                gkObj.preseasonStats.saves = (gkObj.preseasonStats.saves || 0) + 1;
-              } else {
-                gkObj.stats.saves = (gkObj.stats.saves || 0) + 1;
-              }
-            }
           }
         }
       } else {
-        if (rng() < 0.12) {
-          const shooter = currentHomePitch[Math.floor(rng() * currentHomePitch.length)] || homeStartersList[0];
-          if (shooter) {
+        const shooter = selectScorer(currentHomePitch, homeTactics, rng);
+        if (shooter) {
+          playerShots[shooter.id] = (playerShots[shooter.id] || 0) + 1;
+          if (rng() < 0.12) {
             const woodFn = WOODWORK_COMMENTARIES[Math.floor(rng() * WOODWORK_COMMENTARIES.length)];
             events.push({
               minute: eventMin,
@@ -1148,24 +1868,25 @@ export function simulateFullMatch(
     }
 
     // --- AWAY ATTACK ATTEMPT ---
-    const awayAttackRatio = Math.max(0.70, Math.min(1.4, awayAttack / Math.max(40, homeDefense)));
+    const awayAttackRatio = Math.max(0.7, Math.min(1.4, awayRatings.attack / Math.max(40, homeRatings.defense)));
     const awayChanceThreshold = 0.38 * awayAttackRatio * phaseChanceMultiplier * awayTrailingBonus;
 
     if (rng() < awayChanceThreshold && currentAwayPitch.length > 0) {
       awayShots++;
-      const onTargetChance = 0.48 + (awayFWPower - homeGKPower) * 0.005;
+      const onTargetChance = 0.48 + (awayRatings.fwPower - homeRatings.gkPower) * 0.005;
       const onTarget = rng() < Math.max(0.32, Math.min(0.68, onTargetChance));
 
       if (onTarget) {
         awayShotsOnTarget++;
-        const conversionChance = 0.36 + (awayFWPower - homeGKPower) * 0.006;
+        const conversionChance = 0.36 + (awayRatings.fwPower - homeRatings.gkPower) * 0.006;
         const isGoal = rng() < Math.max(0.22, Math.min(0.52, conversionChance));
 
         if (isGoal) {
           awayScore++;
-
-          const scorer = selectScorer(currentAwayPitch.length > 0 ? currentAwayPitch : awayStartersList, awayTactics);
-          const assister = selectAssister(currentAwayPitch.length > 0 ? currentAwayPitch : awayStartersList, scorer.id);
+          const scorer = selectScorer(currentAwayPitch, awayTactics, rng);
+          const assister = selectAssister(currentAwayPitch, scorer.id, rng);
+          playerShots[scorer.id] = (playerShots[scorer.id] || 0) + 1;
+          playerShotsOnTarget[scorer.id] = (playerShotsOnTarget[scorer.id] || 0) + 1;
 
           const isFoulPenalty = rng() < 0.04;
           const goalDetail = generateGoalDetail(scorer, isFoulPenalty ? undefined : assister, isFoulPenalty, false, rng, eventMin);
@@ -1180,13 +1901,11 @@ export function simulateFullMatch(
             description: goalDetail.narrative,
             goalDetail
           });
-
-          playerRatings[scorer.id] = Math.min(9.9, (playerRatings[scorer.id] || 6.0) + 1.2);
-          if (assister) playerRatings[assister.id] = Math.min(9.5, (playerRatings[assister.id] || 6.0) + 0.6);
         } else {
-          // Goalkeeper Save
           const homeGK = currentHomePitch.find(p => p.position === 'GK') || currentHomePitch[0] || homeStartersList[0];
-          const shooter = currentAwayPitch[Math.floor(rng() * currentAwayPitch.length)] || awayStartersList[0];
+          const shooter = selectScorer(currentAwayPitch, awayTactics, rng);
+          playerShots[shooter.id] = (playerShots[shooter.id] || 0) + 1;
+          playerShotsOnTarget[shooter.id] = (playerShotsOnTarget[shooter.id] || 0) + 1;
           if (homeGK && shooter) {
             const saveFn = SAVE_COMMENTARIES[Math.floor(rng() * SAVE_COMMENTARIES.length)];
             events.push({
@@ -1198,23 +1917,13 @@ export function simulateFullMatch(
               description: saveFn(homeGK.name, shooter.name)
             });
             awayCorners++;
-            playerRatings[homeGK.id] = Math.min(9.2, (playerRatings[homeGK.id] || 6.0) + 0.4);
-            if (updatedPlayers[homeGK.id]) {
-              const gkObj = updatedPlayers[homeGK.id];
-              const isPre = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
-              if (isPre) {
-                if (!gkObj.preseasonStats) gkObj.preseasonStats = { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 };
-                gkObj.preseasonStats.saves = (gkObj.preseasonStats.saves || 0) + 1;
-              } else {
-                gkObj.stats.saves = (gkObj.stats.saves || 0) + 1;
-              }
-            }
           }
         }
       } else {
-        if (rng() < 0.12) {
-          const shooter = currentAwayPitch[Math.floor(rng() * currentAwayPitch.length)] || awayStartersList[0];
-          if (shooter) {
+        const shooter = selectScorer(currentAwayPitch, awayTactics, rng);
+        if (shooter) {
+          playerShots[shooter.id] = (playerShots[shooter.id] || 0) + 1;
+          if (rng() < 0.12) {
             const woodFn = WOODWORK_COMMENTARIES[Math.floor(rng() * WOODWORK_COMMENTARIES.length)];
             events.push({
               minute: eventMin,
@@ -1229,20 +1938,20 @@ export function simulateFullMatch(
       }
     }
 
-    // --- CARDS & FOULS (with second-yellow send off rule) ---
+    // --- CARDS & FOULS ---
     if (rng() < 0.08) {
       const isHomeFoul = rng() < 0.5;
       const targetClub = isHomeFoul ? homeClub : awayClub;
       const targetPitch = isHomeFoul ? currentHomePitch : currentAwayPitch;
 
-      if (isHomeFoul) homeFouls++; else awayFouls++;
+      if (isHomeFoul) homeFouls++;
+      else awayFouls++;
 
       if (targetPitch.length > 0) {
         const offender = targetPitch[Math.floor(rng() * targetPitch.length)];
         const priorYellows = yellowCardCounts[offender.id] || 0;
 
         if (priorYellows === 1) {
-          // 2nd Yellow -> Red Card (1 match suspension)
           yellowCardCounts[offender.id] = 2;
           const cardDetails = determineRedCardSeverityAndSuspension(true, rng);
           events.push({
@@ -1256,25 +1965,12 @@ export function simulateFullMatch(
 
           if (isHomeFoul) {
             homePitchPlayers = homePitchPlayers.filter(id => id !== offender.id);
+            homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
           } else {
             awayPitchPlayers = awayPitchPlayers.filter(id => id !== offender.id);
-          }
-
-          if (updatedPlayers[offender.id]) {
-            const compCat = getCompetitionCategory(fixture.competition);
-            updatedPlayers[offender.id].suspension = {
-              isSuspended: true,
-              matchesRemaining: cardDetails.matchesRemaining,
-              reason: cardDetails.reason,
-              competitionCategory: compCat,
-              competitionSuspensions: {
-                [compCat]: cardDetails.matchesRemaining
-              }
-            };
-            updatedPlayers[offender.id].squadStatus = 'OUT_OF_SQUAD';
+            awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
           }
         } else if (priorYellows === 0) {
-          // Low realistic chance of straight red card (DOGSO, dangerous tackle, violent conduct, extreme rare 10-match)
           const isStraightRed = rng() < 0.018;
           if (isStraightRed) {
             const cardDetails = determineRedCardSeverityAndSuspension(false, rng);
@@ -1288,21 +1984,10 @@ export function simulateFullMatch(
             });
             if (isHomeFoul) {
               homePitchPlayers = homePitchPlayers.filter(id => id !== offender.id);
+              homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
             } else {
               awayPitchPlayers = awayPitchPlayers.filter(id => id !== offender.id);
-            }
-            if (updatedPlayers[offender.id]) {
-              const compCat = getCompetitionCategory(fixture.competition);
-              updatedPlayers[offender.id].suspension = {
-                isSuspended: true,
-                matchesRemaining: cardDetails.matchesRemaining,
-                reason: cardDetails.reason,
-                competitionCategory: compCat,
-                competitionSuspensions: {
-                  [compCat]: cardDetails.matchesRemaining
-                }
-              };
-              updatedPlayers[offender.id].squadStatus = 'OUT_OF_SQUAD';
+              awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
             }
           } else {
             yellowCardCounts[offender.id] = 1;
@@ -1319,16 +2004,20 @@ export function simulateFullMatch(
       }
     }
 
-    // --- IN-MATCH INJURY RISK SYSTEM (Requirement 2: 低頻度・軽傷中心・重復加算防止) ---
+    // --- IN-MATCH INJURY RISK SYSTEM ---
     const allOnPitch = [...currentHomePitch, ...currentAwayPitch];
     const matchInjuriesCount = events.filter(e => e.type === 'injury').length;
     if (matchInjuriesCount < 2) {
       for (const player of allOnPitch) {
         const isHome = currentHomePitch.some(p => p.id === player.id);
-        const teamInjuries = events.filter(e => e.type === 'injury' && e.clubId === (isHome ? homeClub.id : awayClub.id)).length;
-        if (teamInjuries >= 1) continue; // At most 1 injury per team in a single match
+        const teamInjuries = events.filter(
+          e => e.type === 'injury' && e.clubId === (isHome ? homeClub.id : awayClub.id)
+        ).length;
+        if (teamInjuries >= 1) continue;
 
-        const pressStyle = isHome ? homeTactics.instructions.pressIntensity : awayTactics.instructions.pressIntensity;
+        const pressStyle = isHome
+          ? homeTactics.instructions.pressIntensity
+          : awayTactics.instructions.pressIntensity;
         const risk = calculatePlayerInjuryRisk(player, eventMin, pressStyle);
 
         if (rng() < risk) {
@@ -1344,112 +2033,102 @@ export function simulateFullMatch(
             description: `【負傷発生】${player.name}がピッチ上で足を痛め倒れ込む。メディカルスタッフの初期診断：${chosenInj.name}（全治約${chosenInj.days}日・プレー続行不可）`
           });
 
-        // Update player record immediately
-        if (updatedPlayers[player.id]) {
-          const returnDate = addDays(fixture.date, chosenInj.days);
-          updatedPlayers[player.id].injuryStatus = 'INJURED';
-          updatedPlayers[player.id].injuryStartDate = fixture.date;
-          updatedPlayers[player.id].injuryReturnDate = returnDate;
-          updatedPlayers[player.id].injuryType = chosenInj.name;
-          updatedPlayers[player.id].injuryDaysRemaining = chosenInj.days;
-          updatedPlayers[player.id].injury = {
-            isInjured: true,
-            type: chosenInj.name,
-            recoveryDays: chosenInj.days,
-            returnDate
-          };
-          updatedPlayers[player.id].squadStatus = 'OUT_OF_SQUAD';
-        }
+          subbedOutSet.add(player.id);
 
-        // Sub player off the active pitch list
-        if (isHome) {
-          homePitchPlayers = homePitchPlayers.filter(id => id !== player.id);
-        } else {
-          awayPitchPlayers = awayPitchPlayers.filter(id => id !== player.id);
-        }
+          // AI team automatically brings on an injury sub immediately (unless skipped for user's live club)
+          const skipAiSubForClub = options?.skipAutoSubsForClubId === targetClub.id;
+          if (!skipAiSubForClub) {
+            if (isHome && homeSubCount < 5) {
+              const idx = homePitchPlayers.indexOf(player.id);
+              const benchIn = (homeTactics.lineup?.bench || [])
+                .map(id => tempPlayers[id])
+                .find(
+                  bp =>
+                    bp &&
+                    bp.position !== 'GK' &&
+                    !bp.injury?.isInjured &&
+                    !bp.suspension?.isSuspended &&
+                    !usedHomeBenchIds.has(bp.id) &&
+                    !subbedOutSet.has(bp.id) &&
+                    !homePitchPlayers.includes(bp.id)
+                );
+              if (idx !== -1 && benchIn) {
+                homePitchPlayers[idx] = benchIn.id;
+                usedHomeBenchIds.add(benchIn.id);
+                homeSubbedInIds.add(benchIn.id);
+                homeSubCount++;
+                events.push({
+                  minute: eventMin,
+                  type: 'sub',
+                  clubId: homeClub.id,
+                  playerId: player.id,
+                  playerName: player.name,
+                  subOutPlayerId: player.id,
+                  subOutPlayerName: player.name,
+                  subInPlayerId: benchIn.id,
+                  subInPlayerName: benchIn.name,
+                  description: `【負傷交代】${homeClub.name}: IN ${benchIn.name} (${benchIn.position}) ⇄ OUT ${player.name} (${player.position})`
+                });
+                homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
+              } else {
+                homePitchPlayers = homePitchPlayers.filter(id => id !== player.id);
+                homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
+              }
+            } else if (!isHome && awaySubCount < 5) {
+              const idx = awayPitchPlayers.indexOf(player.id);
+              const benchIn = (awayTactics.lineup?.bench || [])
+                .map(id => tempPlayers[id])
+                .find(
+                  bp =>
+                    bp &&
+                    bp.position !== 'GK' &&
+                    !bp.injury?.isInjured &&
+                    !bp.suspension?.isSuspended &&
+                    !usedAwayBenchIds.has(bp.id) &&
+                    !subbedOutSet.has(bp.id) &&
+                    !awayPitchPlayers.includes(bp.id)
+                );
+              if (idx !== -1 && benchIn) {
+                awayPitchPlayers[idx] = benchIn.id;
+                usedAwayBenchIds.add(benchIn.id);
+                awaySubbedInIds.add(benchIn.id);
+                awaySubCount++;
+                events.push({
+                  minute: eventMin,
+                  type: 'sub',
+                  clubId: awayClub.id,
+                  playerId: player.id,
+                  playerName: player.name,
+                  subOutPlayerId: player.id,
+                  subOutPlayerName: player.name,
+                  subInPlayerId: benchIn.id,
+                  subInPlayerName: benchIn.name,
+                  description: `【負傷交代】${awayClub.name}: IN ${benchIn.name} (${benchIn.position}) ⇄ OUT ${player.name} (${player.position})`
+                });
+                awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
+              } else {
+                awayPitchPlayers = awayPitchPlayers.filter(id => id !== player.id);
+                awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
+              }
+            } else {
+              if (isHome) homePitchPlayers = homePitchPlayers.filter(id => id !== player.id);
+              else awayPitchPlayers = awayPitchPlayers.filter(id => id !== player.id);
+            }
+          } else {
+            if (isHome) homePitchPlayers = homePitchPlayers.filter(id => id !== player.id);
+            else awayPitchPlayers = awayPitchPlayers.filter(id => id !== player.id);
+          }
 
-        // Break to avoid multiple injuries in the same minute
-        break;
+          break;
+        }
       }
     }
-  }
   });
-
-  // =========================================================================
-  // REQUIREMENT 10: INSTANT SKIP AI AUTO-SUBSTITUTIONS (up to 5 substitutions)
-  // Performed based on fatigue, yellow cards, injury risk, and tactical balance
-  // =========================================================================
-  const subMinutes = [60, 68, 75, 82];
-  const subbedInPlayersList: { player: Player; minutes: number }[] = [];
-  const playerMinutesMap: Record<string, number> = {};
-  [...homeStartersList, ...awayStartersList].forEach(p => { playerMinutesMap[p.id] = 90; });
-
-  const performTeamTacticalSubs = (
-    teamClub: Club,
-    starters: Player[],
-    pitchIds: string[],
-    benchIds: string[]
-  ) => {
-    let subCount = 0;
-    const availableBench = benchIds.map(id => updatedPlayers[id]).filter(p => p && p.position !== 'GK' && !p.injury?.isInjured && !p.suspension?.isSuspended);
-    const usedBenchIds = new Set<string>();
-
-    for (const subMin of subMinutes) {
-      if (subCount >= 4 || availableBench.length === 0) break;
-
-      // Find candidate to sub off: outfield starter with yellow card or fatigue
-      const candidates = starters.filter(p => pitchIds.includes(p.id) && p.position !== 'GK');
-      candidates.sort((a, b) => {
-        const aYellow = yellowCardCounts[a.id] ? 1 : 0;
-        const bYellow = yellowCardCounts[b.id] ? 1 : 0;
-        if (aYellow !== bYellow) return bYellow - aYellow;
-        const aFatigue = updatedPlayers[a.id]?.fatigue || 0;
-        const bFatigue = updatedPlayers[b.id]?.fatigue || 0;
-        return bFatigue - aFatigue;
-      });
-
-      const outPlayer = candidates[0];
-      if (!outPlayer) continue;
-
-      const inPlayer = availableBench.find(bp => !usedBenchIds.has(bp.id) && (
-        bp.position === outPlayer.position ||
-        (['ST', 'CF', 'LW', 'RW'].includes(outPlayer.position) && ['ST', 'CF', 'LW', 'RW'].includes(bp.position)) ||
-        (['CM', 'CAM', 'CDM', 'LM', 'RM'].includes(outPlayer.position) && ['CM', 'CAM', 'CDM', 'LM', 'RM'].includes(bp.position)) ||
-        (['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(outPlayer.position) && ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(bp.position))
-      )) || availableBench.find(bp => !usedBenchIds.has(bp.id));
-
-      if (inPlayer) {
-        usedBenchIds.add(inPlayer.id);
-        subCount++;
-        const jitter = Math.floor(rng() * 4) - 2;
-        const actualMin = Math.max(56, Math.min(86, subMin + jitter));
-
-        playerMinutesMap[outPlayer.id] = actualMin;
-        playerMinutesMap[inPlayer.id] = 90 - actualMin;
-        subbedInPlayersList.push({ player: inPlayer, minutes: 90 - actualMin });
-
-        const idx = pitchIds.indexOf(outPlayer.id);
-        if (idx !== -1) pitchIds[idx] = inPlayer.id;
-
-        events.push({
-          minute: actualMin,
-          type: 'sub',
-          clubId: teamClub.id,
-          playerId: inPlayer.id,
-          playerName: inPlayer.name,
-          description: `【選手交代】${teamClub.name}: IN ${inPlayer.name} (${inPlayer.position}) ⇄ OUT ${outPlayer.name} (${outPlayer.position})`
-        });
-      }
-    }
-  };
-
-  performTeamTacticalSubs(homeClub, homeStartersList, homePitchPlayers, homeTactics.lineup?.bench || []);
-  performTeamTacticalSubs(awayClub, awayStartersList, awayPitchPlayers, awayTactics.lineup?.bench || []);
 
   // Sort events chronologically
   events.sort((a, b) => a.minute - b.minute);
 
-  // Requirement 1 & 2: Decisive extra time and penalties if drawn in knockout fixtures
+  // Decisive extra time and penalties if drawn in knockout fixtures
   let extraTimePlayed = false;
   let penaltyShootout: PenaltyShootoutResult | undefined = undefined;
 
@@ -1458,62 +2137,110 @@ export function simulateFullMatch(
 
   if (requiresDecider) {
     if (isTwoLeggedSecondLeg && fixture.leg1Score) {
-      // In 2nd leg: awayClub was home in leg 1, homeClub was away in leg 1
       const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + homeScore;
       const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + awayScore;
-      if (aggHome === aggAway) {
-        needsExtraTime = true;
-      }
-    } else {
-      if (homeScore === awayScore) {
-        needsExtraTime = true;
-      }
+      if (aggHome === aggAway) needsExtraTime = true;
+    } else if (homeScore === awayScore) {
+      needsExtraTime = true;
     }
   }
 
   if (needsExtraTime) {
     extraTimePlayed = true;
+    const etHomePitch = homePitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
+    const etAwayPitch = awayPitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
+
     const etHomeGoals1 = rng() < 0.12 ? 1 : 0;
     const etAwayGoals1 = rng() < 0.12 ? 1 : 0;
     homeScore += etHomeGoals1;
     awayScore += etAwayGoals1;
-    if (etHomeGoals1 > 0 && homePitchPlayers[0]) {
-      const p = updatedPlayers[homePitchPlayers[0]] || homeStartersList[0];
-      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 98);
-      events.push({ minute: 98, type: 'goal', clubId: homeClub.id, playerId: p.id, playerName: p.name, description: `【延長前半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    if (etHomeGoals1 > 0 && etHomePitch.length > 0) {
+      const p = selectScorer(etHomePitch, homeTactics, rng);
+      const a = selectAssister(etHomePitch, p.id, rng);
+      const etDetail = generateGoalDetail(p, a, false, false, rng, 98);
+      events.push({
+        minute: 98,
+        type: 'goal',
+        clubId: homeClub.id,
+        playerId: p.id,
+        playerName: p.name,
+        assistPlayerId: a?.id,
+        assistPlayerName: a?.name,
+        description: `【延長前半ゴール！】${etDetail.narrative}`,
+        goalDetail: etDetail
+      });
     }
-    if (etAwayGoals1 > 0 && awayPitchPlayers[0]) {
-      const p = updatedPlayers[awayPitchPlayers[0]] || awayStartersList[0];
-      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 103);
-      events.push({ minute: 103, type: 'goal', clubId: awayClub.id, playerId: p.id, playerName: p.name, description: `【延長前半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    if (etAwayGoals1 > 0 && etAwayPitch.length > 0) {
+      const p = selectScorer(etAwayPitch, awayTactics, rng);
+      const a = selectAssister(etAwayPitch, p.id, rng);
+      const etDetail = generateGoalDetail(p, a, false, false, rng, 103);
+      events.push({
+        minute: 103,
+        type: 'goal',
+        clubId: awayClub.id,
+        playerId: p.id,
+        playerName: p.name,
+        assistPlayerId: a?.id,
+        assistPlayerName: a?.name,
+        description: `【延長前半ゴール！】${etDetail.narrative}`,
+        goalDetail: etDetail
+      });
     }
 
     const etHomeGoals2 = rng() < 0.12 ? 1 : 0;
     const etAwayGoals2 = rng() < 0.12 ? 1 : 0;
     homeScore += etHomeGoals2;
     awayScore += etAwayGoals2;
-    if (etHomeGoals2 > 0 && homePitchPlayers[0]) {
-      const p = updatedPlayers[homePitchPlayers[0]] || homeStartersList[0];
-      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 112);
-      events.push({ minute: 112, type: 'goal', clubId: homeClub.id, playerId: p.id, playerName: p.name, description: `【延長後半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    if (etHomeGoals2 > 0 && etHomePitch.length > 0) {
+      const p = selectScorer(etHomePitch, homeTactics, rng);
+      const a = selectAssister(etHomePitch, p.id, rng);
+      const etDetail = generateGoalDetail(p, a, false, false, rng, 112);
+      events.push({
+        minute: 112,
+        type: 'goal',
+        clubId: homeClub.id,
+        playerId: p.id,
+        playerName: p.name,
+        assistPlayerId: a?.id,
+        assistPlayerName: a?.name,
+        description: `【延長後半ゴール！】${etDetail.narrative}`,
+        goalDetail: etDetail
+      });
     }
-    if (etAwayGoals2 > 0 && awayPitchPlayers[0]) {
-      const p = updatedPlayers[awayPitchPlayers[0]] || awayStartersList[0];
-      const etDetail = generateGoalDetail(p, undefined, false, false, rng, 118);
-      events.push({ minute: 118, type: 'goal', clubId: awayClub.id, playerId: p.id, playerName: p.name, description: `【延長後半ゴール！】${etDetail.narrative}`, goalDetail: etDetail });
+    if (etAwayGoals2 > 0 && etAwayPitch.length > 0) {
+      const p = selectScorer(etAwayPitch, awayTactics, rng);
+      const a = selectAssister(etAwayPitch, p.id, rng);
+      const etDetail = generateGoalDetail(p, a, false, false, rng, 118);
+      events.push({
+        minute: 118,
+        type: 'goal',
+        clubId: awayClub.id,
+        playerId: p.id,
+        playerName: p.name,
+        assistPlayerId: a?.id,
+        assistPlayerName: a?.name,
+        description: `【延長後半ゴール！】${etDetail.narrative}`,
+        goalDetail: etDetail
+      });
     }
 
     let stillTied = false;
     if (isTwoLeggedSecondLeg && fixture.leg1Score) {
       const finalAggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + homeScore;
       const finalAggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + awayScore;
-      stillTied = (finalAggHome === finalAggAway);
+      stillTied = finalAggHome === finalAggAway;
     } else {
-      stillTied = (homeScore === awayScore);
+      stillTied = homeScore === awayScore;
     }
 
     if (stillTied) {
-      penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, homeStartersList, awayStartersList, rng);
+      penaltyShootout = simulatePenaltyShootoutKickers(
+        homeClub,
+        awayClub,
+        etHomePitch.length > 0 ? etHomePitch : homeStartersList,
+        etAwayPitch.length > 0 ? etAwayPitch : awayStartersList,
+        rng
+      );
       const pkWinnerClub = penaltyShootout.winnerClubId === homeClub.id ? homeClub : awayClub;
       events.push({
         minute: 120,
@@ -1526,182 +2253,76 @@ export function simulateFullMatch(
     }
   }
 
-  const homePossession = Math.min(72, Math.max(28, Math.round((homeAttack / (homeAttack + awayAttack)) * 100)));
-  const homeXG = +(homeShotsOnTarget * 0.32 + (homeShots - homeShotsOnTarget) * 0.06).toFixed(2);
-  const awayXG = +(awayShotsOnTarget * 0.30 + (awayShots - awayShotsOnTarget) * 0.06).toFixed(2);
+  const homePossession = Math.min(72, Math.max(28, Math.round((homeRatings.attack / (homeRatings.attack + awayRatings.attack)) * 100)));
 
-  let bestRating = 0;
-  let motmId = homeStartersList[0]?.id;
-  Object.entries(playerRatings).forEach(([pId, rating]) => {
-    if (rating > bestRating) {
-      bestRating = rating;
-      motmId = pId;
-    }
-  });
-
-  // Fatigue accumulation, match stats, and OVR Growth updates for starters (Requirements 2: プレシーズン個人成績混入防止)
-  const isPreseason = fixture.competition === 'pre-season' || fixture.competitionType === 'preseason';
-
-  [...homeStartersList, ...awayStartersList].forEach(p => {
-    const updated = updatedPlayers[p.id];
-    if (updated) {
-      // Requirement 3: 選手ごとに異なるスタミナ消費・疲労蓄積システム
-      // - スタミナ能力（高いほど疲れにくい）
-      // - ポジション（WB/MF/FW/CB/GKの運動量差）
-      // - プレス・戦術強度
-      // - 出場時間および延長戦（120分）の有無
-      const playerStamina = p.stamina || p.physical || 75;
-      const staminaFactor = Math.max(0.65, Math.min(1.35, 1.0 - ((playerStamina - 75) * 0.012))); // high stamina = lower fatigue
-      
-      let positionWorkrate = 1.0;
-      if (['LWB', 'RWB', 'LM', 'RM'].includes(p.position)) {
-        positionWorkrate = 1.25; // 激しいアップダウン
-      } else if (['CM', 'CDM', 'CAM'].includes(p.position)) {
-        positionWorkrate = 1.15; // 豊富な中盤走行距離
-      } else if (['ST', 'CF', 'LW', 'RW'].includes(p.position)) {
-        positionWorkrate = 1.05; // スプリント・プレス頻度
-      } else if (['CB', 'LB', 'RB'].includes(p.position)) {
-        positionWorkrate = 0.90; // ディフェンスライン
-      } else if (p.position === 'GK') {
-        positionWorkrate = 0.35; // GKは疲労蓄積が極めて少ない
-      }
-
-      // Tactics intensity
-      const matchMinutes = playerMinutesMap[p.id] || (extraTimePlayed ? 120 : 90);
-      const timeFactor = matchMinutes / 90; // 1.0 or fractional based on minutes played
-      const tacticsPress = (p.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
-      const pressMultiplier = (tacticsPress === '非常に激しい' || tacticsPress === '相手CB・GK限定猛プレス') ? 1.20 : tacticsPress === '自陣引き気味' ? 0.85 : 1.0;
-
-      const calculatedFatigueDelta = Math.round(15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier);
-      updated.fatigue = Math.max(0, Math.min(100, updated.fatigue + calculatedFatigueDelta));
-
-      const scored = events.filter(e => e.type === 'goal' && e.playerId === p.id).length;
-      const assisted = events.filter(e => e.type === 'goal' && e.assistPlayerId === p.id).length;
-      const matchRating = playerRatings[p.id] || 6.5;
-      const isCleanSheet = (p.position === 'GK' || ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position)) && 
-        ((p.clubId === homeClub.id && awayScore === 0) || (p.clubId === awayClub.id && homeScore === 0));
-
-      if (isPreseason) {
-        // PRESEASON: Only update preseasonStats, NEVER touch official stats!
-        if (!updated.preseasonStats) {
-          updated.preseasonStats = {
-            appearances: 0,
-            starts: 0,
-            minutes: 0,
-            goals: 0,
-            assists: 0,
-            cleanSheets: 0,
-            yellowCards: 0,
-            redCards: 0,
-            avgRating: 0,
-            saves: 0,
-            goalsConceded: 0
-          };
-        }
-        updated.preseasonStats.appearances += 1;
-        updated.preseasonStats.starts += 1;
-        updated.preseasonStats.minutes += matchMinutes;
-        updated.preseasonStats.goals += scored;
-        updated.preseasonStats.assists += assisted;
-        const psCurrAvg = updated.preseasonStats.avgRating || 6.5;
-        const psCurrApps = updated.preseasonStats.appearances;
-        updated.preseasonStats.avgRating = +( (psCurrAvg * (psCurrApps - 1) + matchRating) / psCurrApps ).toFixed(2);
-        if (isCleanSheet) {
-          updated.preseasonStats.cleanSheets += 1;
-        }
-        if (p.position === 'GK') {
-          updated.preseasonStats.goalsConceded = (updated.preseasonStats.goalsConceded || 0) + (p.clubId === homeClub.id ? awayScore : homeScore);
-        }
-      } else {
-        // OFFICIAL COMPETITIVE MATCH: Update official stats
-        updated.stats.appearances += 1;
-        updated.stats.starts += 1;
-        updated.stats.minutes += matchMinutes;
-        updated.stats.goals += scored;
-        updated.stats.assists += assisted;
-
-        const currAvg = updated.stats.avgRating || 6.5;
-        const currApps = updated.stats.appearances;
-        updated.stats.avgRating = +( (currAvg * (currApps - 1) + matchRating) / currApps ).toFixed(2);
-
-        if (isCleanSheet) {
-          updated.stats.cleanSheets += 1;
-        }
-        if (p.position === 'GK') {
-          updated.stats.goalsConceded = (updated.stats.goalsConceded || 0) + (p.clubId === homeClub.id ? awayScore : homeScore);
-        }
-
-        // Update competition specific stats
-        const compKey = fixture.competition;
-        if (!updated.competitionStats) updated.competitionStats = {};
-        if (!updated.competitionStats[compKey]) {
-          updated.competitionStats[compKey] = {
-            appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0
-          };
-        }
-        const cs = updated.competitionStats[compKey];
-        cs.appearances += 1;
-        cs.starts += 1;
-        cs.minutes += matchMinutes;
-        cs.goals += scored;
-        cs.assists += assisted;
-        cs.avgRating = +( ((cs.avgRating || 6.5) * (cs.appearances - 1) + matchRating) / cs.appearances ).toFixed(2);
-        if (isCleanSheet) cs.cleanSheets += 1;
-        if (p.position === 'GK') {
-          cs.goalsConceded = (cs.goalsConceded || 0) + (p.clubId === homeClub.id ? awayScore : homeScore);
-        }
-      }
-
-      // Requirements 5, 6, 14: Continuous long-term incremental performance growth
-      const growthResult = processPlayerPerformanceGrowth(updated, {
-        rating: matchRating,
-        minutes: 90,
-        goals: scored,
-        assists: assisted,
-        cleanSheet: isCleanSheet,
-        isMotm: motmId === p.id
-      });
-      updated.exactOvr = growthResult.exactOvr;
-      updated.ovr = growthResult.ovr;
-      updated.matchRatingsHistory = growthResult.matchRatingsHistory;
-    }
-  });
-
-  const stats: MatchStats = {
-    homeScore,
-    awayScore,
-    possession: homePossession,
-    shots: [Math.max(homeScore, homeShots), Math.max(awayScore, awayShots)],
-    shotsOnTarget: [Math.max(homeScore, homeShotsOnTarget), Math.max(awayScore, awayShotsOnTarget)],
-    xG: [homeXG, awayXG],
-    corners: [Math.max(1, homeCorners), Math.max(1, awayCorners)],
-    fouls: [Math.max(homeFouls, 4), Math.max(awayFouls, 4)],
-    passesCompleted: [Math.floor(homePossession * 8.5), Math.floor((100 - homePossession) * 8.5)],
-    passAccuracy: [83 + Math.floor(rng() * 7), 81 + Math.floor(rng() * 7)],
-    playerRatings
-  };
-
-  const updatedFixture: MatchFixture = {
-    ...fixture,
-    status: 'finished',
+  return finalizeMatchResultAndPlayerStats({
+    fixture,
+    homeClub,
+    awayClub,
+    initialHomeStarterIds,
+    initialAwayStarterIds,
+    homeTactics,
+    awayTactics,
+    events,
     homeScore,
     awayScore,
     extraTimePlayed,
     penaltyShootout,
-    events,
-    stats,
-    motmPlayerId: motmId,
-    isResultApplied: false
-  };
+    playersRegistry,
+    rng,
+    homePossession,
+    homeShots,
+    awayShots,
+    homeShotsOnTarget,
+    awayShotsOnTarget,
+    homeCorners,
+    awayCorners,
+    homeFouls,
+    awayFouls,
+    playerShots,
+    playerShotsOnTarget
+  });
+}
 
-  return {
-    fixture: updatedFixture,
-    updatedPlayers
-  };
+/**
+ * Re-simulates remaining match phases from (currentMinute + 1 .. 90+)
+ * after a live tactical change, formation switch, or substitution so that newly subbed-in players
+ * actively participate in subsequent events while keeping prior locked events intact.
+ */
+export function resimulateRemainingMatchFromMinute(
+  currentMinute: number,
+  lockedEvents: MatchEvent[],
+  currentScore: [number, number],
+  fixture: MatchFixture,
+  homeClub: Club,
+  awayClub: Club,
+  currentHomeTactics: TeamTactics,
+  currentAwayTactics: TeamTactics,
+  playersRegistry: Record<string, Player>,
+  options?: Omit<SimulateMatchOptions, 'startMinute' | 'lockedEvents' | 'initialScore'>
+): {
+  fixture: MatchFixture;
+  updatedPlayers: Record<string, Player>;
+} {
+  return simulateFullMatch(
+    fixture,
+    homeClub,
+    awayClub,
+    currentHomeTactics,
+    currentAwayTactics,
+    playersRegistry,
+    undefined,
+    {
+      ...options,
+      startMinute: currentMinute,
+      lockedEvents,
+      initialScore: currentScore
+    }
+  );
 }
 
 // Helper: Realistic Scorer Selection based on position and attributes
-function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics): Player {
+function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics, rng: () => number = Math.random): Player {
   const weights = pitchPlayers.map(p => {
     let w = 1.0;
     if (['ST', 'CF'].includes(p.position)) {
@@ -1713,15 +2334,12 @@ function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics): Player {
     } else if (['CM', 'CDM'].includes(p.position)) {
       w = 9.0;
     } else if (['CB', 'RB', 'LB'].includes(p.position)) {
-      w = 4.5; // CB header on corners / overlapping FB
+      w = 4.5;
     } else if (p.position === 'GK') {
       w = 0.05;
     }
 
-    // Boost by shooting attribute
-    w *= (p.shooting / 70);
-
-    // Boost if assigned penalty taker
+    w *= p.shooting / 70;
     if (tactics?.roles?.penaltyTakerId === p.id) {
       w *= 1.15;
     }
@@ -1730,7 +2348,7 @@ function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics): Player {
   });
 
   const totalWeight = weights.reduce((acc, v) => acc + v, 0);
-  let r = Math.random() * totalWeight;
+  let r = rng() * totalWeight;
 
   for (let i = 0; i < pitchPlayers.length; i++) {
     r -= weights[i];
@@ -1741,35 +2359,34 @@ function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics): Player {
 }
 
 // Helper: Realistic Assister Selection
-function selectAssister(pitchPlayers: Player[], scorerId: string): Player | undefined {
-  const eligible = pitchPlayers.filter(p => p.id !== scorerId);
+function selectAssister(pitchPlayers: Player[], scorerId: string, rng: () => number = Math.random): Player | undefined {
+  const eligible = pitchPlayers.filter(p => p.id !== scorerId && p.position !== 'GK');
   if (eligible.length === 0) return undefined;
 
-  // 78% of goals have an assist
-  if (Math.random() > 0.78) return undefined;
+  if (rng() > 0.78) return undefined;
 
   const weights = eligible.map(p => {
     let w = 1.0;
     if (['CAM', 'CM'].includes(p.position)) {
-      w = 38.0; // Playmakers
+      w = 38.0;
     } else if (['LW', 'RW', 'LM', 'RM'].includes(p.position)) {
-      w = 34.0; // Crossers / wingers
+      w = 34.0;
     } else if (['LB', 'RB'].includes(p.position)) {
-      w = 16.0; // Overlapping fullbacks
+      w = 16.0;
     } else if (['ST', 'CF'].includes(p.position)) {
-      w = 14.0; // Strike partners
+      w = 14.0;
     } else if (['CDM', 'CB'].includes(p.position)) {
-      w = 6.0;  // Long balls
+      w = 6.0;
     } else if (p.position === 'GK') {
-      w = 0.2;  // Long goal kick assist
+      w = 0.2;
     }
 
-    w *= (p.passing / 70);
+    w *= p.passing / 70;
     return Math.max(0.1, w);
   });
 
   const totalWeight = weights.reduce((acc, v) => acc + v, 0);
-  let r = Math.random() * totalWeight;
+  let r = rng() * totalWeight;
 
   for (let i = 0; i < eligible.length; i++) {
     r -= weights[i];
@@ -1801,7 +2418,7 @@ export function generateAssistantCoachAdvice(
 /**
  * Requirement 7: 「試合中の結果」と「即時スキップ」を完全同期
  * - 前半2-0で即時スキップした場合、前半の2-0を絶対に消さず、残り時間だけを追加計算
- * - 最終結果は必ず 2-0 以上の得点状況から継続し、0-1等の矛盾を100%排除
+ * - AI交代出場選手の記録・ゴール・アシスト・シュート・セーブ・出場時間・疲労・評価点も完全反映
  */
 export function fastForwardRemainingMatch(
   currentMinute: number,
@@ -1813,31 +2430,43 @@ export function fastForwardRemainingMatch(
   homeTactics: TeamTactics,
   awayTactics: TeamTactics,
   playersRegistry: Record<string, Player>,
-  simulatedResult?: { fixture: MatchFixture; updatedPlayers: Record<string, Player> }
+  simulatedResult?: { fixture: MatchFixture; updatedPlayers: Record<string, Player> },
+  options?: {
+    initialHomeStarterIds?: string[];
+    initialAwayStarterIds?: string[];
+    skipAutoSubsForClubId?: string;
+    subbedOutPlayerIds?: string[];
+  }
 ): {
   fixture: MatchFixture;
   updatedPlayers: Record<string, Player>;
 } {
-  // If simulatedResult exists and its base scenario matches, use its events for the remaining period
-  const fullResult = simulatedResult || simulateFullMatch(fixture, homeClub, awayClub, homeTactics, awayTactics, playersRegistry);
-  
-  // Events that already occurred up to currentMinute
+  const initialHomeStarterIds =
+    options?.initialHomeStarterIds ||
+    (homeTactics.lineup?.starters || []).map(s => s.playerId).filter(Boolean);
+  const initialAwayStarterIds =
+    options?.initialAwayStarterIds ||
+    (awayTactics.lineup?.starters || []).map(s => s.playerId).filter(Boolean);
+
+  const fullResult =
+    simulatedResult ||
+    simulateFullMatch(fixture, homeClub, awayClub, homeTactics, awayTactics, playersRegistry, undefined, {
+      skipAutoSubsForClubId: options?.skipAutoSubsForClubId,
+      initialHomeStarterIds,
+      initialAwayStarterIds,
+      subbedOutPlayerIds: options?.subbedOutPlayerIds
+    });
+
   const lockedEvents = [...currentEvents];
-  
-  // Calculate remaining events (minute > currentMinute)
   const remainingEvents = (fullResult.fixture.events || []).filter(e => e.minute > currentMinute);
-  
-  // Goals scored in the remaining time
-  const remainingHomeGoals = remainingEvents.filter(e => e.type === 'goal' && e.clubId === homeClub.id).length;
-  const remainingAwayGoals = remainingEvents.filter(e => e.type === 'goal' && e.clubId === awayClub.id).length;
-  
-  // Guaranteed cumulative score: current score + any new goals in remaining time
+
+  const remainingHomeGoals = remainingEvents.filter(e => isRegularGoalEvent(e) && e.clubId === homeClub.id).length;
+  const remainingAwayGoals = remainingEvents.filter(e => isRegularGoalEvent(e) && e.clubId === awayClub.id).length;
+
   const finalHomeScore = currentScore[0] + remainingHomeGoals;
   const finalAwayScore = currentScore[1] + remainingAwayGoals;
-  
   const allFinalEvents = [...lockedEvents, ...remainingEvents].sort((a, b) => a.minute - b.minute);
-  
-  // Check knockout decider requirements
+
   let extraTimePlayed = fullResult.fixture.extraTimePlayed || false;
   let penaltyShootout = fullResult.fixture.penaltyShootout;
   const { requiresDecider, isTwoLeggedSecondLeg } = isMatchRequiringDecider(fixture);
@@ -1847,32 +2476,53 @@ export function fastForwardRemainingMatch(
     if (isTwoLeggedSecondLeg && fixture.leg1Score) {
       const aggHome = (fixture.leg1Score.awayScore ?? fixture.leg1Score.away ?? 0) + finalHomeScore;
       const aggAway = (fixture.leg1Score.homeScore ?? fixture.leg1Score.home ?? 0) + finalAwayScore;
-      isTiedForDecider = (aggHome === aggAway);
+      isTiedForDecider = aggHome === aggAway;
     } else {
-      isTiedForDecider = (finalHomeScore === finalAwayScore);
+      isTiedForDecider = finalHomeScore === finalAwayScore;
     }
   }
 
+  const effectiveSeed =
+    fixture.matchSeed ??
+    hashStringToNumber(`${fixture.id}_${homeClub.id}_${awayClub.id}_${fixture.date || '2026-08-01'}`);
+  const rng = createPRNG(effectiveSeed + 17);
+
   if (isTiedForDecider && !penaltyShootout) {
     extraTimePlayed = true;
-    const hStarters = (homeTactics.lineup?.starters || []).map(s => playersRegistry[s.playerId]).filter(Boolean);
-    const aStarters = (awayTactics.lineup?.starters || []).map(s => playersRegistry[s.playerId]).filter(Boolean);
-    penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, hStarters, aStarters);
+    let liveHomeTac = homeTactics;
+    let liveAwayTac = awayTactics;
+    allFinalEvents.forEach(ev => {
+      liveHomeTac = applyMatchEventToTactics(liveHomeTac, homeClub.id, ev);
+      liveAwayTac = applyMatchEventToTactics(liveAwayTac, awayClub.id, ev);
+    });
+    const hStarters = (liveHomeTac.lineup?.starters || []).map(s => playersRegistry[s.playerId]).filter(Boolean);
+    const aStarters = (liveAwayTac.lineup?.starters || []).map(s => playersRegistry[s.playerId]).filter(Boolean);
+    penaltyShootout = simulatePenaltyShootoutKickers(homeClub, awayClub, hStarters, aStarters, rng);
   }
-  
-  const updatedFixture: MatchFixture = {
-    ...fullResult.fixture,
-    status: 'finished',
+
+  return finalizeMatchResultAndPlayerStats({
+    fixture,
+    homeClub,
+    awayClub,
+    initialHomeStarterIds,
+    initialAwayStarterIds,
+    homeTactics,
+    awayTactics,
+    events: allFinalEvents,
     homeScore: finalHomeScore,
     awayScore: finalAwayScore,
     extraTimePlayed,
     penaltyShootout,
-    events: allFinalEvents,
-    isResultApplied: false
-  };
-  
-  return {
-    fixture: updatedFixture,
-    updatedPlayers: fullResult.updatedPlayers
-  };
+    playersRegistry,
+    rng: createPRNG(effectiveSeed),
+    homePossession: fullResult.fixture.stats?.possession,
+    homeShots: fullResult.fixture.stats?.shots?.[0],
+    awayShots: fullResult.fixture.stats?.shots?.[1],
+    homeShotsOnTarget: fullResult.fixture.stats?.shotsOnTarget?.[0],
+    awayShotsOnTarget: fullResult.fixture.stats?.shotsOnTarget?.[1],
+    homeCorners: fullResult.fixture.stats?.corners?.[0],
+    awayCorners: fullResult.fixture.stats?.corners?.[1],
+    homeFouls: fullResult.fixture.stats?.fouls?.[0],
+    awayFouls: fullResult.fixture.stats?.fouls?.[1]
+  });
 }

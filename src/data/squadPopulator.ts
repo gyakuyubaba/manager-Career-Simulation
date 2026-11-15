@@ -4,7 +4,13 @@ import { CURATED_REAL_SQUADS } from './squadsCatalog';
 import { ADDITIONAL_CLUB_SEEDS } from './allClubsSquads';
 import { EUROPEAN_MAJOR_CLUBS_2026_SEEDS } from './europeanMajorClubsRosters';
 import { makeRealPlayer } from './realPlayersDatabase';
-import { checkPlayerDataIntegrity } from '../engine/dataValidator';
+import {
+  areAllowedDistinctHomonyms,
+  checkPlayerDataIntegrity,
+  extractNameMatchTokens,
+  normalizePlayerNameKey
+} from '../engine/dataValidator';
+import { applyVerified2026_27RosterUpdates } from './official2026_27RosterPatch';
 import { updateTacticsFormation } from '../engine/tacticsEngine';
 import { generateFullJLeaguePlayers, J2_20_CLUBS, J3_20_CLUBS } from './jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from './europeanSecondDivisionClubs';
@@ -180,7 +186,7 @@ const DEPTH_NAMES_BY_COUNTRY: Record<string, { firstNames: string[]; lastNames: 
 export function buildCompletePlayersRegistry(): Record<string, Player> {
   const registry: Record<string, Player> = {};
   const registeredPlayerIds = new Set<string>();
-  const registeredNormalizedNames = new Set<string>();
+  const registeredTokens = new Map<string, Player>();
 
   // Helper to add player with strict uniqueness guarantee
   const addPlayerIfUnique = (p: Player): boolean => {
@@ -192,8 +198,17 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     }
 
     let finalName = p.name;
-    const norm = finalName.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') || finalName.trim().toLowerCase();
-    if (norm && registeredNormalizedNames.has(norm)) {
+    const candidateTokens = extractNameMatchTokens(finalName);
+    let duplicateMatch: Player | undefined;
+    for (const tok of candidateTokens) {
+      const existing = registeredTokens.get(tok);
+      if (existing && !areAllowedDistinctHomonyms(existing, p)) {
+        duplicateMatch = existing;
+        break;
+      }
+    }
+
+    if (duplicateMatch) {
       if (p.id.startsWith('p_')) {
         finalName = `${p.name} Jr.`;
       } else {
@@ -236,9 +251,11 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
 
     registry[finalId] = cleanPlayer;
     registeredPlayerIds.add(finalId);
-    if (norm) {
-      registeredNormalizedNames.add(norm);
-    }
+    extractNameMatchTokens(finalName).forEach(tok => {
+      if (!registeredTokens.has(tok)) {
+        registeredTokens.set(tok, cleanPlayer);
+      }
+    });
     return true;
   };
 
@@ -687,19 +704,18 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   if (ENABLE_J_LEAGUE) {
     baseRegistry = generateFullJLeaguePlayers(baseRegistry);
 
-    const seenJNames = new Set<string>();
+    const seenJTokens = new Set<string>();
     Object.values(baseRegistry).forEach(p => {
-      const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-      if (norm) seenJNames.add(norm);
+      extractNameMatchTokens(p.name).forEach(tok => seenJTokens.add(tok));
     });
 
     Object.entries(J_LEAGUE_COMPLETE_TOPUP_2026).forEach(([clubId, seeds]) => {
       seeds.forEach((seed, idx) => {
-        const norm = seed.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '');
-        if (norm && seenJNames.has(norm)) return;
-        if (norm) seenJNames.add(norm);
+        const seedTokens = extractNameMatchTokens(seed.name);
+        if (seedTokens.some(tok => seenJTokens.has(tok))) return;
+        seedTokens.forEach(tok => seenJTokens.add(tok));
 
-        const pId = `${clubId}_jtop26_${idx + 1}_${seed.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || idx}`;
+        const pId = `${clubId}_jtop26_${idx + 1}_${normalizePlayerNameKey(seed.name).slice(0, 8) || idx}`;
         const tierMultiplier = seed.ovr >= 75 ? 2500000 : seed.ovr >= 70 ? 1100000 : 500000;
         const wageMultiplier = seed.ovr >= 75 ? 35000 : seed.ovr >= 70 ? 18000 : 9000;
         const player = makeRealPlayer(
@@ -738,8 +754,7 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     };
   });
 
-  // 4. Ensure all clubs (all 96 European clubs + all 20 J1 clubs + all 20 J2 clubs + 102 European 2nd division clubs + 71 New European League clubs) have at least 25 players across positions
-  // AND CRITICAL REQUIREMENT: 全チーム最低2人以上（スタメン・ベンチ・ベンチ外用の3人体制推奨）のGKを必ず確保
+  // 4. Ensure all clubs across all 17 leagues have >= 25 players and >= 3 GKs
   const allClubsToEnsure: Club[] = [
     ...ALL_CLUBS,
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
@@ -751,13 +766,16 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
   // Deduplicate clubs by id
   const uniqueClubsMap = new Map<string, Club>();
   allClubsToEnsure.forEach(c => uniqueClubsMap.set(c.id, c));
+
+  // Apply verified 2026/27 official transfers, departures, duplicate cleanups, and real reserve/GK additions
+  applyVerified2026_27RosterUpdates(baseRegistry, uniqueClubsMap);
+
   const uniqueClubs = Array.from(uniqueClubsMap.values());
 
   // Track globally used player names to guarantee 100% collision-free uniqueness
   const usedGlobalNames = new Set<string>();
   Object.values(baseRegistry).forEach(p => {
-    const norm = p.name.trim().toLowerCase().replace(/[\s\-_・·\.\,\'\"\(\)]/g, '') || p.name.trim().toLowerCase();
-    if (norm) usedGlobalNames.add(norm);
+    extractNameMatchTokens(p.name).forEach(tok => usedGlobalNames.add(tok));
   });
 
   const MIDDLE_INITIALS = ['A.', 'B.', 'C.', 'D.', 'E.', 'F.', 'G.', 'H.', 'J.', 'K.', 'L.', 'M.', 'N.', 'P.', 'R.', 'S.', 'T.', 'V.', 'W.'];

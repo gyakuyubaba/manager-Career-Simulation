@@ -15,8 +15,49 @@ interface ReserveSeed {
   ovr: number;
   shirtNumber: number;
   preferredFoot?: '右' | '左' | '両足';
-  playstyle?: PlayStyle;
+  playstyle?: string;
   isLoaned?: boolean;
+}
+
+function normalizePlayStyle(raw: string | undefined, position: Position): PlayStyle {
+  const validStyles: PlayStyle[] = [
+    'ゴールゲッター', 'シャドーストライカー', 'ラインブレイカー', 'バランス型',
+    'チャンスメイカー', '俊足ドリブラー', 'スピードスター', 'ターゲットマン',
+    'ボックストゥボックス', 'アンカー', 'ハードタックラー', 'ボール運べるCB',
+    '攻撃的SB', '守備的SB', '守備的GK', 'ビルドアップ型GK', 'ショットストッパー'
+  ];
+  if (raw && (validStyles as string[]).includes(raw)) {
+    return raw as PlayStyle;
+  }
+  switch (raw) {
+    case 'レジスタ':
+      return 'チャンスメイカー';
+    case 'ドリブラー':
+      return '俊足ドリブラー';
+    case 'インサイドフォワード':
+      return 'シャドーストライカー';
+    case 'ポーチャー':
+      return 'ゴールゲッター';
+    case 'アンカーマン':
+    case 'ボールウィナー':
+      return 'アンカー';
+    case 'カバーリングマスター':
+      return 'ハードタックラー';
+    case 'オーバーラップSB':
+    case 'インバーテッドSB':
+    case 'クロッサー':
+      return '攻撃的SB';
+    case 'バランス型SB':
+      return '守備的SB';
+    default:
+      if (position === 'GK') return 'ショットストッパー';
+      if (position === 'CB') return 'ハードタックラー';
+      if (['LB', 'RB', 'LWB', 'RWB'].includes(position)) return '攻撃的SB';
+      if (['CDM'].includes(position)) return 'アンカー';
+      if (['LW', 'RW'].includes(position)) return '俊足ドリブラー';
+      if (['ST', 'CF'].includes(position)) return 'ゴールゲッター';
+      return 'ボックストゥボックス';
+  }
 }
 
 /**
@@ -28,17 +69,45 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
   // === J1 / J2 / J3 ===
   'sanfrecce-hiroshima': [
     { name: 'キム・ジュソン', position: 'CB', age: 25, nationality: '韓国', ovr: 74, shirtNumber: 37, preferredFoot: '左', playstyle: 'ボール運べるCB' },
-    { name: '浅野 拓磨', position: 'ST', age: 31, nationality: '日本', ovr: 75, shirtNumber: 29, preferredFoot: '右', playstyle: 'ラインブレイカー' },
+    { name: '川村 拓夢', position: 'CM', age: 27, nationality: '日本', ovr: 75, shirtNumber: 8, preferredFoot: '左', playstyle: 'ボックストゥボックス' },
     { name: 'ヒル 袈依廉', position: 'GK', age: 24, nationality: '日本', ovr: 68, shirtNumber: 38, preferredFoot: '右', playstyle: 'ショットストッパー' },
     { name: '小川 煌', position: 'GK', age: 18, nationality: '日本', ovr: 62, shirtNumber: 43, preferredFoot: '右', playstyle: '守備的GK' },
     { name: '中村 草太', position: 'ST', age: 23, nationality: '日本', ovr: 71, shirtNumber: 39, preferredFoot: '右', playstyle: 'ラインブレイカー' },
     { name: '小林 志紋', position: 'CAM', age: 19, nationality: '日本', ovr: 65, shirtNumber: 45, preferredFoot: '右', playstyle: 'チャンスメイカー' },
     { name: '木下 康介', position: 'ST', age: 31, nationality: '日本', ovr: 71, shirtNumber: 17, preferredFoot: '右', playstyle: 'ターゲットマン' }
   ],
+  'vissel-kobe': [
+    { name: 'グスタボ・クリスマン (Gustavo Klismahn)', position: 'CAM', age: 27, nationality: 'ブラジル', ovr: 73, shirtNumber: 20, preferredFoot: '右', playstyle: 'チャンスメイカー' },
+    { name: 'カエターノ (Caetano)', position: 'CB', age: 27, nationality: 'ブラジル', ovr: 74, shirtNumber: 3, preferredFoot: '左', playstyle: 'ハードタックラー' },
+    { name: '小池 裕太', position: 'LB', age: 29, nationality: '日本', ovr: 70, shirtNumber: 26, preferredFoot: '左', playstyle: 'オーバーラップSB' },
+    { name: '橋本 陸斗', position: 'LW', age: 21, nationality: '日本', ovr: 66, shirtNumber: 35, preferredFoot: '右', playstyle: 'ドリブラー' },
+    { name: '寺阪 尚悟', position: 'CB', age: 22, nationality: '日本', ovr: 66, shirtNumber: 31, preferredFoot: '右', playstyle: 'カバーリングマスター' },
+    { name: '濱﨑 健斗', position: 'CAM', age: 19, nationality: '日本', ovr: 65, shirtNumber: 34, preferredFoot: '左', playstyle: 'チャンスメイカー' }
+  ],
+  'avispa-fukuoka': [
+    { name: 'ウェリック・ポポ (Werik Popó)', position: 'ST', age: 25, nationality: 'ブラジル', ovr: 72, shirtNumber: 9, preferredFoot: '右', playstyle: 'ラインブレイカー' },
+    { name: '藤本 一輝', position: 'LW', age: 28, nationality: '日本', ovr: 71, shirtNumber: 19, preferredFoot: '右', playstyle: 'ドリブラー' },
+    { name: '佐藤 颯之介', position: 'RB', age: 23, nationality: '日本', ovr: 67, shirtNumber: 26, preferredFoot: '右', playstyle: 'オーバーラップSB' },
+    { name: 'サニブラウン・アブデルハナン', position: 'ST', age: 20, nationality: '日本', ovr: 66, shirtNumber: 32, preferredFoot: '右', playstyle: 'ターゲットマン' }
+  ],
+  'kashima-antlers': [
+    { name: 'マテウス・ブエノ (Matheus Bueno)', position: 'CM', age: 28, nationality: 'ブラジル', ovr: 73, shirtNumber: 8, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
+    { name: '松本 遥翔', position: 'RB', age: 20, nationality: '日本', ovr: 65, shirtNumber: 25, preferredFoot: '右', playstyle: 'オーバーラップSB' },
+    { name: '佐藤 海宏', position: 'LB', age: 19, nationality: '日本', ovr: 64, shirtNumber: 32, preferredFoot: '左', playstyle: 'バランス型SB' },
+    { name: '吉田 湊海', position: 'ST', age: 18, nationality: '日本', ovr: 63, shirtNumber: 40, preferredFoot: '右', playstyle: 'ラインブレイカー' }
+  ],
+  'tokyo-verdy': [
+    { name: 'チョ・ユミン (Cho Yu-min)', position: 'CB', age: 29, nationality: '韓国', ovr: 73, shirtNumber: 4, preferredFoot: '右', playstyle: 'ハードタックラー' }
+  ],
+  'fagiano-okayama': [
+    { name: '川浪 吾郎 (Goro Kawanami)', position: 'GK', age: 35, nationality: '日本', ovr: 66, shirtNumber: 22, preferredFoot: '右', playstyle: '守備的GK' },
+    { name: '谷口 璃成', position: 'GK', age: 23, nationality: '日本', ovr: 63, shirtNumber: 49, preferredFoot: '右', playstyle: 'ショットストッパー' }
+  ],
   'tokushima-vortis': [
     { name: '三井 大輝', position: 'GK', age: 25, nationality: '日本', ovr: 66, shirtNumber: 29, preferredFoot: '右', playstyle: '守備的GK' },
     { name: '長谷川 徹', position: 'GK', age: 37, nationality: '日本', ovr: 67, shirtNumber: 31, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'カン・ヨンガン', position: 'GK', age: 21, nationality: '韓国', ovr: 63, shirtNumber: 50, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'カン・ヨンガン', position: 'GK', age: 21, nationality: '韓国', ovr: 63, shirtNumber: 50, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: '増田 将馬', position: 'CB', age: 24, nationality: '日本', ovr: 65, shirtNumber: 15, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'ventforet-kofu': [
     { name: '後藤 陽翔', position: 'GK', age: 19, nationality: '日本', ovr: 61, shirtNumber: 34, preferredFoot: '右', playstyle: '守備的GK' },
@@ -57,10 +126,11 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
   'vanraure-hachinohe': [
     { name: '谷口 裕介', position: 'GK', age: 30, nationality: '日本', ovr: 63, shirtNumber: 25, preferredFoot: '右', playstyle: '守備的GK' },
     { name: 'カウン・ゼン・マラ', position: 'GK', age: 24, nationality: 'ミャンマー', ovr: 61, shirtNumber: 77, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: '佐藤 碧', position: 'CM', age: 28, nationality: '日本', ovr: 65, shirtNumber: 10, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
+    { name: '澤上 竜二', position: 'ST', age: 33, nationality: '日本', ovr: 66, shirtNumber: 9, preferredFoot: '右', playstyle: 'ターゲットマン' },
+    { name: '高橋 耕平', position: 'CB', age: 27, nationality: '日本', ovr: 65, shirtNumber: 4, preferredFoot: '右', playstyle: 'ハードタックラー' },
     { name: '平松 航', position: 'CB', age: 26, nationality: '日本', ovr: 65, shirtNumber: 2, preferredFoot: '右', playstyle: 'ハードタックラー' },
-    { name: '白井 陽貴', position: 'CB', age: 25, nationality: '日本', ovr: 64, shirtNumber: 14, preferredFoot: '右', playstyle: 'カバーリングマスター' },
-    { name: '音泉 翔眞', position: 'RW', age: 30, nationality: '日本', ovr: 65, shirtNumber: 8, preferredFoot: '右', playstyle: 'インサイドフォワード' },
-    { name: '鵜木 郁哉', position: 'LW', age: 25, nationality: '日本', ovr: 66, shirtNumber: 6, preferredFoot: '右', playstyle: 'ドリブラー' }
+    { name: '白井 陽貴', position: 'CB', age: 25, nationality: '日本', ovr: 64, shirtNumber: 14, preferredFoot: '右', playstyle: 'カバーリングマスター' }
   ],
   'azul-claro-numazu': [
     { name: '渡辺 健太', position: 'GK', age: 28, nationality: '日本', ovr: 65, shirtNumber: 21, preferredFoot: '右', playstyle: '守備的GK' },
@@ -84,6 +154,7 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: '禹 相皓', position: 'CDM', age: 33, nationality: '韓国', ovr: 65, shirtNumber: 66, preferredFoot: '右', playstyle: 'アンカーマン' }
   ],
   'fc-ryukyu': [
+    { name: '積田 景介', position: 'GK', age: 33, nationality: '日本', ovr: 64, shirtNumber: 31, preferredFoot: '右', playstyle: '守備的GK' },
     { name: '吉田 温紀', position: 'CB', age: 23, nationality: '日本', ovr: 65, shirtNumber: 3, preferredFoot: '右', playstyle: 'ボール運べるCB' },
     { name: '千葉 和彦', position: 'CB', age: 41, nationality: '日本', ovr: 66, shirtNumber: 35, preferredFoot: '右', playstyle: 'カバーリングマスター' },
     { name: '石浦 大雅', position: 'CAM', age: 24, nationality: '日本', ovr: 66, shirtNumber: 11, preferredFoot: '左', playstyle: 'チャンスメイカー' },
@@ -97,33 +168,47 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
   ],
   'fujieda-myfc': [
     { name: '栗栖 汰志', position: 'GK', age: 19, nationality: '日本', ovr: 61, shirtNumber: 31, preferredFoot: '右', playstyle: '守備的GK' },
+    { name: '閑田 隼人', position: 'ST', age: 24, nationality: '日本', ovr: 66, shirtNumber: 29, preferredFoot: '右', playstyle: 'ラインブレイカー' },
     { name: '楠本 卓海', position: 'CB', age: 30, nationality: '日本', ovr: 67, shirtNumber: 5, preferredFoot: '右', playstyle: 'ハードタックラー' },
     { name: '岡本 拓也', position: 'RB', age: 34, nationality: '日本', ovr: 68, shirtNumber: 6, preferredFoot: '右', playstyle: 'オーバーラップSB' },
-    { name: '梶川 諒太', position: 'CM', age: 37, nationality: '日本', ovr: 66, shirtNumber: 23, preferredFoot: '右', playstyle: 'レジスタ' }
+    { name: '梶川 諒太', position: 'CM', age: 37, nationality: '日本', ovr: 67, shirtNumber: 28, preferredFoot: '右', playstyle: 'レジスタ' }
   ],
   'omiya-ardija': [
-    { name: '濱田 水輝', position: 'CB', age: 36, nationality: '日本', ovr: 68, shirtNumber: 4, preferredFoot: '右', playstyle: 'ハードタックラー' },
-    { name: 'ガブリエウ', position: 'CB', age: 31, nationality: 'ブラジル', ovr: 72, shirtNumber: 5, preferredFoot: '右', playstyle: 'ハードタックラー' }
+    { name: '酒井 匠', position: 'CB', age: 28, nationality: '日本', ovr: 66, shirtNumber: 25, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: '濱田 水輝', position: 'CB', age: 36, nationality: '日本', ovr: 68, shirtNumber: 4, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'yokohama-fc': [
-    { name: 'ンドカ ボニフェイス', position: 'CB', age: 30, nationality: '日本', ovr: 72, shirtNumber: 2, preferredFoot: '右', playstyle: 'ハードタックラー' },
-    { name: '山根 永遠', position: 'RM', age: 27, nationality: '日本', ovr: 70, shirtNumber: 14, preferredFoot: '右', playstyle: 'クロッサー' }
+    { name: '山根 永遠', position: 'RM', age: 27, nationality: '日本', ovr: 70, shirtNumber: 14, preferredFoot: '右', playstyle: 'クロッサー' },
+    { name: '伊藤 槙人', position: 'CB', age: 34, nationality: '日本', ovr: 69, shirtNumber: 16, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'shonan-bellmare': [
+    { name: '松本 果成', position: 'CB', age: 19, nationality: '日本', ovr: 66, shirtNumber: 41, preferredFoot: '右', playstyle: 'ボール運べるCB' },
     { name: 'キム・ミンテ', position: 'CB', age: 32, nationality: '韓国', ovr: 72, shirtNumber: 47, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'v-varen-nagasaki': [
-    { name: 'エドゥアルド', position: 'CB', age: 33, nationality: 'ブラジル', ovr: 74, shirtNumber: 5, preferredFoot: '左', playstyle: 'ハードタックラー' },
-    { name: '米田 隼也', position: 'LB', age: 30, nationality: '日本', ovr: 71, shirtNumber: 23, preferredFoot: '右', playstyle: 'オーバーラップSB' }
+    { name: '青木 俊輔', position: 'RW', age: 23, nationality: '日本', ovr: 67, shirtNumber: 26, preferredFoot: '左', playstyle: 'インサイドフォワード' },
+    { name: '七牟禮 蒼太', position: 'CM', age: 21, nationality: '日本', ovr: 66, shirtNumber: 33, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
+    { name: 'エドゥアルド', position: 'CB', age: 33, nationality: 'ブラジル', ovr: 74, shirtNumber: 5, preferredFoot: '左', playstyle: 'ハードタックラー' }
+  ],
+  'consadole-sapporo': [
+    { name: '西野 奨太', position: 'CB', age: 22, nationality: '日本', ovr: 68, shirtNumber: 47, preferredFoot: '右', playstyle: 'ハードタックラー' }
+  ],
+  'iwaki-fc': [
+    { name: '坂元 一渚璃', position: 'CB', age: 21, nationality: '日本', ovr: 66, shirtNumber: 35, preferredFoot: '右', playstyle: 'ハードタックラー' }
+  ],
+  'kagoshima-united': [
+    { name: '大森 博', position: 'CB', age: 24, nationality: '日本', ovr: 65, shirtNumber: 25, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'fc-machida-zelvia': [
     { name: '中山 雄太', position: 'CB', age: 29, nationality: '日本', ovr: 75, shirtNumber: 19, preferredFoot: '左', playstyle: 'ボール運べるCB' }
   ],
   'sc-sagamihara': [
+    { name: 'バウマン', position: 'GK', age: 30, nationality: 'スイス', ovr: 66, shirtNumber: 46, preferredFoot: '右', playstyle: 'ショットストッパー' },
     { name: '三浦 基瑛', position: 'GK', age: 26, nationality: '日本', ovr: 64, shirtNumber: 1, preferredFoot: '右', playstyle: '守備的GK' },
     { name: '綿引 康', position: 'RB', age: 28, nationality: '日本', ovr: 64, shirtNumber: 5, preferredFoot: '右', playstyle: 'オーバーラップSB' }
   ],
   'jef-united-chiba': [
+    { name: '谷田 壮志朗', position: 'CB', age: 21, nationality: '日本', ovr: 67, shirtNumber: 28, preferredFoot: '左', playstyle: 'ボール運べるCB' },
     { name: '鈴木 椋大', position: 'GK', age: 32, nationality: '日本', ovr: 68, shirtNumber: 23, preferredFoot: '右', playstyle: '守備的GK' },
     { name: '椿 直起', position: 'LW', age: 26, nationality: '日本', ovr: 71, shirtNumber: 14, preferredFoot: '右', playstyle: 'ドリブラー' }
   ],
@@ -141,12 +226,16 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: 'Rio Ngumoha', position: 'LW', age: 18, nationality: 'イングランド', ovr: 70, shirtNumber: 73, preferredFoot: '右', playstyle: 'ドリブラー' }
   ],
   'man_city': [
-    { name: 'James Trafford', position: 'GK', age: 23, nationality: 'イングランド', ovr: 77, shirtNumber: 22, preferredFoot: '右', playstyle: 'ビルドアップ型GK' },
-    { name: 'Vitor Reis', position: 'CB', age: 20, nationality: 'ブラジル', ovr: 74, shirtNumber: 22, preferredFoot: '右', playstyle: 'ボール運べるCB' }
+    { name: 'Jahmai Simpson-Pusey', position: 'CB', age: 20, nationality: 'イングランド', ovr: 72, shirtNumber: 66, preferredFoot: '右', playstyle: 'ボール運べるCB' },
+    { name: 'Max Alleyne', position: 'CB', age: 21, nationality: 'イングランド', ovr: 71, shirtNumber: 68, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: 'Divine Mukasa', position: 'CAM', age: 19, nationality: 'イングランド', ovr: 70, shirtNumber: 63, preferredFoot: '左', playstyle: 'チャンスメイカー' },
+    { name: 'Kaden Braithwaite', position: 'CB', age: 18, nationality: 'イングランド', ovr: 67, shirtNumber: 61, preferredFoot: '左', playstyle: 'ボール運べるCB' }
   ],
   'chelsea': [
-    { name: 'Gabriel Słonina', position: 'GK', age: 22, nationality: 'アメリカ', ovr: 72, shirtNumber: 44, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Josh Acheampong', position: 'RB', age: 20, nationality: 'イングランド', ovr: 73, shirtNumber: 34, preferredFoot: '右', playstyle: 'バランス型SB' }
+    { name: 'Aaron Anselmino', position: 'CB', age: 21, nationality: 'アルゼンチン', ovr: 75, shirtNumber: 30, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: 'Kendry Páez', position: 'CAM', age: 19, nationality: 'エクアドル', ovr: 76, shirtNumber: 37, preferredFoot: '左', playstyle: 'チャンスメイカー' },
+    { name: 'Deivid Washington', position: 'ST', age: 21, nationality: 'ブラジル', ovr: 73, shirtNumber: 36, preferredFoot: '右', playstyle: 'ラインブレイカー' },
+    { name: 'Reggie Walsh', position: 'CM', age: 18, nationality: 'イングランド', ovr: 68, shirtNumber: 46, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
   ],
   'tottenham': [
     { name: 'Antonín Kinský', position: 'GK', age: 23, nationality: 'チェコ', ovr: 76, shirtNumber: 31, preferredFoot: '右', playstyle: 'ビルドアップ型GK' },
@@ -157,43 +246,45 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: 'Lamare Bogarde', position: 'CDM', age: 22, nationality: 'オランダ', ovr: 72, shirtNumber: 26, preferredFoot: '右', playstyle: 'アンカーマン' }
   ],
   'newcastle': [
-    { name: 'Lukáš Horníček', position: 'GK', age: 24, nationality: 'チェコ', ovr: 73, shirtNumber: 12, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Lewis Miley', position: 'CM', age: 20, nationality: 'イングランド', ovr: 75, shirtNumber: 67, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
+    { name: 'Sean Neave', position: 'ST', age: 19, nationality: 'イングランド', ovr: 68, shirtNumber: 62, preferredFoot: '右', playstyle: 'ポーチャー' },
+    { name: 'Alfie Harrison', position: 'CM', age: 20, nationality: 'イングランド', ovr: 68, shirtNumber: 64, preferredFoot: '右', playstyle: 'チャンスメイカー' },
+    { name: 'Leo Shahar', position: 'RB', age: 19, nationality: 'イングランド', ovr: 67, shirtNumber: 58, preferredFoot: '右', playstyle: 'オーバーラップSB' }
   ],
   'everton': [
     { name: 'Merlin Röhl', position: 'CM', age: 24, nationality: 'ドイツ', ovr: 76, shirtNumber: 18, preferredFoot: '右', playstyle: 'ボックストゥボックス', isLoaned: true }
   ],
   'bournemouth': [
-    { name: 'Will Dennis', position: 'GK', age: 26, nationality: 'イングランド', ovr: 68, shirtNumber: 40, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Julio Soler', position: 'LB', age: 21, nationality: 'アルゼンチン', ovr: 73, shirtNumber: 20, preferredFoot: '左', playstyle: 'オーバーラップSB' },
-    { name: 'Ben Winterburn', position: 'CM', age: 21, nationality: 'イングランド', ovr: 67, shirtNumber: 47, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
+    { name: 'Alex Paulsen', position: 'GK', age: 24, nationality: 'ニュージーランド', ovr: 71, shirtNumber: 30, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Mataï Akinmboni', position: 'CB', age: 20, nationality: 'アメリカ', ovr: 70, shirtNumber: 44, preferredFoot: '左', playstyle: 'ハードタックラー' },
+    { name: 'Owen Bevan', position: 'CB', age: 22, nationality: 'ウェールズ', ovr: 68, shirtNumber: 38, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: 'Zain Silcott-Duberry', position: 'RW', age: 21, nationality: 'イングランド', ovr: 67, shirtNumber: 47, preferredFoot: '右', playstyle: 'ドリブラー' }
   ],
   'wolves': [
-    { name: 'John Ruddy', position: 'GK', age: 39, nationality: 'イングランド', ovr: 70, shirtNumber: 21, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Rodrigo Gomes', position: 'RM', age: 23, nationality: 'ポルトガル', ovr: 74, shirtNumber: 19, preferredFoot: '右', playstyle: 'クロッサー' },
-    { name: 'Toti Gomes', position: 'CB', age: 27, nationality: 'ポルトガル', ovr: 76, shirtNumber: 24, preferredFoot: '左', playstyle: 'ハードタックラー' }
+    { name: 'Sam Johnstone', position: 'GK', age: 33, nationality: 'イングランド', ovr: 76, shirtNumber: 31, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Nasser Djiga', position: 'CB', age: 23, nationality: 'ブルキナファソ', ovr: 74, shirtNumber: 34, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: 'Fer López', position: 'CAM', age: 22, nationality: 'スペイン', ovr: 74, shirtNumber: 28, preferredFoot: '左', playstyle: 'チャンスメイカー' },
+    { name: 'Bastian Meupiyou', position: 'CB', age: 20, nationality: 'フランス', ovr: 70, shirtNumber: 33, preferredFoot: '左', playstyle: 'ボール運べるCB' },
+    { name: 'Mateus Mané', position: 'ST', age: 19, nationality: 'イングランド', ovr: 69, shirtNumber: 36, preferredFoot: '右', playstyle: 'ラインブレイカー' }
   ],
   'brentford': [
-    { name: 'Ellery Balcombe', position: 'GK', age: 26, nationality: 'イングランド', ovr: 68, shirtNumber: 31, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Michael Kayode', position: 'RB', age: 22, nationality: 'イタリア', ovr: 75, shirtNumber: 33, preferredFoot: '右', playstyle: 'オーバーラップSB' },
-    { name: 'Gustavo Nunes', position: 'LW', age: 20, nationality: 'ブラジル', ovr: 72, shirtNumber: 39, preferredFoot: '右', playstyle: 'ドリブラー' }
+    { name: 'Romelle Donovan', position: 'RW', age: 19, nationality: 'イングランド', ovr: 70, shirtNumber: 45, preferredFoot: '左', playstyle: 'ドリブラー' }
   ],
   'brighton': [
-    { name: 'Tom McGill', position: 'GK', age: 26, nationality: 'カナダ', ovr: 68, shirtNumber: 38, preferredFoot: '右', playstyle: 'ビルドアップ型GK' },
-    { name: 'Eiran Cashin', position: 'CB', age: 24, nationality: 'アイルランド', ovr: 73, shirtNumber: 16, preferredFoot: '左', playstyle: 'ハードタックラー' }
+    { name: 'Harry Howell', position: 'CAM', age: 18, nationality: 'イングランド', ovr: 69, shirtNumber: 53, preferredFoot: '左', playstyle: 'チャンスメイカー' }
   ],
   'west_ham': [
-    { name: 'Łukasz Fabiański', position: 'GK', age: 41, nationality: 'ポーランド', ovr: 74, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Oliver Scarles', position: 'LB', age: 20, nationality: 'イングランド', ovr: 71, shirtNumber: 57, preferredFoot: '左', playstyle: 'バランス型SB' }
+    { name: 'Airidas Golambeckis', position: 'CB', age: 19, nationality: 'イングランド', ovr: 68, shirtNumber: 62, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'southampton': [
-    { name: 'George Long', position: 'GK', age: 32, nationality: 'イングランド', ovr: 70, shirtNumber: 25, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Mads Roerslev', position: 'RB', age: 27, nationality: 'デンマーク', ovr: 73, shirtNumber: 2, preferredFoot: '右', playstyle: 'バランス型SB' },
-    { name: 'Leo Scienza', position: 'LW', age: 27, nationality: 'ブラジル', ovr: 73, shirtNumber: 11, preferredFoot: '右', playstyle: 'インサイドフォワード' }
+    { name: 'Welington', position: 'LB', age: 25, nationality: 'ブラジル', ovr: 73, shirtNumber: 34, preferredFoot: '左', playstyle: 'オーバーラップSB' },
+    { name: 'Jay Robinson', position: 'RW', age: 19, nationality: 'イングランド', ovr: 69, shirtNumber: 46, preferredFoot: '右', playstyle: 'ドリブラー' }
   ],
   'leeds_united': [
-    { name: 'Alex Cairns', position: 'GK', age: 33, nationality: 'イングランド', ovr: 66, shirtNumber: 26, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Sam Chambers', position: 'CAM', age: 19, nationality: 'スコットランド', ovr: 66, shirtNumber: 42, preferredFoot: '左', playstyle: 'チャンスメイカー' }
+    { name: 'Harry Christy', position: 'GK', age: 22, nationality: 'イングランド', ovr: 66, shirtNumber: 31, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Darryl Ombang', position: 'GK', age: 21, nationality: 'イングランド', ovr: 65, shirtNumber: 32, preferredFoot: '右', playstyle: '守備的GK' }
+  ],
+  'burnley': [
+    { name: 'Oliver Sonne', position: 'RB', age: 25, nationality: 'ペルー', ovr: 73, shirtNumber: 22, preferredFoot: '右', playstyle: 'オーバーラップSB' }
   ],
   'stoke_city': [
     { name: 'Frank Fielding', position: 'GK', age: 38, nationality: 'イングランド', ovr: 65, shirtNumber: 34, preferredFoot: '右', playstyle: '守備的GK' },
@@ -201,8 +292,12 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
   ],
 
   // === Spain ===
+  'real_madrid': [
+    { name: 'Yan Diomande', position: 'RW', age: 19, nationality: 'コートジボワール', ovr: 78, shirtNumber: 25, preferredFoot: '右', playstyle: 'ドリブラー' }
+  ],
   'atletico_madrid': [
-    { name: 'Alejandro Grimaldo', position: 'LB', age: 30, nationality: 'スペイン', ovr: 84, shirtNumber: 20, preferredFoot: '左', playstyle: 'オーバーラップSB' }
+    { name: 'Clément Lenglet', position: 'CB', age: 31, nationality: 'フランス', ovr: 77, shirtNumber: 15, preferredFoot: '左', playstyle: 'ボール運べるCB' },
+    { name: 'Gerónimo Spina', position: 'CB', age: 21, nationality: 'アルゼンチン', ovr: 70, shirtNumber: 27, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'villarreal': [
     { name: 'Rubén Gómez', position: 'GK', age: 24, nationality: 'スペイン', ovr: 69, shirtNumber: 13, preferredFoot: '右', playstyle: '守備的GK' },
@@ -212,18 +307,24 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: 'Jozhua Vertrouwd', position: 'CB', age: 22, nationality: 'オランダ', ovr: 70, shirtNumber: 22, preferredFoot: '左', playstyle: 'ハードタックラー' }
   ],
   'real_sociedad': [
-    { name: 'Jon Martín', position: 'CB', age: 20, nationality: 'スペイン', ovr: 73, shirtNumber: 31, preferredFoot: '右', playstyle: 'カバーリングマスター' }
+    { name: 'Iñaki Rupérez', position: 'RB', age: 23, nationality: 'スペイン', ovr: 71, shirtNumber: 30, preferredFoot: '右', playstyle: 'オーバーラップSB' }
   ],
   'sevilla': [
-    { name: 'Matías Árbol', position: 'GK', age: 24, nationality: 'スペイン', ovr: 67, shirtNumber: 31, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Kike Salas', position: 'CB', age: 24, nationality: 'スペイン', ovr: 74, shirtNumber: 4, preferredFoot: '左', playstyle: 'ハードタックラー' }
+    { name: 'Rafael Romero', position: 'GK', age: 23, nationality: 'スペイン', ovr: 67, shirtNumber: 33, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Matías Árbol', position: 'GK', age: 24, nationality: 'スペイン', ovr: 67, shirtNumber: 31, preferredFoot: '右', playstyle: '守備的GK' }
   ],
   'valencia': [
-    { name: 'Cristian Rivero', position: 'GK', age: 28, nationality: 'スペイン', ovr: 69, shirtNumber: 13, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Yarek Gasiorowski', position: 'CB', age: 21, nationality: 'スペイン', ovr: 74, shirtNumber: 24, preferredFoot: '左', playstyle: 'ハードタックラー' }
+    { name: 'Rubén Iranzo', position: 'RB', age: 23, nationality: 'スペイン', ovr: 70, shirtNumber: 32, preferredFoot: '右', playstyle: 'バランス型SB' }
+  ],
+  'girona': [
+    { name: 'Papa Ba', position: 'CDM', age: 22, nationality: 'セネガル', ovr: 70, shirtNumber: 29, preferredFoot: '右', playstyle: 'アンカーマン' }
+  ],
+  'mallorca': [
+    { name: 'Jan Salas', position: 'CM', age: 21, nationality: 'スペイン', ovr: 69, shirtNumber: 28, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
+    { name: 'Iliesse Salhi', position: 'LB', age: 19, nationality: 'フランス', ovr: 68, shirtNumber: 31, preferredFoot: '左', playstyle: 'オーバーラップSB' }
   ],
   'alaves': [
-    { name: 'Ander Guevara', position: 'CDM', age: 29, nationality: 'スペイン', ovr: 74, shirtNumber: 6, preferredFoot: '右', playstyle: 'レジスタ' }
+    { name: 'Eneko Ortiz', position: 'LB', age: 23, nationality: 'スペイン', ovr: 69, shirtNumber: 30, preferredFoot: '左', playstyle: 'バランス型SB' }
   ],
   'real_zaragoza': [
     { name: 'Ander Herrera', position: 'CM', age: 37, nationality: 'スペイン', ovr: 74, shirtNumber: 21, preferredFoot: '右', playstyle: 'レジスタ' },
@@ -240,46 +341,57 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: 'Viti Rozada', position: 'RB', age: 28, nationality: 'スペイン', ovr: 72, shirtNumber: 23, preferredFoot: '右', playstyle: 'オーバーラップSB' }
   ],
   'deportivo': [
-    { name: 'Pablo Vázquez', position: 'CB', age: 31, nationality: 'スペイン', ovr: 71, shirtNumber: 4, preferredFoot: '右', playstyle: 'ハードタックラー' }
+    { name: 'Samu Fernández', position: 'CB', age: 20, nationality: 'スペイン', ovr: 67, shirtNumber: 29, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'racing_santander': [
-    { name: 'Javi Castro', position: 'CB', age: 25, nationality: 'スペイン', ovr: 70, shirtNumber: 5, preferredFoot: '右', playstyle: 'ハードタックラー' }
+    { name: 'Diego Fuentes', position: 'CB', age: 22, nationality: 'スペイン', ovr: 68, shirtNumber: 28, preferredFoot: '右', playstyle: 'ハードタックラー' }
+  ],
+  'leganes': [
+    { name: 'Carlos Guirao', position: 'CDM', age: 23, nationality: 'スペイン', ovr: 70, shirtNumber: 27, preferredFoot: '右', playstyle: 'アンカーマン' }
   ],
   'espanyol': [
-    { name: 'Ángel Fortuño', position: 'GK', age: 24, nationality: 'スペイン', ovr: 68, shirtNumber: 13, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Pol Tristán', position: 'GK', age: 24, nationality: 'スペイン', ovr: 67, shirtNumber: 33, preferredFoot: '右', playstyle: 'ショットストッパー' }
   ],
 
   // === Germany ===
   'leverkusen': [
-    { name: 'Janis Blaswich', position: 'GK', age: 35, nationality: 'ドイツ', ovr: 75, shirtNumber: 28, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Jeanuel Belocian', position: 'CB', age: 21, nationality: 'フランス', ovr: 74, shirtNumber: 44, preferredFoot: '左', playstyle: 'ボール運べるCB' },
-    { name: 'Ibrahim Maza', position: 'CAM', age: 20, nationality: 'アルジェリア', ovr: 75, shirtNumber: 10, preferredFoot: '右', playstyle: 'チャンスメイカー' }
+    { name: 'Axel Tape', position: 'CB', age: 19, nationality: 'フランス', ovr: 73, shirtNumber: 4, preferredFoot: '右', playstyle: 'ボール運べるCB' },
+    { name: 'Andrea Natali', position: 'CB', age: 18, nationality: 'イタリア', ovr: 70, shirtNumber: 39, preferredFoot: '左', playstyle: 'ボール運べるCB' },
+    { name: 'Montrell Culbreath', position: 'RW', age: 19, nationality: 'ドイツ', ovr: 69, shirtNumber: 45, preferredFoot: '右', playstyle: 'ドリブラー' },
+    { name: 'Christian Michel Kofane', position: 'ST', age: 20, nationality: 'カメルーン', ovr: 74, shirtNumber: 35, preferredFoot: '右', playstyle: 'ラインブレイカー' },
+    { name: 'Alejo Sarco', position: 'ST', age: 20, nationality: 'アルゼンチン', ovr: 72, shirtNumber: 27, preferredFoot: '左', playstyle: 'ポーチャー' }
   ],
   'rb_leipzig': [
-    { name: 'Leopold Zingerle', position: 'GK', age: 32, nationality: 'ドイツ', ovr: 69, shirtNumber: 25, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Assan Ouédraogo', position: 'CM', age: 20, nationality: 'ドイツ', ovr: 75, shirtNumber: 20, preferredFoot: '両足', playstyle: 'ボックストゥボックス' }
+    { name: 'Jonathan Norbye', position: 'CB', age: 19, nationality: 'ノルウェー', ovr: 70, shirtNumber: 41, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: 'Samba Konaté', position: 'ST', age: 18, nationality: 'フランス', ovr: 69, shirtNumber: 48, preferredFoot: '右', playstyle: 'ラインブレイカー' }
+  ],
+  'stuttgart': [
+    { name: 'Anrie Chase', position: 'CB', age: 22, nationality: '日本', ovr: 74, shirtNumber: 45, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'freiburg': [
-    { name: 'Max Rosenfelder', position: 'CB', age: 23, nationality: 'ドイツ', ovr: 74, shirtNumber: 37, preferredFoot: '右', playstyle: 'ハードタックラー' }
+    { name: 'Maxime Wörner', position: 'CM', age: 21, nationality: 'ドイツ', ovr: 69, shirtNumber: 38, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
   ],
   'koln': [
-    { name: 'Marvin Schwäbe', position: 'GK', age: 31, nationality: 'ドイツ', ovr: 76, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Anthony Racioppi', position: 'GK', age: 27, nationality: 'スイス', ovr: 72, shirtNumber: 24, preferredFoot: '右', playstyle: 'ショットストッパー' }
   ],
 
   // === Italy ===
+  'inter': [
+    { name: 'Djed Spence', position: 'RB', age: 26, nationality: 'イングランド', ovr: 77, shirtNumber: 24, preferredFoot: '右', playstyle: 'オーバーラップSB' },
+    { name: 'Alessandro Calligaris', position: 'GK', age: 21, nationality: 'イタリア', ovr: 67, shirtNumber: 40, preferredFoot: '右', playstyle: '守備的GK' }
+  ],
   'roma': [
     { name: 'Giorgio De Marzi', position: 'GK', age: 19, nationality: 'イタリア', ovr: 65, shirtNumber: 70, preferredFoot: '右', playstyle: '守備的GK' }
   ],
   'parma': [
-    { name: 'Simone Ghidotti', position: 'GK', age: 26, nationality: 'イタリア', ovr: 72, shirtNumber: 22, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Giovanni Daffara', position: 'GK', age: 21, nationality: 'イタリア', ovr: 70, shirtNumber: 30, preferredFoot: '右', playstyle: 'ビルドアップ型GK' }
+    { name: 'Filippo Rinaldi', position: 'GK', age: 23, nationality: 'イタリア', ovr: 69, shirtNumber: 40, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Manuel Moretta', position: 'GK', age: 21, nationality: 'イタリア', ovr: 65, shirtNumber: 34, preferredFoot: '右', playstyle: '守備的GK' }
   ],
   'atalanta': [
     { name: 'Marco Sportiello', position: 'GK', age: 34, nationality: 'イタリア', ovr: 74, shirtNumber: 57, preferredFoot: '右', playstyle: 'ショットストッパー' },
     { name: 'Vanja Vlahović', position: 'ST', age: 22, nationality: 'セルビア', ovr: 72, shirtNumber: 90, preferredFoot: '右', playstyle: 'ポーチャー' }
   ],
   'lazio': [
-    { name: 'Ivan Provedel', position: 'GK', age: 32, nationality: 'イタリア', ovr: 79, shirtNumber: 94, preferredFoot: '右', playstyle: 'ショットストッパー' },
     { name: 'Reda Belahyane', position: 'CDM', age: 22, nationality: 'モロッコ', ovr: 73, shirtNumber: 21, preferredFoot: '右', playstyle: 'レジスタ' }
   ],
   'juventus': [
@@ -290,10 +402,10 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: 'Samuele Perisan', position: 'GK', age: 28, nationality: 'イタリア', ovr: 71, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' }
   ],
   'genoa': [
-    { name: 'Nicola Leali', position: 'GK', age: 33, nationality: 'イタリア', ovr: 74, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Benjamin Siegrist', position: 'GK', age: 34, nationality: 'スイス', ovr: 72, shirtNumber: 31, preferredFoot: '右', playstyle: 'ショットストッパー' }
   ],
   'palermo': [
-    { name: 'Aljosa Vasic', position: 'CM', age: 24, nationality: 'セルビア', ovr: 70, shirtNumber: 14, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
+    { name: 'Francesco Di Mariano', position: 'RW', age: 30, nationality: 'イタリア', ovr: 71, shirtNumber: 7, preferredFoot: '右', playstyle: 'インサイドフォワード' }
   ],
   'catanzaro': [
     { name: 'Simone Pafundi', position: 'CAM', age: 20, nationality: 'イタリア', ovr: 72, shirtNumber: 20, preferredFoot: '左', playstyle: 'チャンスメイカー' },
@@ -302,35 +414,30 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
 
   // === France ===
   'lille': [
-    { name: 'Berke Özer', position: 'GK', age: 26, nationality: 'トルコ', ovr: 76, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Ngal\'ayel Mukau', position: 'CM', age: 21, nationality: 'コンゴ民主共和国', ovr: 74, shirtNumber: 17, preferredFoot: '左', playstyle: 'ボックストゥボックス' }
+    { name: 'Thomas Sajous', position: 'GK', age: 20, nationality: 'フランス', ovr: 67, shirtNumber: 40, preferredFoot: '右', playstyle: 'ショットストッパー' }
   ],
   'lyon': [
-    { name: 'Duje Ćaleta-Car', position: 'CB', age: 29, nationality: 'クロアチア', ovr: 75, shirtNumber: 55, preferredFoot: '右', playstyle: 'ハードタックラー' },
-    { name: 'Tanner Tessmann', position: 'CDM', age: 24, nationality: 'アメリカ', ovr: 74, shirtNumber: 15, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
-    { name: 'Warméd Omari', position: 'CB', age: 26, nationality: 'フランス', ovr: 74, shirtNumber: 27, preferredFoot: '右', playstyle: 'カバーリングマスター' }
+    { name: 'Téo Barišić', position: 'CB', age: 22, nationality: 'クロアチア', ovr: 70, shirtNumber: 41, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'marseille': [
-    { name: 'Jeffrey de Lange', position: 'GK', age: 28, nationality: 'オランダ', ovr: 73, shirtNumber: 12, preferredFoot: '右', playstyle: 'ビルドアップ型GK' },
-    { name: 'Ulisses Garcia', position: 'LB', age: 30, nationality: 'スイス', ovr: 73, shirtNumber: 6, preferredFoot: '左', playstyle: 'バランス型SB' }
+    { name: 'Jelle Van Neck', position: 'GK', age: 22, nationality: 'ベルギー', ovr: 69, shirtNumber: 40, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Théo Vermot', position: 'GK', age: 29, nationality: 'フランス', ovr: 68, shirtNumber: 92, preferredFoot: '右', playstyle: '守備的GK' }
   ],
   'brest': [
-    { name: 'Grégoire Coudert', position: 'GK', age: 27, nationality: 'フランス', ovr: 71, shirtNumber: 30, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Lilian Brasier', position: 'GK', age: 21, nationality: 'フランス', ovr: 67, shirtNumber: 40, preferredFoot: '右', playstyle: '守備的GK' }
   ],
   'reims': [
-    { name: 'Yehvann Diouf', position: 'GK', age: 26, nationality: 'セネガル', ovr: 76, shirtNumber: 94, preferredFoot: '右', playstyle: 'ショットストッパー' },
-    { name: 'Ewen Jaouen', position: 'GK', age: 20, nationality: 'フランス', ovr: 68, shirtNumber: 20, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Mamadou Diakhon', position: 'LW', age: 20, nationality: 'フランス', ovr: 70, shirtNumber: 67, preferredFoot: '右', playstyle: 'ドリブラー' }
+    { name: 'Patrick Zabi', position: 'CM', age: 20, nationality: 'コートジボワール', ovr: 70, shirtNumber: 24, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
+    { name: 'Tidyane Diallo', position: 'RW', age: 20, nationality: 'フランス', ovr: 69, shirtNumber: 29, preferredFoot: '右', playstyle: 'ドリブラー' }
   ],
   'auxerre': [
-    { name: 'Theo De Percin', position: 'GK', age: 25, nationality: 'フランス', ovr: 70, shirtNumber: 40, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Kévin Danois', position: 'CM', age: 22, nationality: 'フランス', ovr: 71, shirtNumber: 21, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
+    { name: 'Telli Siwe', position: 'CB', age: 21, nationality: 'フランス', ovr: 69, shirtNumber: 27, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'montpellier': [
     { name: 'Joris Chotard', position: 'CDM', age: 24, nationality: 'フランス', ovr: 75, shirtNumber: 13, preferredFoot: '右', playstyle: 'ボールウィナー' }
   ],
   'lens': [
-    { name: 'Deiver Machado', position: 'LB', age: 33, nationality: 'コロンビア', ovr: 74, shirtNumber: 3, preferredFoot: '左', playstyle: 'ウイングバック' }
+    { name: 'Ismaëlo Ganiou', position: 'CB', age: 21, nationality: 'ブルキナファソ', ovr: 71, shirtNumber: 25, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'metz': [
     { name: 'Jonathan Fischer', position: 'GK', age: 25, nationality: 'デンマーク', ovr: 72, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' },
@@ -347,29 +454,49 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
 
   // === Turkey, Portugal, Netherlands, Belgium ===
   'trabzonspor': [
-    { name: 'Onuralp Çevikkan', position: 'GK', age: 20, nationality: 'トルコ', ovr: 67, shirtNumber: 25, preferredFoot: '右', playstyle: 'ビルドアップ型GK' }
+    { name: 'Ahmet Yıldırım', position: 'GK', age: 20, nationality: 'トルコ', ovr: 66, shirtNumber: 54, preferredFoot: '右', playstyle: '守備的GK' }
   ],
   'galatasaray': [
     { name: 'Arda Ünyay', position: 'CB', age: 19, nationality: 'トルコ', ovr: 68, shirtNumber: 91, preferredFoot: '右', playstyle: 'ハードタックラー' }
   ],
   'sporting_cp': [
-    { name: 'Rui Silva', position: 'GK', age: 32, nationality: 'ポルトガル', ovr: 78, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Diego Callai', position: 'GK', age: 22, nationality: 'ブラジル', ovr: 70, shirtNumber: 41, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Eduardo Quaresma', position: 'CB', age: 24, nationality: 'ポルトガル', ovr: 76, shirtNumber: 72, preferredFoot: '右', playstyle: 'ボール運べるCB' }
   ],
   'sl_benfica': [
     { name: 'Samuel Soares', position: 'GK', age: 24, nationality: 'ポルトガル', ovr: 74, shirtNumber: 24, preferredFoot: '右', playstyle: 'ビルドアップ型GK' }
   ],
+  'feyenoord': [
+    { name: 'Jeyland Mitchell', position: 'CB', age: 21, nationality: 'コスタリカ', ovr: 73, shirtNumber: 20, preferredFoot: '右', playstyle: 'ハードタックラー' }
+  ],
+  'az_alkmaar': [
+    { name: 'Elijah Dijkstra', position: 'RB', age: 20, nationality: 'オランダ', ovr: 70, shirtNumber: 30, preferredFoot: '右', playstyle: 'オーバーラップSB' }
+  ],
   'nec_nijmegen': [
     { name: 'Dirk Proper', position: 'CM', age: 24, nationality: 'オランダ', ovr: 73, shirtNumber: 71, preferredFoot: '右', playstyle: 'レジスタ' }
   ],
+  'club_brugge': [
+    { name: 'Shandre Campbell', position: 'RW', age: 21, nationality: '南アフリカ', ovr: 72, shirtNumber: 37, preferredFoot: '左', playstyle: 'インサイドフォワード' }
+  ],
+  'union_sg': [
+    { name: 'Guilherme Smith', position: 'LW', age: 23, nationality: 'ブラジル', ovr: 71, shirtNumber: 29, preferredFoot: '右', playstyle: 'ドリブラー' }
+  ],
   'krc_genk': [
-    { name: 'Hendrik Van Crombrugge', position: 'GK', age: 33, nationality: 'ベルギー', ovr: 74, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Tobias Lawal', position: 'GK', age: 26, nationality: 'オーストリア', ovr: 74, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' },
+    { name: 'Robin Mirisola', position: 'ST', age: 20, nationality: 'ベルギー', ovr: 70, shirtNumber: 31, preferredFoot: '右', playstyle: 'ポーチャー' },
+    { name: '吉永 夢希', position: 'LB', age: 20, nationality: '日本', ovr: 68, shirtNumber: 34, preferredFoot: '左', playstyle: 'オーバーラップSB' }
+  ],
+  'kaa_gent': [
+    { name: 'Leonardo Lopes', position: 'CM', age: 27, nationality: 'ポルトガル', ovr: 72, shirtNumber: 16, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
   ],
   'royal_antwerp': [
-    { name: 'Yannick Thoelen', position: 'GK', age: 36, nationality: 'ベルギー', ovr: 68, shirtNumber: 25, preferredFoot: '右', playstyle: '守備的GK' },
-    { name: 'Niels Devalckeneer', position: 'GK', age: 22, nationality: 'ベルギー', ovr: 64, shirtNumber: 81, preferredFoot: '右', playstyle: '守備的GK' }
+    { name: 'Youssef Hamdaoui', position: 'CAM', age: 18, nationality: 'ベルギー', ovr: 67, shirtNumber: 46, preferredFoot: '右', playstyle: 'チャンスメイカー' }
+  ],
+  'sint_truiden': [
+    { name: '山本 理仁', position: 'CM', age: 24, nationality: '日本', ovr: 73, shirtNumber: 6, preferredFoot: '左', playstyle: 'レジスタ' }
   ],
   'kv_kortrijk': [
-    { name: 'Lucas Pirard', position: 'GK', age: 31, nationality: 'ベルギー', ovr: 69, shirtNumber: 1, preferredFoot: '右', playstyle: 'ショットストッパー' }
+    { name: 'Lennart Mertens', position: 'ST', age: 34, nationality: 'ベルギー', ovr: 69, shirtNumber: 19, preferredFoot: '右', playstyle: 'ターゲットマン' }
   ]
 };
 
@@ -403,7 +530,7 @@ export function applyVerified2026_27RosterUpdates(
   const movePlayer = (
     id: string,
     targetClubId: string,
-    updates?: Partial<Pick<Player, 'name' | 'shirtNumber' | 'isLoaned' | 'ovr' | 'age' | 'position' | 'playstyle' | 'nationality'>>
+    updates?: Partial<Pick<Player, 'name' | 'shirtNumber' | 'isLoaned' | 'ovr' | 'age' | 'position' | 'playstyle' | 'nationality' | 'gk' | 'defending'>>
   ) => {
     const p = registry[id];
     if (!p || !clubsMap.has(targetClubId)) return;
@@ -464,7 +591,7 @@ export function applyVerified2026_27RosterUpdates(
       wageMult,
       seed.shirtNumber,
       seed.preferredFoot || '右',
-      seed.playstyle || (seed.position === 'GK' ? 'ショットストッパー' : 'ボックストゥボックス')
+      normalizePlayStyle(seed.playstyle, seed.position)
     );
 
     player.isVerified = true;
@@ -528,6 +655,28 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('JP_VNG_29', 'consadole-sapporo', { shirtNumber: 71 });
   removePlayer('fc-ryukyu_j26_10_'); // 猪瀬 康介 -> move J3_SAG_02 to kochi-united
   movePlayer('J3_SAG_02', 'kochi-united', { shirtNumber: 17 });
+  removePlayer('fc-osaka_j26_7_'); // Duplicate 日髙 慶太 / 日高 慶太 (keep reilac-shiga_jtop26_3_2)
+  removePlayer('wolves_gk_backup_26_danbentl'); // Duplicate Dan Bentley / Daniel Bentley (keep wolves_eur26_2_danielbent)
+
+  // Position & Profile Correction: 高山 汐生 -> 髙山 汐生 (GK @ Vissel Kobe)
+  if (registry['JP_J1_000021_K']) {
+    registry['JP_J1_000021_K'] = {
+      ...registry['JP_J1_000021_K'],
+      name: '髙山 汐生',
+      clubId: 'vissel-kobe',
+      currentClubId: 'vissel-kobe',
+      position: 'GK',
+      altPositions: [],
+      ovr: 68,
+      exactOvr: 68.0,
+      gk: 69,
+      defending: 34,
+      shirtNumber: 39,
+      playstyle: '守備的GK',
+      isVerified: true,
+      verificationStatus: 'verified'
+    };
+  }
 
   // ============================================================================
   // STEP 2: Confirmed 2026/27 Departures Outside the 17 Playable Leagues
@@ -539,9 +688,19 @@ export function applyVerified2026_27RosterUpdates(
   removePlayer('parma_14_leandrochi'); // Leandro Chichizola -> Spezia
   removePlayer('roma_eur26_2_mathewryan'); // Mathew Ryan departed Roma
   removePlayer('man_city_eng26_1_scottcarso'); // Scott Carson retired
+  removePlayer('JP_J1_000270_A'); // シャハブ・ザヘディ -> Johor DT
+  removePlayer('JP_J1_000262_A'); // 奈良 竜樹 -> Macarthur FC
+  removePlayer('JP_J1_000286_A'); // ナッシム・ベン・カリファ -> departed
+  removePlayer('JP_J1_000273_A'); // 松岡 大起 -> Slovan Bratislava
+  removePlayer('JP_J1_000264_A'); // ドウグラス・グローリ -> departed
+  removePlayer('JP_000064'); // 濃野 公人 -> DC United
+  removePlayer('aston_villa_10_olliewatki'); // Ollie Watkins -> Saudi Pro League
+  removePlayer('atletico_madrid_9_antoinegri'); // Antoine Griezmann -> MLS Orlando
+  removePlayer('slb_dimaria'); // Ángel Di María -> Rosario Central
+  removePlayer('clu_mignolet'); // Simon Mignolet -> retired
 
   // ============================================================================
-  // STEP 3: Verified 2026/27 Summer Transfers & Loans Across All 17 Leagues
+  // STEP 3: Verified 2026/27 Summer & Nov 2026 Transfers Across All 17 Leagues
   // ============================================================================
   // --- Premier League & Championship ---
   movePlayer('scp_gyokeres', 'arsenal', { shirtNumber: 14, ovr: 86 });
@@ -549,6 +708,11 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('che_madueke', 'arsenal', { shirtNumber: 20, ovr: 81 });
   movePlayer('bou_kepa', 'arsenal', { shirtNumber: 13, ovr: 80 });
   movePlayer('leeds_united_eng26_1_illanmesli', 'arsenal', { shirtNumber: 31, ovr: 77 });
+  movePlayer('aston_villa_2_ezrikonsa', 'arsenal', { shirtNumber: 4, ovr: 82 });
+  movePlayer('lev_hincapie', 'arsenal', { shirtNumber: 5, ovr: 82 });
+  movePlayer('club_brugge_new26_16_christostz', 'arsenal', { shirtNumber: 19, ovr: 78 });
+  movePlayer('newcastle_6_brunoguima', 'arsenal', { shirtNumber: 39, ovr: 86 });
+  movePlayer('arsenal_eng26_3_ethannwane', 'dortmund', { shirtNumber: 10, ovr: 77, isLoaned: true });
   movePlayer('arsenal_takehiro_tomiyasu', 'crystal_palace', { shirtNumber: 18, ovr: 81 });
 
   movePlayer('lev_wirtz', 'liverpool', { shirtNumber: 7, ovr: 90 });
@@ -556,25 +720,37 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('bou_kerkez', 'liverpool', { shirtNumber: 6, ovr: 82 });
   movePlayer('lev_frimpong', 'liverpool', { shirtNumber: 30, ovr: 84 });
   movePlayer('valencia_eur26_1_giorgimama', 'liverpool', { shirtNumber: 25, ovr: 84 });
+  movePlayer('psg_barcola', 'liverpool', { shirtNumber: 29, ovr: 84 });
+  movePlayer('bar_araujo', 'liverpool', { shirtNumber: 4, ovr: 86, isLoaned: true });
   movePlayer('liverpool_gk_backup_5_caoimhnk', 'brentford', { shirtNumber: 1, ovr: 81 });
 
   movePlayer('psg_donnarumma', 'man_city', { shirtNumber: 1, ovr: 89 });
   movePlayer('lyo_cherki', 'man_city', { shirtNumber: 10, ovr: 83 });
   movePlayer('chelsea_gk_backup_12_marcusbe', 'man_city', { shirtNumber: 13, ovr: 72 });
   movePlayer('marseille_1_gernimorul', 'man_city', { shirtNumber: 18, ovr: 79 });
+  movePlayer('che_enzo', 'man_city', { shirtNumber: 8, ovr: 84 });
 
   movePlayer('aston_villa_1_emilianoma', 'chelsea', { shirtNumber: 1, ovr: 87 });
   movePlayer('krc_genk_new26_1_mikepender', 'chelsea', { shirtNumber: 39, ovr: 76 });
   movePlayer('bha_pedro', 'chelsea', { shirtNumber: 20, ovr: 82 });
+  movePlayer('aston_villa_11_morganroge', 'chelsea', { shirtNumber: 27, ovr: 80 });
 
   movePlayer('royal_antwerp_new26_1_sennelamme', 'man_united', { shirtNumber: 1, ovr: 81 });
   movePlayer('leeds_united_eng26_2_karldarlow', 'man_united', { shirtNumber: 26, ovr: 72 });
   movePlayer('wolves_eur26_13_matheuscun', 'man_united', { shirtNumber: 10, ovr: 83 });
   movePlayer('brentford_eur26_13_bryanmbeum', 'man_united', { shirtNumber: 19, ovr: 83 });
   movePlayer('rb_leipzig_11_benjaminek', 'man_united', { shirtNumber: 30, ovr: 83 });
+  movePlayer('aston_villa_7_youritiele', 'man_united', { shirtNumber: 8, ovr: 82 });
 
   movePlayer('parma_zion_suzuki', 'aston_villa', { shirtNumber: 1, ovr: 81 });
   movePlayer('brest_fra26_1_marcobizot', 'aston_villa', { shirtNumber: 40, ovr: 78 });
+  movePlayer('che_jackson', 'aston_villa', { shirtNumber: 15, ovr: 80 });
+  movePlayer('man_united_9_alejandrog', 'aston_villa', { shirtNumber: 17, ovr: 81, isLoaned: true });
+  movePlayer('atalanta_eur26_7_matteorugg', 'aston_villa', { shirtNumber: 3, ovr: 78 });
+  movePlayer('bayern_ger26_5_leongoretz', 'aston_villa', { shirtNumber: 8, ovr: 82 });
+  movePlayer('southampton_eur26_6_taylorharw', 'aston_villa', { shirtNumber: 5, ovr: 76 });
+  movePlayer('psg_fra26_11_ibrahimmba', 'aston_villa', { shirtNumber: 29, ovr: 74 });
+  movePlayer('wolves_eur26_10_joogomes', 'aston_villa', { shirtNumber: 6, ovr: 80 });
 
   movePlayer('west_ham_9_mohammedku', 'tottenham', { shirtNumber: 20, ovr: 83 });
   movePlayer('newcastle_gk_backup_13_martindb', 'tottenham', { shirtNumber: 39, ovr: 77 });
@@ -594,15 +770,23 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('liv_trent', 'real_madrid', { shirtNumber: 12, ovr: 87 });
   movePlayer('bou_huijsen', 'real_madrid', { shirtNumber: 24, ovr: 83 });
   movePlayer('sl_benfica_new26_7_lvarocarre', 'real_madrid', { shirtNumber: 18, ovr: 82 });
+  movePlayer('mci_silva', 'real_madrid', { shirtNumber: 20, ovr: 87 });
+  movePlayer('che_cucurella', 'real_madrid', { shirtNumber: 3, ovr: 82 });
+  movePlayer('liv_konate', 'real_madrid', { shirtNumber: 5, ovr: 84 });
+  movePlayer('int_dumfries', 'real_madrid', { shirtNumber: 2, ovr: 83 });
 
   movePlayer('espanyol_esp26_1_joangarca', 'barcelona', { shirtNumber: 13, ovr: 83 });
   movePlayer('man_united_11_marcusrash', 'barcelona', { shirtNumber: 14, ovr: 82, isLoaned: true });
+  movePlayer('ars_jesus', 'barcelona', { shirtNumber: 9, ovr: 82 });
+  movePlayer('mci_rodri', 'barcelona', { shirtNumber: 16, ovr: 91 });
 
   movePlayer('tottenham_2_cristianro', 'atletico_madrid', { shirtNumber: 17, ovr: 85 });
   movePlayer('scp_hjulmand', 'atletico_madrid', { shirtNumber: 5, ovr: 83 });
   movePlayer('psg_lee', 'atletico_madrid', { shirtNumber: 19, ovr: 81 });
   movePlayer('atalanta_eur26_14_ademolaloo', 'atletico_madrid', { shirtNumber: 11, ovr: 84 });
   movePlayer('lille_eur26_12_jonathanda', 'atletico_madrid', { shirtNumber: 9, ovr: 83 });
+  movePlayer('lev_grimaldo', 'atletico_madrid', { shirtNumber: 20, ovr: 84 });
+  movePlayer('villarreal_eur26_11_lexbaena', 'atletico_madrid', { shirtNumber: 10, ovr: 83 });
 
   movePlayer('rb_leipzig_1_ptergulcsi', 'villarreal', { shirtNumber: 25, ovr: 81 });
   movePlayer('lyo_mikautadze', 'villarreal', { shirtNumber: 9, ovr: 80 });
@@ -620,27 +804,49 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('liv_diaz', 'bayern', { shirtNumber: 14, ovr: 85 });
   movePlayer('lev_tah', 'bayern', { shirtNumber: 4, ovr: 85 });
   movePlayer('koln_seed_1_jonasurbig', 'bayern', { shirtNumber: 40, ovr: 76 });
+  movePlayer('psv_eindhoven_new26_15_ismaelsaib', 'bayern', { shirtNumber: 18, ovr: 79 });
+  movePlayer('frankfurt_ger26_4_nathanielb', 'bayern', { shirtNumber: 21, ovr: 77 });
   movePlayer('freiburg_ritsu_doan', 'frankfurt', { shirtNumber: 20, ovr: 81 });
   movePlayer('sevilla_eur26_1_rjannyland', 'rb_leipzig', { shirtNumber: 1, ovr: 77 });
+  movePlayer('burnley_eng26_6_maximeestv', 'rb_leipzig', { shirtNumber: 6, ovr: 76 });
+  movePlayer('che_nkunku', 'rb_leipzig', { shirtNumber: 18, ovr: 82 });
+  movePlayer('omiya-ardija_jtop26_11_10', 'rb_leipzig', { shirtNumber: 39, ovr: 72 });
+  movePlayer('krc_genk_new26_16_konstantin', 'dortmund', { shirtNumber: 17, ovr: 76 });
+  movePlayer('psv_eindhoven_new26_14_joeyveerma', 'dortmund', { shirtNumber: 23, ovr: 80 });
+  movePlayer('usg_machida', 'hoffenheim', { shirtNumber: 28, ovr: 77, name: '町田 浩樹 (Koki Machida)' });
+  movePlayer('fen_dzeko', 'schalke', { shirtNumber: 9, ovr: 79 });
 
   movePlayer('genoa_ita26_2_pierluigig', 'roma', { shirtNumber: 95, ovr: 75 });
   movePlayer('empoli_ita26_1_devisvsque', 'roma', { shirtNumber: 32, ovr: 74 });
+  movePlayer('atletico_madrid_2_nahuelmoli', 'roma', { shirtNumber: 16, ovr: 80 });
   movePlayer('southampton_eur26_3_yukinarisu', 'cagliari', { shirtNumber: 2, ovr: 76, isLoaned: true });
   movePlayer('palermo_ita26_17_federicodi', 'catanzaro', { shirtNumber: 17, ovr: 71 });
+  movePlayer('mci_stones', 'inter', { shirtNumber: 5, ovr: 84 });
+  movePlayer('mci_akanji', 'inter', { shirtNumber: 25, ovr: 84 });
+  movePlayer('inter_ita26_7_davidefrat', 'lazio', { shirtNumber: 16, ovr: 80, isLoaned: true });
+  movePlayer('rb_leipzig_10_losopenda', 'juventus', { shirtNumber: 20, ovr: 84 });
+  movePlayer('psg_fra26_10_randalkolo', 'juventus', { shirtNumber: 19, ovr: 81 });
+  movePlayer('stuttgart_ger26_7_nickwoltem', 'juventus', { shirtNumber: 11, ovr: 76, isLoaned: true });
+  movePlayer('tottenham_1_guglielmov', 'juventus', { shirtNumber: 1, ovr: 83, isLoaned: true });
 
   movePlayer('lille_eur26_1_lucascheva', 'psg', { shirtNumber: 30, ovr: 84 });
   movePlayer('che_gusto', 'psg', { shirtNumber: 27, ovr: 82 });
   movePlayer('juventus_7_khphrenthu', 'psg', { shirtNumber: 19, ovr: 82 });
   movePlayer('bar_ferran', 'psg', { shirtNumber: 11, ovr: 83 });
+  movePlayer('monaco_8_maghnesakl', 'psg', { shirtNumber: 18, ovr: 80 });
+  movePlayer('afc_ajax_new26_18_mikagodts', 'psg', { shirtNumber: 21, ovr: 76 });
+  movePlayer('aston_villa_5_lucasdigne', 'psg', { shirtNumber: 12, ovr: 79 });
 
   movePlayer('fey_ueda', 'lille', { shirtNumber: 18, ovr: 79, name: '上田 綺世 (Ayase Ueda)' });
+  movePlayer('reims_keito_nakamura', 'lyon', { shirtNumber: 17, ovr: 78 });
   movePlayer('montpellier_fra26_15_tjisavanie', 'metz', { shirtNumber: 11, ovr: 75 });
   movePlayer('lens_fra26_6_nampalysme', 'metz', { shirtNumber: 26, ovr: 72 });
 
-  // --- Turkey & Netherlands ---
+  // --- Turkey, Portugal, Netherlands, Belgium ---
   movePlayer('bay_sane', 'galatasaray', { shirtNumber: 10, ovr: 84 });
   movePlayer('trabzonspor_new26_1_uurcanakr', 'galatasaray', { shirtNumber: 1, ovr: 82 });
   movePlayer('mci_gundogan', 'galatasaray', { shirtNumber: 8, ovr: 82 });
+  movePlayer('rb_leipzig_ger26_3_elchadaill', 'galatasaray', { shirtNumber: 5, ovr: 75 });
 
   movePlayer('mci_ederson', 'fenerbahce', { shirtNumber: 31, ovr: 84 });
   movePlayer('wolves_eur26_3_nlsonsemed', 'fenerbahce', { shirtNumber: 2, ovr: 79 });
@@ -650,24 +856,89 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('kaa_gent_new26_10_archiebrow', 'fenerbahce', { shirtNumber: 33, ovr: 76 });
   movePlayer('mci_ake', 'fenerbahce', { shirtNumber: 6, ovr: 82 });
 
-  movePlayer('nec_nijmegen_new26_13_kodaisano', 'psv_eindhoven', { shirtNumber: 23, ovr: 78, name: '佐野 航大 (Kodai Sano)' });
+  movePlayer('ars_trossard', 'besiktas', { shirtNumber: 11, ovr: 81 });
+  movePlayer('genoa_ita26_17_fabiomiret', 'besiktas', { shirtNumber: 17, ovr: 76 });
+  movePlayer('slb_kokcu', 'besiktas', { shirtNumber: 10, ovr: 81 });
+  movePlayer('az_alkmaar_new26_19_ernestpoku', 'besiktas', { shirtNumber: 19, ovr: 75 });
 
-  // --- J-League Returns & Verified Moves ---
+  movePlayer('bjk_rafasilva', 'sl_benfica', { shirtNumber: 27, ovr: 82 });
+  movePlayer('aston_villa_12_jhondurn', 'sl_benfica', { shirtNumber: 9, ovr: 80 });
+  movePlayer('ars_kiwior', 'fc_porto', { shirtNumber: 15, ovr: 78 });
+  movePlayer('fey_gimenez', 'fc_porto', { shirtNumber: 9, ovr: 81, isLoaned: true });
+  movePlayer('real_betis_eur26_1_ruisilva', 'sporting_cp', { shirtNumber: 1, ovr: 78 });
+
+  movePlayer('nec_nijmegen_new26_13_kodaisano', 'psv_eindhoven', { shirtNumber: 23, ovr: 78, name: '佐野 航大 (Kodai Sano)' });
+  movePlayer('fenerbahce_new26_12_filipkosti', 'psv_eindhoven', { shirtNumber: 11, ovr: 78 });
+  movePlayer('rb_leipzig_2_lutsharelg', 'psv_eindhoven', { shirtNumber: 4, ovr: 80, isLoaned: true });
+  movePlayer('az_alkmaar_new26_14_svenmijnan', 'psv_eindhoven', { shirtNumber: 10, ovr: 76 });
+  movePlayer('fc_twente_new26_26_samlammers', 'psv_eindhoven', { shirtNumber: 19, ovr: 76 });
+  movePlayer('fen_tadic', 'nec_nijmegen', { shirtNumber: 10, ovr: 79 });
+
+  movePlayer('int_sommer', 'club_brugge', { shirtNumber: 1, ovr: 83 });
+
+  // --- J-League Returns & Nov 2026 Verified Domestic/Foreign Moves ---
   movePlayer('kv_kortrijk_new26_14_takurokane', 'urawa-reds', { shirtNumber: 77, ovr: 74, name: '金子 拓郎 (Takuro Kaneko)' });
   movePlayer('JP_JEF_12', 'urawa-reds', { shirtNumber: 17, ovr: 74, name: '小森 飛絢' });
   movePlayer('stoke_city_eng26_14_tatsukisek', 'urawa-reds', { shirtNumber: 14, ovr: 74, name: '瀬古 樹' });
   movePlayer('auxerre_fra26_22_adoonaiwu', 'urawa-reds', { shirtNumber: 45, ovr: 74, name: 'オナイウ 阿道' });
   movePlayer('kv_kortrijk_new26_23_tomokitaka', 'nagoya-grampus', { shirtNumber: 6, ovr: 74, name: '高嶺 朋樹' });
 
+  // Vissel Kobe verified 2026/27 updates
+  movePlayer('JP_000010', 'las_palmas', { shirtNumber: 19, ovr: 74, isLoaned: true });
+  movePlayer('JP_000018', 'kashima-antlers', { shirtNumber: 22 });
+  movePlayer('JP_J1_000015', 'shimizu-s-pulse', { shirtNumber: 15 });
+  movePlayer('JP_000012', 'gamba-osaka', { shirtNumber: 19 });
+  movePlayer('JP_J1_000014', 'fc-machida-zelvia', { shirtNumber: 17 });
+  movePlayer('JP_J1_000022_K', 'avispa-fukuoka', { shirtNumber: 99 });
+  movePlayer('JP_J1_000023_K', 'sagan-tosu', { shirtNumber: 30 });
+  movePlayer('JP_YFM_06', 'vissel-kobe', { shirtNumber: 19 });
+
+  // Avispa Fukuoka verified 2026/27 rebuild
+  movePlayer('JP_J1_000267_A', 'fc-machida-zelvia', { shirtNumber: 16 });
+  movePlayer('JP_J1_000269_A', 'kawasaki-frontale', { shirtNumber: 17 });
+  movePlayer('JP_J1_000271_A', 'matsumoto-yamaga', { shirtNumber: 9 });
+  movePlayer('JP_J1_000266_A', 'oita-trinita', { shirtNumber: 2 });
+  movePlayer('JP_J1_000278_A', 'oita-trinita', { shirtNumber: 4 });
+  movePlayer('JP_J1_000285_A', 'fc-gifu', { shirtNumber: 21 });
+  movePlayer('girona_eur26_7_oriolromeu', 'avispa-fukuoka', { shirtNumber: 21, ovr: 76, name: 'オリオール・ロメウ (Oriol Romeu)' });
+  movePlayer('JP_J1_000115', 'avispa-fukuoka', { shirtNumber: 23 });
+  movePlayer('JP_000069', 'avispa-fukuoka', { shirtNumber: 11 });
+  movePlayer('JP_000202', 'avispa-fukuoka', { shirtNumber: 20 });
+  movePlayer('JP_J1_000227_N', 'avispa-fukuoka', { shirtNumber: 8 });
+  movePlayer('JP_000142', 'avispa-fukuoka', { shirtNumber: 15 });
+  movePlayer('JP_J1_000107', 'avispa-fukuoka', { shirtNumber: 10 });
+  movePlayer('JP_SEN_02', 'avispa-fukuoka', { shirtNumber: 24 });
+  movePlayer('JP_JEF_01', 'avispa-fukuoka', { shirtNumber: 41 });
+  movePlayer('JP_J1_000071', 'avispa-fukuoka', { shirtNumber: 14 });
+  movePlayer('JP_J1_000455', 'avispa-fukuoka', { shirtNumber: 6 });
+  movePlayer('JP_VNG_07', 'avispa-fukuoka', { shirtNumber: 17 });
+  movePlayer('oita-trinita_j26_4_', 'avispa-fukuoka', { shirtNumber: 3 });
+  movePlayer('kataller-toyama_j26_3_', 'avispa-fukuoka', { shirtNumber: 27 });
+
+  // Other J1 / J2 / J3 verified Nov 2026 moves
   movePlayer('consadole-sapporo_j26_2_', 'sanfrecce-hiroshima', { shirtNumber: 18, ovr: 73 });
   movePlayer('JP_J1_000290', 'sanfrecce-hiroshima', { shirtNumber: 10, ovr: 74 });
+  movePlayer('mallorca_esp26_17_takumaasan', 'sanfrecce-hiroshima', { shirtNumber: 29, ovr: 75, name: '浅野 拓磨 (Takuma Asano)' });
+  movePlayer('leganes_esp26_18_sbastienha', 'sanfrecce-hiroshima', { shirtNumber: 9, ovr: 76 });
   movePlayer('JP_FJD_01', 'tokushima-vortis', { shirtNumber: 37, ovr: 68 });
   movePlayer('fc-ryukyu_j26_15_', 'ventforet-kofu', { shirtNumber: 97, ovr: 67 });
+  movePlayer('kagoshima-united_j26_15_', 'tegevajaro-miyazaki', { shirtNumber: 21 });
+  movePlayer('JP_000065', 'yokohama-f-marinos', { shirtNumber: 13 });
+  movePlayer('JP_000146', 'kashima-antlers', { shirtNumber: 20 });
+  movePlayer('tochigi-sc_jtop26_13_12', 'kashima-antlers', { shirtNumber: 26 });
+  movePlayer('JP_J1_000083_K', 'tokyo-verdy', { shirtNumber: 28, isLoaned: true });
+  movePlayer('JP_J1_000078', 'mito-hollyhock', { shirtNumber: 34, isLoaned: true });
+  movePlayer('JP_000046', 'kashiwa-reysol', { shirtNumber: 9 });
+  movePlayer('fc-gifu_jtop26_2_1', 'matsumoto-yamaga', { shirtNumber: 4 });
+  movePlayer('JP_J1_000322_U', 'yokohama-f-marinos', { shirtNumber: 41 });
+  movePlayer('marseille_fra26_1_rubnblanco', 'yokohama-f-marinos', { shirtNumber: 1, ovr: 74 });
+  movePlayer('JP_J1_000437', 'tokyo-verdy', { shirtNumber: 22 });
+  movePlayer('gil_vicente_new26_14_kanyafujim', 'tokyo-verdy', { shirtNumber: 10, ovr: 74, name: '藤本 寛也 (Kanya Fujimoto)' });
 
   // ============================================================================
   // STEP 4: Ensure >= 3 Verified GKs & >= 25 Verified Players Across ALL 329 Clubs
   // ============================================================================
-  // First apply essential verified additions for clubs that had `[未確認]` slots or moved GKs
+  // Pass 1: Add GKs & outfielders for clubs listed in VERIFIED_RESERVE_POOL
   Object.entries(VERIFIED_RESERVE_POOL).forEach(([clubId, seeds]) => {
     const clubPlayers = Object.values(registry).filter(p => p.clubId === clubId);
     let currentGks = clubPlayers.filter(p => p.position === 'GK').length;
@@ -687,16 +958,18 @@ export function applyVerified2026_27RosterUpdates(
         }
       });
 
-    // Pass B: Add outfield/remaining verified players until club has at least 25 players
-    seeds.forEach((seed, idx) => {
-      if (currentTotal < 25) {
-        const before = Object.keys(registry).length;
-        addVerifiedIfAbsent(clubId, seed, `r${idx + 1}`);
-        if (Object.keys(registry).length > before) {
-          currentTotal++;
+    // Pass B: Add non-GK priority additions for named new signings / depth until club has >= 25
+    seeds
+      .filter(s => s.position !== 'GK')
+      .forEach((seed, idx) => {
+        if (currentTotal < 25 || ['sanfrecce-hiroshima', 'vissel-kobe', 'avispa-fukuoka', 'kashima-antlers', 'tokyo-verdy', 'inter', 'real_madrid'].includes(clubId)) {
+          const before = Object.keys(registry).length;
+          addVerifiedIfAbsent(clubId, seed, `r${idx + 1}`);
+          if (Object.keys(registry).length > before) {
+            currentTotal++;
+          }
         }
-      }
-    });
+      });
   });
 
   // Clean up unused helper warnings safely via invariant check

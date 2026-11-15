@@ -1065,7 +1065,10 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
     'krc_genk_new26_17_junyaito',
     'holstein_kiel_ger26_20_shutomachi',
     'kaa_gent_new26_4_tsuyoshiwa',
-    'kaa_gent_new26_13_atsukiito'
+    'kaa_gent_new26_13_atsukiito',
+    'JP_000010', // 宮代 大聖 (Las Palmas)
+    'omiya-ardija_jtop26_11_10', // 山本 桜大 (RB Leipzig)
+    'JP_000186' // 荒木 遼太郎 (if overseas)
   ]);
 
   const INVALID_J3_ORPHAN_IDS = new Set(['JP_000401', 'JP_000402', 'JP_000403', 'JP_000404', 'JP_000405']);
@@ -1139,7 +1142,13 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
             p.name.includes('守田 英正') ||
             p.name.includes('町田 浩樹') ||
             p.name.includes('町野 修斗') ||
-            p.name.includes('渡辺 剛');
+            p.name.includes('渡辺 剛') ||
+            p.name.includes('宮代') ||
+            p.name.includes('山本 桜大') ||
+            p.name.includes('荒木 遼太郎') ||
+            p.name.includes('Anrie Chase') ||
+            p.name.includes('吉永 夢希') ||
+            p.name.includes('山本 理仁');
 
           if (!isAllowedEuroJapanese) {
             playersToEvict.push(pId);
