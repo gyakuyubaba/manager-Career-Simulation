@@ -1,5 +1,7 @@
 import { Player, Position, PlayStyle, PlayerPersonality, PlayerCondition } from '../types/game';
-import { deriveRealisticAltPositions } from './playerPositionsHelper';
+import { calculatePlayerPositionProficiency, deriveRealisticAltPositions } from './playerPositionsHelper';
+import { initializePlayerSkills } from '../engine/skillEngine';
+import { syncPlayerGkAttributes } from '../engine/valuationEngine';
 
 // Helper to construct fully structured real players
 export function makeRealPlayer(
@@ -55,7 +57,14 @@ export function makeRealPlayer(
   const gk = isGk ? ovr : 12;
   const stamina = Math.min(98, Math.max(68, isMid ? ovr + 3 : isDef ? ovr : ovr - 2) - (age >= 33 ? (age - 32) * 2 : 0));
 
-  return {
+  const profMap = calculatePlayerPositionProficiency({
+    id,
+    name,
+    position,
+    altPositions: resolvedAltPositions
+  });
+
+  const basePlayer: Player = {
     id,
     name,
     age,
@@ -71,6 +80,7 @@ export function makeRealPlayer(
     nationality,
     position,
     altPositions: resolvedAltPositions,
+    positionProficiency: profMap,
     preferredFoot,
     ovr,
     potential,
@@ -106,4 +116,6 @@ export function makeRealPlayer(
     isVerified: true,
     verificationStatus: 'verified'
   };
+
+  return syncPlayerGkAttributes(initializePlayerSkills(basePlayer));
 }

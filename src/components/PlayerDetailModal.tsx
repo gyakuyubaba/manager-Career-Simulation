@@ -4,6 +4,8 @@ import { FatigueGauge, ConditionDot } from './common/FatigueGauge';
 import { PlayablePositionsMap } from './common/PlayablePositionsMap';
 import { PlayerGrowthView } from './common/PlayerGrowthView';
 import { useI18n } from '../i18n/LanguageContext';
+import { getSkillDefinition, SKILL_CATEGORY_LABELS } from '../engine/skillEngine';
+import { syncPlayerGkAttributes } from '../engine/valuationEngine';
 import { Shield, Heart, Zap, Award, AlertTriangle, Calendar, DollarSign, X, TrendingUp, UserCheck } from 'lucide-react';
 
 interface Props {
@@ -754,6 +756,163 @@ export const PlayerDetailModal: React.FC<Props> = ({
                   <span className="text-base font-bold text-white font-mono">{player.physical}</span>
                 </div>
               </div>
+            </div>
+
+            {/* GK Dedicated Attributes Section (6 Primary + 8 Secondary) */}
+            {player.position === 'GK' && (() => {
+              const gkAttrs = player.gkAttributes || syncPlayerGkAttributes(player).gkAttributes;
+              if (!gkAttrs) return null;
+              return (
+                <div className="bg-slate-950/80 border border-cyan-500/30 rounded-2xl p-4 mb-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-cyan-400" />
+                      <span>GK専用能力詳細（主要6項目＋補助8項目）</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400 tabular-nums">GK総合 {player.gk || player.ovr}</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider block mb-1.5">主要GK能力 (6項目)</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
+                      {[
+                        { label: 'セービング', val: gkAttrs.gkSaving },
+                        { label: 'GK反応', val: gkAttrs.gkReflexes },
+                        { label: 'GKポジショニング', val: gkAttrs.gkPositioning },
+                        { label: 'ハンドリング', val: gkAttrs.gkHandling },
+                        { label: '飛び出し', val: gkAttrs.gkRushingOut },
+                        { label: 'クロス対応', val: gkAttrs.gkCrossClaiming }
+                      ].map(item => (
+                        <div key={item.label} className="p-2.5 rounded-xl bg-slate-900 border border-cyan-900/50">
+                          <span className="text-[10px] text-slate-400 block">{item.label}</span>
+                          <span className="text-base font-bold text-cyan-300 font-mono tabular-nums">{item.val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">GK補助能力 (8項目)</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                      {[
+                        { label: 'ショートパス', val: gkAttrs.shortPassing },
+                        { label: 'ロングパス', val: gkAttrs.longPassing },
+                        { label: 'キック精度', val: gkAttrs.kickingAccuracy },
+                        { label: 'フィジカル', val: gkAttrs.physical },
+                        { label: 'ジャンプ', val: gkAttrs.jumping },
+                        { label: 'スピード', val: gkAttrs.pace },
+                        { label: 'スタミナ', val: gkAttrs.stamina },
+                        { label: '冷静さ', val: gkAttrs.composure }
+                      ].map(item => (
+                        <div key={item.label} className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">{item.label}</span>
+                          <span className="text-sm font-bold text-white font-mono tabular-nums">{item.val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Player Skills & Rare Skills Section */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>選手スキル・特殊レアスキル</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono tabular-nums">
+                  通常 {(player.skills || []).length} / レア {(player.rareSkills || []).length}
+                </span>
+              </div>
+
+              {(player.rareSkills && player.rareSkills.length > 0) && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">★ 希少レアスキル</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {player.rareSkills.map(rs => {
+                      const def = getSkillDefinition(rs.id);
+                      return (
+                        <div key={rs.id} className="p-2.5 rounded-xl bg-amber-950/25 border border-amber-500/40 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-amber-200">{def?.name || rs.id}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                              {rs.tier}
+                            </span>
+                          </div>
+                          {def && (
+                            <p className="text-[10px] text-slate-300 leading-relaxed">{def.description}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {(player.skills && player.skills.length > 0) ? (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">所持スキル（A〜H分類・習熟度）</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {player.skills.map(sk => {
+                      const def = getSkillDefinition(sk.id);
+                      const tierStyle =
+                        sk.tier === '卓越' ? 'bg-purple-500/20 text-purple-200 border-purple-500/40' :
+                        sk.tier === '熟練' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                        sk.tier === '成長中' ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' :
+                        'bg-slate-800 text-slate-300 border-slate-700';
+                      return (
+                        <div key={sk.id} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-500 block font-mono">
+                                {def ? `${def.category}. ${SKILL_CATEGORY_LABELS[def.category]}` : 'SKILL'}
+                              </span>
+                              <span className="text-xs font-bold text-white truncate block">{def?.name || sk.id}</span>
+                            </div>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 ${tierStyle}`}>
+                              {sk.tier} ({Math.round(sk.progressPoints || 0)}%)
+                            </span>
+                          </div>
+                          {def && (
+                            <p className="text-[10px] text-slate-400 leading-relaxed">{def.description}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500">まだ通常スキルを習得していません。公式戦での活躍により新規習得します。</div>
+              )}
+            </div>
+
+            {/* Dynamic Market Value Breakdown */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                  <span>リアルタイム市場価値推移</span>
+                </span>
+                <span className="font-mono font-black text-emerald-400 text-sm tabular-nums">
+                  €{(player.marketValue / 1000000).toFixed(1)}M
+                </span>
+              </div>
+              {player.marketValueHistory && player.marketValueHistory.length > 0 ? (
+                <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                  {player.marketValueHistory.slice(-4).reverse().map((entry, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800/80">
+                      <span className="text-slate-400 font-mono tabular-nums">{entry.date} · {entry.reason}</span>
+                      <span className="font-mono font-bold text-emerald-300 tabular-nums">€{(entry.value / 1000000).toFixed(1)}M</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-400">
+                  年齢・OVR・ポテンシャル・直近評価点・スキル習熟度・契約残年数に応じて市場価値が毎月・試合後に変動します。
+                </p>
+              )}
             </div>
 
             {/* Personality & Playstyle */}

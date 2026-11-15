@@ -135,7 +135,7 @@ export const PlayablePositionsMap: React.FC<Props> = ({ player }) => {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`px-2 py-0.5 rounded-md font-mono font-black text-xs border ${badgeColor}`}>
-                      {item.symbol} {item.position}
+                      {item.symbol} {item.position === 'CF' ? 'CF (シャドー)' : item.position}
                     </span>
                     <div className="truncate">
                       <span className="text-[11px] font-bold text-white block truncate">{item.category}</span>

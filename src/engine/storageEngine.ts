@@ -15,14 +15,19 @@ import { ALL_CLUBS, ENABLE_J_LEAGUE } from '../data/clubsData';
 import { J1_20_CLUBS, J2_20_CLUBS, J3_20_CLUBS } from '../data/jLeagueData';
 import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
 import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
+import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
+import { calculatePlayerPositionProficiency } from '../data/playerPositionsHelper';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateRandomYouthAcademy } from '../data/youthGenerator';
 import { REPAIR_SAVE_DATA_INTEGRITY, extractNameMatchTokens } from './dataValidator';
 import { rebuildStandingsFromMatchResults, determineMatchOutcome } from './dateEngine';
+import { initializePlayerSkills } from './skillEngine';
+import { syncPlayerGkAttributes } from './valuationEngine';
+import { ensureSmartphoneState } from './smartphoneEngine';
 
-export const CURRENT_SCHEMA_VERSION = 7;
-export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V5_2026_27_FULL_VERIFIED';
-export const APP_CODE_VERSION = '2026.2.3';
+export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V6_2026_11_15_VERIFIED';
+export const APP_CODE_VERSION = '2026.2.4';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
 export const STORE_NAME = 'career_saves';
@@ -326,6 +331,41 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
     migrated.difficultySettings = { ...DEFAULT_DIFFICULTY_SETTINGS };
   }
 
+  // 5. Ensure V6 proficiencies, 80+15 skills, GK detail attributes, clean Free Agent English names, and サニブラウン pace=89
+  if (migrated.players) {
+    const freeAgentNameMap = new Map(FREE_AGENT_SUPERSTARS.map(fa => [fa.id, fa]));
+    Object.entries(migrated.players).forEach(([pId, player]) => {
+      if (!player) return;
+      let nextP = { ...player };
+      const faTemplate = freeAgentNameMap.get(pId);
+      if (faTemplate) {
+        nextP.name = faTemplate.name;
+        nextP.altPositions = faTemplate.altPositions;
+        nextP.positionProficiency = faTemplate.positionProficiency || nextP.positionProficiency;
+      }
+      if (pId === 'JP_J1_000277_A' || nextP.name.includes('サニブラウン')) {
+        nextP.pace = 89;
+      }
+      nextP.positionProficiency = calculatePlayerPositionProficiency(nextP);
+      nextP = initializePlayerSkills(nextP);
+      nextP = syncPlayerGkAttributes(nextP);
+      if (!nextP.marketValueHistory || nextP.marketValueHistory.length === 0) {
+        nextP.marketValueHistory = [
+          {
+            date: migrated.currentDate || '2026-07-01',
+            value: nextP.marketValue,
+            ovr: nextP.ovr,
+            reason: '引き継ぎデータ基準値'
+          }
+        ];
+      }
+      migrated.players[pId] = nextP;
+    });
+  }
+
+  // 6. Ensure Smartphone Hub state exists cleanly without losing messages/offers
+  migrated.smartphone = ensureSmartphoneState(migrated).smartphone;
+
   return migrated;
 }
 
@@ -360,17 +400,28 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
       // Retain in-game club if transferred in-game, otherwise update to 2026/27 official club
       const targetClubId = wasTransferredInGame ? existing.clubId : masterPlayer.clubId;
 
-      nextPlayers[masterPlayer.id] = {
+      const mergedPlayer: Player = {
         ...existing,
         name: masterPlayer.name,
         clubId: targetClubId,
         currentClubId: targetClubId,
+        isLoaned: wasTransferredInGame ? existing.isLoaned : masterPlayer.isLoaned,
+        loanFromClubId: wasTransferredInGame ? existing.loanFromClubId : masterPlayer.loanFromClubId,
+        parentClubId: wasTransferredInGame ? existing.parentClubId : masterPlayer.parentClubId,
         position: masterPlayer.position,
         altPositions: masterPlayer.altPositions || existing.altPositions,
+        positionProficiency: calculatePlayerPositionProficiency({
+          id: masterPlayer.id,
+          name: masterPlayer.name,
+          position: masterPlayer.position,
+          altPositions: masterPlayer.altPositions || existing.altPositions || [],
+          positionProficiency: masterPlayer.positionProficiency || existing.positionProficiency
+        }),
         nationality: masterPlayer.nationality,
-        shirtNumber: masterPlayer.shirtNumber,
+        shirtNumber: wasTransferredInGame ? existing.shirtNumber : masterPlayer.shirtNumber,
         playstyle: masterPlayer.playstyle || existing.playstyle,
         preferredFoot: masterPlayer.preferredFoot || existing.preferredFoot,
+        pace: masterPlayer.id === 'JP_J1_000277_A' || masterPlayer.name.includes('サニブラウン') ? 89 : Math.max(existing.pace, masterPlayer.pace),
         ovr: Math.max(existing.ovr, masterPlayer.ovr),
         exactOvr: Math.max(existing.exactOvr || existing.ovr, masterPlayer.exactOvr || masterPlayer.ovr),
         initialOvr: masterPlayer.initialOvr || masterPlayer.ovr,
@@ -380,10 +431,11 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
         isVerified: true,
         verificationStatus: 'verified'
       };
+      nextPlayers[masterPlayer.id] = syncPlayerGkAttributes(initializePlayerSkills(mergedPlayer));
       updatedCount++;
     } else {
       // New official 2026/27 player not present in old save
-      nextPlayers[masterPlayer.id] = { ...masterPlayer };
+      nextPlayers[masterPlayer.id] = syncPlayerGkAttributes(initializePlayerSkills({ ...masterPlayer }));
       addedCount++;
     }
   });
@@ -511,7 +563,7 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     }));
   }
 
-  const nextState: GameWorldState = {
+  const baseMergedState: GameWorldState = {
     ...savedState,
     season: '2026/27',
     rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
@@ -519,6 +571,11 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     clubs: nextClubs,
     standings: nextStandings,
     tactics: nextTactics
+  };
+
+  const nextState: GameWorldState = {
+    ...baseMergedState,
+    smartphone: ensureSmartphoneState(baseMergedState).smartphone
   };
 
   return {

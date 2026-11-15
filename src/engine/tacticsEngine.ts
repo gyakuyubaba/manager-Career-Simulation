@@ -557,9 +557,45 @@ export function getPositionFitOvr(player: Player, targetPosition: Position): {
   fitSymbol: '◎' | '○' | '△' | '✕';
   description: string;
 } {
+  const isNago = player.id === 'JP_J1_000071' || (player.name || '').includes('名古');
+  if (isNago && targetPosition === 'CM') {
+    const penalty = 3;
+    return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'B', fitSymbol: '○', description: '類似ポジション・戦術的起用可 (92%)' };
+  }
+
+  // Global rule: players with CF aptitude automatically have ST = S (100%)
+  const hasCf = player.position === 'CF'
+    || player.preferredPositions?.includes('CF')
+    || player.altPositions?.includes('CF')
+    || player.secondaryPositions?.includes('CF')
+    || ((player.positionProficiency?.CF ?? 0) >= 0.90);
+  if (targetPosition === 'ST' && hasCf && player.position !== 'GK') {
+    return { effectiveOvr: player.ovr, penalty: 0, fitGrade: 'S', fitSymbol: '◎', description: '本職・CF連動ST適性 (100%)' };
+  }
+
   // 1. Natural match (100% capacity)
   if (player.position === targetPosition || player.preferredPositions?.includes(targetPosition)) {
     return { effectiveOvr: player.ovr, penalty: 0, fitGrade: 'S', fitSymbol: '◎', description: '本職・最適正 (100%)' };
+  }
+
+  // Check explicit positionProficiency overrides
+  const explicitProf = player.positionProficiency?.[targetPosition];
+  if (typeof explicitProf === 'number' && player.position !== 'GK') {
+    if (explicitProf >= 0.99) {
+      return { effectiveOvr: player.ovr, penalty: 0, fitGrade: 'S', fitSymbol: '◎', description: '本職・最適正 (100%)' };
+    }
+    if (explicitProf >= 0.96) {
+      const penalty = 1;
+      return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'A', fitSymbol: '◎', description: `副ポジション・高い適応力 (${Math.round(explicitProf * 100)}%)` };
+    }
+    if (explicitProf >= 0.94) {
+      const penalty = 2;
+      return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'A', fitSymbol: '○', description: `過去の経験ポジション・適性あり (${Math.round(explicitProf * 100)}%)` };
+    }
+    if (explicitProf >= 0.90) {
+      const penalty = 3;
+      return { effectiveOvr: Math.max(40, player.ovr - penalty), penalty, fitGrade: 'B', fitSymbol: '○', description: `類似ポジション・戦術的起用可 (${Math.round(explicitProf * 100)}%)` };
+    }
   }
 
   // 2. Secondary / Alternative positions (98% capacity - minor penalty only)

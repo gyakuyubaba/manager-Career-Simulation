@@ -11,6 +11,9 @@ import { checkAndAdvanceBallonDor } from './ballonDorEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 import { initializeTournamentCompetitions, populateEuropeanKnockoutFixtures, advanceEuropeanPlayoffWinnersToRoundOf16 } from './cupEngine';
 import { evaluateDailyUnexpectedEvent } from './unexpectedEventsEngine';
+import { processSkillDeclineCheck } from './skillEngine';
+import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
+import { addSmartphoneNotification, processDailySmartphoneEvents, recordMatchSmartphoneUpdate } from './smartphoneEngine';
 
 // Get competition category for isolated disciplinary suspensions
 export function getCompetitionCategory(competition: string): CompetitionCategory {
@@ -590,6 +593,9 @@ export function advanceOneDay(
     }
   });
 
+  const skillDeclineNotices: string[] = [];
+
+  // Re-run OVR growth, decline, skill aging & valuation
   Object.values(updatedPlayers).forEach(p => {
     // Dynamic age calculation based on birthDate and current in-game date (Requirement 5)
     if (p.birthDate) {
@@ -710,6 +716,8 @@ export function advanceOneDay(
     const growthRateMod = diffSettings.playerGrowthRate === 'slow' ? 0.01 : diffSettings.playerGrowthRate === 'fast' ? 0.045 : 0.02;
 
     // A. Growth Processing (All players, especially active starters)
+    let ovrChanged = false;
+    let physicalDropped = false;
     if (p.age <= 28) {
       const isStarter = p.squadStatus === 'STARTING' || (p.stats && p.stats.starts >= 5);
       const starterBoost = isStarter ? 1.5 : 0.8;
@@ -726,6 +734,7 @@ export function advanceOneDay(
         p.dribbling = Math.min(99, p.dribbling + (Math.random() < 0.5 ? 1 : 0));
         p.defending = Math.min(99, p.defending + (Math.random() < 0.5 ? 1 : 0));
         p.physical = Math.min(99, p.physical + (Math.random() < 0.5 ? 1 : 0));
+        ovrChanged = true;
       }
     } else if (p.age >= 34) {
       // B. Aging Decline for 34+ players (Requirement 8)
@@ -737,6 +746,15 @@ export function advanceOneDay(
         p.exactOvr = Math.max(55, (p.exactOvr || p.ovr) - 1);
         p.pace = Math.max(40, p.pace - 1);
         p.physical = Math.max(45, p.physical - 1);
+        ovrChanged = true;
+        physicalDropped = true;
+
+        const skillDec = processSkillDeclineCheck(p, nextDate, true);
+        p.skills = skillDec.player.skills;
+        p.skillHistory = skillDec.player.skillHistory;
+        if (skillDec.declineNoticeMessage && p.clubId === state.userClubId) {
+          skillDeclineNotices.push(skillDec.declineNoticeMessage);
+        }
       }
 
       // C. Retirement Announcement (Requirement 8: 30代後半〜40代の引退表明)
@@ -762,6 +780,16 @@ export function advanceOneDay(
           retirementNewsList.push(retNews);
         }
       }
+    }
+
+    if (ovrChanged || nextDate.endsWith('-01')) {
+      const synced = syncPlayerGkAttributes(p);
+      const revalued = recalculateDynamicMarketValue(
+        synced,
+        nextDate,
+        physicalDropped ? '加齢に伴う評価調整' : ovrChanged ? '能力成長に伴う市場価値上昇' : '月次市場評価更新'
+      );
+      updatedPlayers[p.id] = revalued;
     }
   });
 
@@ -1027,7 +1055,22 @@ export function advanceOneDay(
     }, ...state.news];
   }
 
-  // Unexpected Events System (Requirement 10: 「予期せぬ出来事」)
+    if (userSimulatedFixture) {
+      state = recordMatchSmartphoneUpdate(state, userSimulatedFixture);
+    }
+
+    // Smartphone daily events, skill decline alerts, and unread notices
+    skillDeclineNotices.forEach(msg => {
+      state = addSmartphoneNotification(state, {
+        date: nextDate,
+        type: 'skill_decline',
+        title: '選手コンディション・スキル変化',
+        message: msg
+      });
+    });
+    state = processDailySmartphoneEvents(state, nextDate);
+
+    // Unexpected Events System (Requirement 10: 「予期せぬ出来事」)
   if (!state.activeUnexpectedEvent) {
     const dailyEvent = evaluateDailyUnexpectedEvent(state);
     if (dailyEvent) {

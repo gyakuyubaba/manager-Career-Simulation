@@ -17,24 +17,29 @@ import {
   Target,
   Flag,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Smartphone
 } from 'lucide-react';
 import { generateClubVisionRoadmap } from '../../engine/clubVisionEngine';
+import { getUnreadSmartphoneCount } from '../../engine/smartphoneEngine';
 
 interface Props {
   state: GameWorldState;
   onOpenMatch: (fixture: MatchFixture) => void;
   onSelectPreSeason: (tournamentId: string) => void;
   onNavigateTab: (tab: 'tactics' | 'transfers' | 'fixtures' | 'club') => void;
+  onOpenSmartphone?: () => void;
 }
 
 export const HomeDashboardTab: React.FC<Props> = ({ 
   state, 
   onOpenMatch, 
   onSelectPreSeason,
-  onNavigateTab 
+  onNavigateTab,
+  onOpenSmartphone
 }) => {
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
+  const unreadSmartphone = getUnreadSmartphoneCount(state);
 
   // Next upcoming user fixture
   const nextFixture = state.fixtures.find(
@@ -63,21 +68,39 @@ export const HomeDashboardTab: React.FC<Props> = ({
           />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent" />
         
-        <div className="absolute bottom-4 left-4 right-4 sm:bottom-6 sm:left-6 sm:right-6">
-          <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>2026/27 シーズン（2026/27公式選手名鑑・最新データ基準） 監督キャリア進行中</span>
+        <div className="absolute bottom-4 left-4 right-4 sm:bottom-6 sm:left-6 sm:right-6 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>2026/27 シーズン（2026/27公式選手名鑑・最新データ基準） 監督キャリア進行中</span>
+            </div>
+            <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
+              {userClub?.name}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-300 mt-1.5 font-medium">
+              <span>目標: {userClub?.target}</span>
+              <span aria-hidden="true">·</span>
+              <span>理事会信頼: <strong className="text-emerald-400 font-mono">{state.boardConfidence}%</strong></span>
+              <span aria-hidden="true">·</span>
+              <span>サポーター支持: <strong className="text-blue-400 font-mono">{state.fanApproval}%</strong></span>
+            </div>
           </div>
-          <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
-            {userClub?.name}
-          </h1>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-300 mt-1.5 font-medium">
-            <span>目標: {userClub?.target}</span>
-            <span aria-hidden="true">·</span>
-            <span>理事会信頼: <strong className="text-emerald-400 font-mono">{state.boardConfidence}%</strong></span>
-            <span aria-hidden="true">·</span>
-            <span>サポーター支持: <strong className="text-blue-400 font-mono">{state.fanApproval}%</strong></span>
-          </div>
+
+          {onOpenSmartphone && (
+            <button
+              type="button"
+              onClick={onOpenSmartphone}
+              className="relative inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-emerald-500/50 text-white font-bold text-xs sm:text-sm shadow-xl backdrop-blur-md transition-all active:scale-[0.98] cursor-pointer shrink-0 self-start sm:self-end"
+            >
+              <Smartphone className="w-4 h-4 text-emerald-400" />
+              <span>スマホ</span>
+              {unreadSmartphone > 0 && (
+                <span className="px-1.5 py-0.5 min-w-[20px] rounded-full bg-rose-500 text-white text-[10px] font-black font-mono tabular-nums text-center shadow">
+                  {unreadSmartphone > 99 ? '99+' : unreadSmartphone}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 

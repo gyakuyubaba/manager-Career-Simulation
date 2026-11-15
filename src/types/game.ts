@@ -284,6 +284,165 @@ export interface Player {
   retirementReason?: string;
   recommendedRetirementOffered?: boolean;
   isYouthRegen?: boolean; // Generated youth player (Requirement 18)
+
+  // Player Skills System (80 Normal A-H + 15 Rare)
+  skills?: PlayerSkillInstance[];
+  rareSkills?: PlayerSkillInstance[];
+  skillHistory?: SkillHistoryEntry[];
+
+  // Dedicated GK Attributes & Dynamic Market Value History
+  gkAttributes?: GkDetailAttributes;
+  marketValueHistory?: MarketValueHistoryEntry[];
+  satisfaction?: number; // 0 - 100 player contract/role/playing time satisfaction
+}
+
+export type SkillCategory = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
+export type SkillProficiencyTier = '通常' | '成長中' | '熟練' | '卓越';
+
+export interface PlayerSkillDefinition {
+  id: string;
+  num: number;
+  name: string;
+  category: SkillCategory;
+  categoryName: string;
+  isRare: boolean;
+  isGkOnly: boolean;
+  description: string;
+  declineResistant: boolean;
+}
+
+export interface PlayerSkillInstance {
+  id: string;
+  tier: SkillProficiencyTier;
+  acquiredDate?: string;
+  acquiredAge?: number;
+  declineCount?: number;
+  lastEvaluatedDate?: string;
+  progressPoints?: number;
+}
+
+export interface SkillHistoryEntry {
+  id: string;
+  date: string;
+  age: number;
+  skillId: string;
+  skillName: string;
+  action: 'acquired' | 'upgraded' | 'declined' | 'lost';
+  fromTier?: SkillProficiencyTier;
+  toTier?: SkillProficiencyTier;
+  reason: string;
+}
+
+export interface GkDetailAttributes {
+  // Primary (6 GK specialized parameters)
+  gkSaving: number;
+  gkReflexes: number;
+  gkPositioning: number;
+  gkHandling: number;
+  gkRushingOut: number;
+  gkCrossClaiming: number;
+  // Secondary (8 outfield-shared / physical-mental parameters)
+  shortPassing: number;
+  longPassing: number;
+  kickingAccuracy: number;
+  physical: number;
+  jumping: number;
+  pace: number;
+  stamina: number;
+  composure: number;
+}
+
+export interface MarketValueHistoryEntry {
+  date: string;
+  value: number;
+  ovr: number;
+  reason: string;
+}
+
+export interface SmartphoneNewsComment {
+  id: string;
+  author: string;
+  handle: string;
+  sentiment: 'positive' | 'neutral' | 'critical';
+  text: string;
+  likes: number;
+}
+
+export interface SmartphoneNewsPost {
+  id: string;
+  date: string;
+  title: string;
+  summary: string;
+  category: 'match' | 'transfer' | 'skill' | 'club' | 'award' | 'crisis';
+  relatedClubId?: string;
+  relatedPlayerId?: string;
+  isRead: boolean;
+  comments: SmartphoneNewsComment[];
+}
+
+export interface SmartphoneEmailReplyOption {
+  id: string;
+  label: string;
+  replyPreview: string;
+  outcomeDescription: string;
+  effectType: 'trust_up' | 'trust_down' | 'promise_minutes' | 'transfer_allow' | 'loan_allow' | 'wage_talk' | 'acknowledge';
+}
+
+export interface SmartphoneEmail {
+  id: string;
+  date: string;
+  senderType: 'player' | 'front_office' | 'board' | 'club_offer' | 'scout' | 'medical';
+  senderId?: string;
+  senderName: string;
+  senderRole: string;
+  subject: string;
+  body: string;
+  isRead: boolean;
+  isReplied: boolean;
+  replyChosenLabel?: string;
+  replyText?: string;
+  replyDate?: string;
+  relatedPlayerId?: string;
+  relatedOfferId?: string;
+  triggerKey?: string;
+  replyOptions?: SmartphoneEmailReplyOption[];
+}
+
+export interface SmartphoneNotification {
+  id: string;
+  date: string;
+  type: 'skill_growth' | 'skill_decline' | 'injury' | 'contract' | 'match' | 'transfer' | 'board' | 'job_offer';
+  title: string;
+  message: string;
+  relatedPlayerId?: string;
+  isRead: boolean;
+}
+
+export interface FrontOfficeProposedAction {
+  type: 'transfer_list' | 'loan_list' | 'budget_rebalance' | 'contract_priority' | 'none';
+  targetPlayerId?: string;
+  targetPlayerName?: string;
+  summary: string;
+  requiresConfirmation: boolean;
+  applied?: boolean;
+}
+
+export interface FrontOfficeMessageRecord {
+  id: string;
+  date: string;
+  sender: 'manager' | 'front_office';
+  text: string;
+  proposedAction?: FrontOfficeProposedAction;
+}
+
+export interface SmartphoneState {
+  newsFeed: SmartphoneNewsPost[];
+  emails: SmartphoneEmail[];
+  clubNotices: SmartphoneNotification[];
+  notifications: SmartphoneNotification[];
+  frontOfficeThread: FrontOfficeMessageRecord[];
+  lastEvaluatedDate?: string;
+  generatedTriggerKeys?: string[];
 }
 
 export type LeagueKey = 
@@ -832,6 +991,7 @@ export interface MatchIncidentNotice {
 }
 
 export interface GameWorldState {
+  schemaVersion?: number;
   currentDate: string; // ISO string e.g. "2026-07-01"
   season: string; // "2026/27" (2026/27 official database)
   rosterDataVersion?: string; // Tracks official roster updates e.g. "2026_27_V2_OFFICIAL"
@@ -927,7 +1087,8 @@ export interface GameWorldState {
   deadlineHoursRemaining?: number; // e.g. 12, 10, 8... 0
   deadlineCurrentHour?: number;    // e.g. 10 (10:00), 12, 14, 23 (23:00)
   isManagerFreeAgent?: boolean;
-  managerJobOffers?: any[];
+  managerJobOffers?: ManagerJobOffer[];
+  smartphone?: SmartphoneState;
 
   // Dedicated Ballon d'Or Ceremony Event (Requirement 2)
   activeBallonDorCeremony?: {
@@ -964,6 +1125,10 @@ export interface ManagerJobOffer {
   fanExpectation: string;
   status: 'pending' | 'accepted' | 'declined';
   message: string;
+  reason?: string;
+  reputationRequired?: number;
+  negotiationCount?: number;
+  wageNegotiated?: boolean;
 }
 
 export type UnexpectedEventCategory = 'club_internal' | 'match_related' | 'transfer_related' | 'board_management' | 'manager_related';

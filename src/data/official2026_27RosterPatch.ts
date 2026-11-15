@@ -1,5 +1,8 @@
 import { Club, PlayStyle, Player, Position } from '../types/game';
 import { makeRealPlayer } from './realPlayersDatabase';
+import { calculatePlayerPositionProficiency } from './playerPositionsHelper';
+import { initializePlayerSkills } from '../engine/skillEngine';
+import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from '../engine/valuationEngine';
 import {
   ALLOWED_DISTINCT_HOMONYMS,
   areAllowedDistinctHomonyms,
@@ -530,7 +533,7 @@ export function applyVerified2026_27RosterUpdates(
   const movePlayer = (
     id: string,
     targetClubId: string,
-    updates?: Partial<Pick<Player, 'name' | 'shirtNumber' | 'isLoaned' | 'ovr' | 'age' | 'position' | 'playstyle' | 'nationality' | 'gk' | 'defending'>>
+    updates?: Partial<Pick<Player, 'name' | 'shirtNumber' | 'isLoaned' | 'loanFromClubId' | 'parentClubId' | 'ovr' | 'age' | 'position' | 'playstyle' | 'nationality' | 'gk' | 'defending' | 'pace' | 'birthDate' | 'altPositions' | 'secondaryPositions' | 'positionProficiency'>>
   ) => {
     const p = registry[id];
     if (!p || !clubsMap.has(targetClubId)) return;
@@ -884,7 +887,7 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('kv_kortrijk_new26_23_tomokitaka', 'nagoya-grampus', { shirtNumber: 6, ovr: 74, name: '高嶺 朋樹' });
 
   // Vissel Kobe verified 2026/27 updates
-  movePlayer('JP_000010', 'las_palmas', { shirtNumber: 19, ovr: 74, isLoaned: true });
+  movePlayer('JP_000010', 'las_palmas', { shirtNumber: 19, ovr: 74, isLoaned: false });
   movePlayer('JP_000018', 'kashima-antlers', { shirtNumber: 22 });
   movePlayer('JP_J1_000015', 'shimizu-s-pulse', { shirtNumber: 15 });
   movePlayer('JP_000012', 'gamba-osaka', { shirtNumber: 19 });
@@ -892,6 +895,42 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('JP_J1_000022_K', 'avispa-fukuoka', { shirtNumber: 99 });
   movePlayer('JP_J1_000023_K', 'sagan-tosu', { shirtNumber: 30 });
   movePlayer('JP_YFM_06', 'vissel-kobe', { shirtNumber: 19 });
+
+  // Verified Nov 2026 European & Japanese corrections
+  movePlayer('bar_terstegen', 'afc_ajax', {
+    shirtNumber: 1,
+    ovr: 88,
+    isLoaned: true,
+    loanFromClubId: 'barcelona',
+    parentClubId: 'barcelona'
+  });
+  movePlayer('napoli_10_khvichakva', 'psg', { shirtNumber: 7, ovr: 87 });
+  if (registry['bar_raphinha']) {
+    registry['bar_raphinha'] = {
+      ...registry['bar_raphinha'],
+      altPositions: ['RW', 'CF', 'ST'],
+      secondaryPositions: ['RW', 'CF', 'ST'],
+      positionProficiency: calculatePlayerPositionProficiency({
+        ...registry['bar_raphinha'],
+        altPositions: ['RW', 'CF', 'ST'],
+        secondaryPositions: ['RW', 'CF', 'ST'],
+        positionProficiency: { LW: 1.0, RW: 0.98, CF: 1.0, ST: 1.0 }
+      })
+    };
+  }
+  if (registry['wolves_eur26_13_matheuscun']) {
+    registry['wolves_eur26_13_matheuscun'] = {
+      ...registry['wolves_eur26_13_matheuscun'],
+      altPositions: ['CF', 'LW'],
+      secondaryPositions: ['CF', 'LW'],
+      positionProficiency: calculatePlayerPositionProficiency({
+        ...registry['wolves_eur26_13_matheuscun'],
+        altPositions: ['CF', 'LW'],
+        secondaryPositions: ['CF', 'LW'],
+        positionProficiency: { ST: 1.0, CF: 1.0, LW: 0.97 }
+      })
+    };
+  }
 
   // Avispa Fukuoka verified 2026/27 rebuild
   movePlayer('JP_J1_000267_A', 'fc-machida-zelvia', { shirtNumber: 16 });
@@ -902,17 +941,31 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('JP_J1_000285_A', 'fc-gifu', { shirtNumber: 21 });
   movePlayer('girona_eur26_7_oriolromeu', 'avispa-fukuoka', { shirtNumber: 21, ovr: 76, name: 'オリオール・ロメウ (Oriol Romeu)' });
   movePlayer('JP_J1_000115', 'avispa-fukuoka', { shirtNumber: 23 });
-  movePlayer('JP_000069', 'avispa-fukuoka', { shirtNumber: 11 });
+  movePlayer('JP_000069', 'avispa-fukuoka', {
+    shirtNumber: 11,
+    playstyle: 'シャドーストライカー',
+    altPositions: ['CF', 'CAM'],
+    secondaryPositions: ['CF', 'CAM'],
+    positionProficiency: { ST: 1.0, CF: 1.0, CAM: 0.96 }
+  });
   movePlayer('JP_000202', 'avispa-fukuoka', { shirtNumber: 20 });
   movePlayer('JP_J1_000227_N', 'avispa-fukuoka', { shirtNumber: 8 });
   movePlayer('JP_000142', 'avispa-fukuoka', { shirtNumber: 15 });
   movePlayer('JP_J1_000107', 'avispa-fukuoka', { shirtNumber: 10 });
   movePlayer('JP_SEN_02', 'avispa-fukuoka', { shirtNumber: 24 });
   movePlayer('JP_JEF_01', 'avispa-fukuoka', { shirtNumber: 41 });
-  movePlayer('JP_J1_000071', 'avispa-fukuoka', { shirtNumber: 14 });
+  movePlayer('JP_J1_000071', 'avispa-fukuoka', {
+    shirtNumber: 14,
+    altPositions: ['CF', 'ST'],
+    secondaryPositions: ['CF', 'ST'],
+    positionProficiency: { CAM: 1.0, CF: 0.96, ST: 1.0, CM: 0.92 }
+  });
   movePlayer('JP_J1_000455', 'avispa-fukuoka', { shirtNumber: 6 });
   movePlayer('JP_VNG_07', 'avispa-fukuoka', { shirtNumber: 17 });
-  movePlayer('oita-trinita_j26_4_', 'avispa-fukuoka', { shirtNumber: 3 });
+  movePlayer('oita-trinita_j26_4_', 'st_pauli', { shirtNumber: 25 }); // 安藤 智哉 -> FC St. Pauli
+  movePlayer('JP_J1_000279_A', 'v-varen-nagasaki', { shirtNumber: 18 }); // 岩崎 悠人 -> V-Varen Nagasaki
+  removePlayer('JP_J1_000272_A'); // 金森 健志 -> Melbourne City FC (outside 17 leagues)
+  movePlayer('JP_J1_000261_A', 'kyoto-sanga', { shirtNumber: 21 }); // 村上 昌謙 -> Kyoto Sanga F.C.
   movePlayer('kataller-toyama_j26_3_', 'avispa-fukuoka', { shirtNumber: 27 });
 
   // Other J1 / J2 / J3 verified Nov 2026 moves
@@ -934,6 +987,39 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('marseille_fra26_1_rubnblanco', 'yokohama-f-marinos', { shirtNumber: 1, ovr: 74 });
   movePlayer('JP_J1_000437', 'tokyo-verdy', { shirtNumber: 22 });
   movePlayer('gil_vicente_new26_14_kanyafujim', 'tokyo-verdy', { shirtNumber: 10, ovr: 74, name: '藤本 寛也 (Kanya Fujimoto)' });
+
+  // Verified Youth Promotion: 三井寺 眞 (Shin Miidera) @ Yokohama F. Marinos
+  if (
+    clubsMap.has('yokohama-f-marinos') &&
+    !Object.values(registry).some(p => p.name.includes('三井寺'))
+  ) {
+    const miideraBase = makeRealPlayer(
+      'yokohama-f-marinos_v26_shin_miidera',
+      '三井寺 眞',
+      'yokohama-f-marinos',
+      'CAM',
+      16,
+      '日本',
+      68,
+      80,
+      900000,
+      7000,
+      47,
+      '左',
+      'チャンスメイカー',
+      ['LW', 'RW', 'CM']
+    );
+    miideraBase.birthDate = '2010-04-02';
+    miideraBase.age = 16;
+    miideraBase.ovr = 68;
+    miideraBase.potential = 80;
+    miideraBase.positionProficiency = calculatePlayerPositionProficiency(miideraBase);
+    registry[miideraBase.id] = recalculateDynamicMarketValue(
+      syncPlayerGkAttributes(initializePlayerSkills(miideraBase)),
+      '2026-11-15',
+      'トップチーム登録'
+    );
+  }
 
   // ============================================================================
   // STEP 4: Ensure >= 3 Verified GKs & >= 25 Verified Players Across ALL 329 Clubs
@@ -970,6 +1056,13 @@ export function applyVerified2026_27RosterUpdates(
           }
         }
       });
+  });
+
+  // Specific verified attribute override: サニブラウン・アブデルハナン (pace = 89 ONLY; OVR/potential unchanged)
+  Object.values(registry).forEach(p => {
+    if (p.name.includes('サニブラウン')) {
+      p.pace = 89;
+    }
   });
 
   // Clean up unused helper warnings safely via invariant check

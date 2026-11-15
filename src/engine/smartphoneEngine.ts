@@ -1,0 +1,994 @@
+import {
+  Club,
+  FrontOfficeProposedAction,
+  GameWorldState,
+  ManagerJobOffer,
+  MatchFixture,
+  Player,
+  SmartphoneEmail,
+  SmartphoneNewsComment,
+  SmartphoneNewsPost,
+  SmartphoneNotification,
+  SmartphoneState
+} from '../types/game';
+import { getDefaultTacticsForClub } from '../data/squadPopulator';
+
+const LEAGUE_LABELS: Record<string, string> = {
+  'j1-league': '明治安田J1リーグ',
+  'j2-league': '明治安田J2リーグ',
+  'j3-league': '明治安田J3リーグ',
+  'premier-league': 'プレミアリーグ',
+  'championship': 'EFLチャンピオンシップ',
+  'laliga': 'ラ・リーガ',
+  'segunda-division': 'セグンダ・ディビシオン',
+  'bundesliga': 'ブンデスリーガ',
+  '2-bundesliga': '2. ブンデスリーガ',
+  'serie-a': 'セリエA',
+  'serie-b': 'セリエB',
+  'ligue-1': 'リーグ・アン',
+  'ligue-2': 'リーグ・ドゥ',
+  'super-lig': 'スュペル・リグ',
+  'primeira-liga': 'リーガ・ポルトガル',
+  'eredivisie': 'エールディヴィジ',
+  'pro-league': 'ベルギー・プロ・リーグ'
+};
+
+export function ensureSmartphoneState(state: GameWorldState): GameWorldState {
+  if (state.smartphone) return state;
+  const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
+  const initialDate = state.currentDate || '2026-07-01';
+
+  const starterNews: SmartphoneNewsPost[] = [
+    {
+      id: `sp_news_init_${initialDate}`,
+      date: initialDate,
+      title: userClub
+        ? `【新体制始動】${userClub.name}が${state.manager.name}監督の下で2026/27シーズンへ`
+        : '2026/27シーズン サッカー界の最新動向',
+      summary: userClub
+        ? `${userClub.name}は${state.manager.name}監督を新指揮官に迎え、目標「${userClub.target}」の達成に向けてチーム始動を迎えました。`
+        : '2026/27シーズンの開幕に向けた各クラブの動きが活発化しています。',
+      category: 'club',
+      relatedClubId: userClub?.id,
+      isRead: false,
+      comments: [
+        {
+          id: 'c_init_1',
+          author: 'ゴール裏の古参サポ',
+          handle: '@supporter_ultras',
+          sentiment: 'positive',
+          text: `${userClub ? userClub.shortName : 'クラブ'}の新監督に期待！${userClub ? userClub.target : '上位進出'}に向けてしっかり応援していく。`,
+          likes: 128
+        },
+        {
+          id: 'c_init_2',
+          author: 'タクティクス分析垢',
+          handle: '@tactics_lab_jp',
+          sentiment: 'neutral',
+          text: `まずは選手たちのコンディションとスキル適性を見極めつつ、最適なメンバーを組めるかが鍵になりそう。`,
+          likes: 64
+        }
+      ]
+    }
+  ];
+
+  const starterEmails: SmartphoneEmail[] = userClub
+    ? [
+        {
+          id: `sp_mail_welcome_${initialDate}`,
+          date: initialDate,
+          senderType: 'front_office',
+          senderName: `${userClub.shortName} 強化部・フロント`,
+          senderRole: 'スポーティングディレクター',
+          subject: `${state.manager.name}監督への就任ご挨拶と今季方針`,
+          body: `${state.manager.name}監督、改めまして${userClub.name}へようこそ。今季のクラブ目標は「${userClub.target}」、移籍予算は€${(userClub.transferBudget / 1000000).toFixed(1)}Mとなっております。補強方針や放出リストのご相談があればいつでもスマホの「フロントとの連絡」からお送りください。`,
+          isRead: false,
+          isReplied: false
+        }
+      ]
+    : [];
+
+  const starterNotices: SmartphoneNotification[] = userClub
+    ? [
+        {
+          id: `sp_notice_init_${initialDate}`,
+          date: initialDate,
+          type: 'board',
+          title: 'クラブ公式通達：2026/27シーズン運営開始',
+          message: `目標「${userClub.target}」の達成と持続可能なクラブ運営をよろしくお願いいたします。`,
+          isRead: false
+        }
+      ]
+    : [];
+
+  const initialSmartphone: SmartphoneState = {
+    newsFeed: starterNews,
+    emails: starterEmails,
+    clubNotices: starterNotices,
+    notifications: [],
+    frontOfficeThread: [
+      {
+        id: `fo_init_${initialDate}`,
+        date: initialDate,
+        sender: 'front_office',
+        text: userClub
+          ? `${userClub.name}強化部です。補強ターゲットの相談、不要選手の移籍リスト登録、予算配分など何でもお申し付けください。`
+          : 'フロント連絡窓口です。',
+      }
+    ],
+    lastEvaluatedDate: initialDate,
+    generatedTriggerKeys: []
+  };
+
+  return {
+    ...state,
+    smartphone: initialSmartphone
+  };
+}
+
+export function getUnreadSmartphoneCount(state: GameWorldState): number {
+  const sp = state.smartphone;
+  if (!sp) return 0;
+  const newsUnread = sp.newsFeed.filter(n => !n.isRead).length;
+  const emailUnread = sp.emails.filter(e => !e.isRead).length;
+  const noticeUnread = sp.clubNotices.filter(n => !n.isRead).length;
+  const notifUnread = sp.notifications.filter(n => !n.isRead).length;
+  const pendingOffers = (state.managerJobOffers || []).filter(o => o.status === 'pending').length;
+  return newsUnread + emailUnread + noticeUnread + notifUnread + pendingOffers;
+}
+
+export function addSmartphoneNotification(
+  state: GameWorldState,
+  notif: Omit<SmartphoneNotification, 'id' | 'isRead'>
+): GameWorldState {
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const newItem: SmartphoneNotification = {
+    ...notif,
+    id: `sp_notif_${notif.type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    isRead: false
+  };
+  return {
+    ...withSp,
+    smartphone: {
+      ...sp,
+      notifications: [newItem, ...sp.notifications].slice(0, 60)
+    }
+  };
+}
+
+/**
+ * Generates strictly fact-checked fan reactions ("みんなの反応") anchored to real fixture outcomes.
+ */
+function buildFactCheckedMatchComments(
+  fixture: MatchFixture,
+  userClub: Club,
+  oppClub: Club,
+  isUserHome: boolean,
+  players: Record<string, Player>
+): SmartphoneNewsComment[] {
+  const homeScore = fixture.homeScore ?? 0;
+  const awayScore = fixture.awayScore ?? 0;
+  const userScore = isUserHome ? homeScore : awayScore;
+  const oppScore = isUserHome ? awayScore : homeScore;
+  const diff = userScore - oppScore;
+
+  const userGoalEvents = (fixture.events || []).filter(
+    e => (e.type === 'goal' || e.type === 'penalty') && e.clubId === userClub.id && !e.description?.includes('PK戦')
+  );
+  const starScorerName = userGoalEvents[0]?.playerName || null;
+
+  const comments: SmartphoneNewsComment[] = [];
+
+  if (diff >= 3) {
+    comments.push({
+      id: `cmt_${fixture.id}_1`,
+      author: `${userClub.shortName}熱狂サポ`,
+      handle: '@kurve_ultras',
+      sentiment: 'positive',
+      text: `${userScore}-${oppScore}の圧勝最高すぎる！${starScorerName ? `${starScorerName}の決定力も圧巻だったし` : ''}攻守が完璧に噛み合っていた。`,
+      likes: 412
+    });
+    comments.push({
+      id: `cmt_${fixture.id}_2`,
+      author: 'サッカー観測員',
+      handle: '@footy_watcher',
+      sentiment: 'positive',
+      text: `${oppClub.shortName}相手に${userScore}得点のゴールラッシュ。戦術プランがハマった快勝だ。`,
+      likes: 189
+    });
+  } else if (diff > 0) {
+    const scoredLate = userGoalEvents.some(e => e.minute >= 80);
+    comments.push({
+      id: `cmt_${fixture.id}_1`,
+      author: `${userClub.shortName}推し`,
+      handle: '@club_faithful',
+      sentiment: 'positive',
+      text: `${oppClub.shortName}に${userScore}-${oppScore}でしっかり勝ち切り！${scoredLate ? '終盤のゴールで勝ち越した集中力が素晴らしい。' : ''}${starScorerName ? `${starScorerName}のゴールに痺れた。` : ''}`,
+      likes: 276
+    });
+    comments.push({
+      id: `cmt_${fixture.id}_2`,
+      author: '現地サポーター',
+      handle: '@matchday_diary',
+      sentiment: 'neutral',
+      text: `内容は接戦だったが結果がすべて。次節に向けて疲労管理と控え組の底上げも頼む。`,
+      likes: 94
+    });
+  } else if (diff === 0) {
+    const scoreText = userScore === 0 && oppScore === 0 ? 'スコアレスドロー(0-0)' : `${userScore}-${oppScore}の引き分け`;
+    comments.push({
+      id: `cmt_${fixture.id}_1`,
+      author: '戦術ウォッチ',
+      handle: '@match_review',
+      sentiment: 'neutral',
+      text: `${oppClub.shortName}戦は${scoreText}。${userScore === 0 ? 'チャンスはあっただけに決定力が課題。' : '互いに譲らない見応えあるドローだった。'}`,
+      likes: 151
+    });
+    comments.push({
+      id: `cmt_${fixture.id}_2`,
+      author: `${userClub.shortName}ウォッチャー`,
+      handle: '@stadium_view',
+      sentiment: 'neutral',
+      text: `勝ち点1を積み上げたのはポジティブ。ただ${userScore === 0 ? '得点力不足は早めに手を打ちたい' : '守備の詰めをもう一段上げたい'}ところ。`,
+      likes: 88
+    });
+  } else if (diff <= -3) {
+    comments.push({
+      id: `cmt_${fixture.id}_1`,
+      author: '厳しいサポーター',
+      handle: '@critical_fan',
+      sentiment: 'critical',
+      text: `${userScore}-${oppScore}の大敗は正直ショックが大きい…守備陣の立て直しとスタメン・戦術の見直しが急務。`,
+      likes: 342
+    });
+    comments.push({
+      id: `cmt_${fixture.id}_2`,
+      author: '地元メディア記者',
+      handle: '@press_reporter',
+      sentiment: 'critical',
+      text: `${oppClub.shortName}に${oppScore}失点を喫した厳しい結果。次戦へ向け監督の手腕と選手のリアクションが問われる。`,
+      likes: 198
+    });
+  } else {
+    comments.push({
+      id: `cmt_${fixture.id}_1`,
+      author: `${userClub.shortName}サポ`,
+      handle: '@blue_stand',
+      sentiment: 'critical',
+      text: `${userScore}-${oppScore}の惜敗は悔しい…。${starScorerName ? `${starScorerName}のゴールなど惜しい場面もあったが` : 'チャンスを決めきれなかったのが痛かった'}。次戦は必ず取り返そう。`,
+      likes: 205
+    });
+    comments.push({
+      id: `cmt_${fixture.id}_2`,
+      author: 'データアナリスト',
+      handle: '@xg_notes',
+      sentiment: 'neutral',
+      text: `${oppClub.shortName}相手に${userScore}-${oppScore}。${oppScore - userScore === 1 ? '1点差の接戦だっただけに交代策と終盤の守備を修正したい。' : '攻守のバランスを再整理して次節に臨みたい。'}`,
+      likes: 112
+    });
+  }
+
+  void players;
+  return comments;
+}
+
+export function recordMatchSmartphoneUpdate(state: GameWorldState, fixture: MatchFixture): GameWorldState {
+  if (!state.userClubId) return state;
+  const isUserMatch = fixture.homeClubId === state.userClubId || fixture.awayClubId === state.userClubId;
+  if (!isUserMatch) return state;
+
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const userClub = withSp.clubs[withSp.userClubId!];
+  const oppClubId = fixture.homeClubId === withSp.userClubId ? fixture.awayClubId : fixture.homeClubId;
+  const oppClub = withSp.clubs[oppClubId];
+  if (!userClub || !oppClub) return withSp;
+
+  const isUserHome = fixture.homeClubId === userClub.id;
+  const h = fixture.homeScore ?? 0;
+  const a = fixture.awayScore ?? 0;
+  const uScore = isUserHome ? h : a;
+  const oScore = isUserHome ? a : h;
+
+  const resultLabel = uScore > oScore ? '勝利' : uScore < oScore ? '敗戦' : '引き分け';
+  const postId = `sp_news_match_${fixture.id}`;
+  if (sp.newsFeed.some(n => n.id === postId)) return withSp;
+
+  const post: SmartphoneNewsPost = {
+    id: postId,
+    date: fixture.date,
+    title: `【${fixture.competitionName}】${userClub.name} ${uScore}-${oScore} ${oppClub.name}（${resultLabel}）`,
+    summary: `${fixture.date}に行われた${oppClub.name}戦は ${uScore}-${oScore} で${resultLabel}となりました。${fixture.motmPlayerId && withSp.players[fixture.motmPlayerId] ? `MOMは${withSp.players[fixture.motmPlayerId].name}。` : ''}`,
+    category: 'match',
+    relatedClubId: userClub.id,
+    isRead: false,
+    comments: buildFactCheckedMatchComments(fixture, userClub, oppClub, isUserHome, withSp.players)
+  };
+
+  const notif: SmartphoneNotification = {
+    id: `sp_notif_match_${fixture.id}`,
+    date: fixture.date,
+    type: 'match',
+    title: `試合結果確定: vs ${oppClub.shortName} (${uScore}-${oScore})`,
+    message: `${fixture.competitionName}の結果とファン反応・選手成長データが更新されました。`,
+    isRead: false
+  };
+
+  let nextState: GameWorldState = {
+    ...withSp,
+    smartphone: {
+      ...sp,
+      newsFeed: [post, ...sp.newsFeed].slice(0, 60),
+      notifications: [notif, ...sp.notifications].slice(0, 60)
+    }
+  };
+
+  // Evaluate Manager Job Offers on match completion
+  nextState = evaluateManagerJobOffers(nextState, fixture.date);
+  return nextState;
+}
+
+/**
+ * Evaluate earned manager job offers based on real club performance, win rate, reputation, and milestones.
+ * Prevents day-1 spam or unrealistic giant club offers when underperforming.
+ */
+export function evaluateManagerJobOffers(
+  state: GameWorldState,
+  date: string,
+  ignoreThrottle: boolean = false
+): GameWorldState {
+  if (!state.userClubId || state.isSacked) return state;
+  const userClub = state.clubs[state.userClubId];
+  if (!userClub) return state;
+
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const existingOffers = [...(withSp.managerJobOffers || [])];
+  const pendingCount = existingOffers.filter(o => o.status === 'pending').length;
+  if (pendingCount >= 3) return withSp;
+
+  const matches = withSp.manager.matchesManaged || 0;
+  // Require meaningful track record (at least 6 managed matches unless unemployed)
+  if (!ignoreThrottle && matches < 6 && !withSp.isManagerFreeAgent) return withSp;
+
+  const winRate = matches > 0 ? (withSp.manager.wins || 0) / matches : 0;
+  const leagueRows = withSp.standings[userClub.league] || [];
+  const rankIdx = leagueRows.findIndex(r => r.clubId === userClub.id);
+  const rank = rankIdx >= 0 ? rankIdx + 1 : Math.ceil(leagueRows.length / 2) || 10;
+  const totalTeams = leagueRows.length || 20;
+
+  const rep = withSp.manager.reputation || 65;
+  const trophies = withSp.manager.careerTrophies || 0;
+
+  // Determine whether current trajectory deserves an external offer
+  const overperforming = rank <= Math.max(4, Math.ceil(totalTeams * 0.25)) && winRate >= 0.48;
+  const solidRecord = winRate >= 0.42 && withSp.boardConfidence >= 65 && matches >= 10;
+  if (!ignoreThrottle && !overperforming && !solidRecord && trophies === 0) return withSp;
+
+  // Throttle offers: at most once every 35 days
+  const lastOfferDate = existingOffers[0]?.date;
+  if (!ignoreThrottle && lastOfferDate) {
+    const diffDays = Math.abs(Math.floor((new Date(date).getTime() - new Date(lastOfferDate).getTime()) / 86400000));
+    if (diffDays < 35) return withSp;
+  }
+
+  // Filter realistic destination clubs matching manager reputation
+  const effectiveScore = rep + (winRate - 0.4) * 25 + trophies * 5 + (overperforming ? 8 : 0);
+  const candidateClubs = Object.values(withSp.clubs).filter(c => {
+    if (c.id === 'free_agent' || c.id === userClub.id) return false;
+    if (existingOffers.some(o => o.clubId === c.id && o.status === 'pending')) return false;
+    if (c.tier === 'Elite' && effectiveScore < 88) return false;
+    if (c.tier === 'Upper' && effectiveScore < 75) return false;
+    if (c.tier === 'Mid' && effectiveScore < 58) return false;
+    return true;
+  });
+
+  if (candidateClubs.length === 0) return withSp;
+
+  // Prefer clubs of similar or +1 tier step up
+  const steppedClubs = candidateClubs.filter(c => Math.abs((c.reputation || 70) - Math.min(92, effectiveScore)) <= 14);
+  const pool = steppedClubs.length > 0 ? steppedClubs : candidateClubs;
+  const pickedClub = pool[Math.floor((date.charCodeAt(date.length - 1) + matches) % pool.length)];
+
+  const offerId = `job_offer_${pickedClub.id}_${date}`;
+  const offer: ManagerJobOffer = {
+    id: offerId,
+    date,
+    clubId: pickedClub.id,
+    clubName: pickedClub.name,
+    leagueKey: pickedClub.league,
+    leagueName: LEAGUE_LABELS[pickedClub.league] || pickedClub.league,
+    tier: pickedClub.tier,
+    weeklyWage: Math.round((pickedClub.wageBudget || 200000) * 0.045 / 1000) * 1000,
+    contractYears: 3,
+    transferBudget: pickedClub.transferBudget,
+    wageBudget: pickedClub.wageBudget,
+    target: pickedClub.target,
+    fanExpectation: pickedClub.fanExpectation,
+    status: 'pending',
+    reason: overperforming
+      ? `${userClub.name}での上位躍進と手腕（勝率${Math.round(winRate * 100)}%）を高く評価`
+      : `安定したチームマネジメントと実績を評価しての正式オファー`,
+    reputationRequired: Math.round(effectiveScore),
+    negotiationCount: 0,
+    message: `${pickedClub.name}役員会より正式な監督就任オファーが届きました。現在の${userClub.name}での指揮実績を高く評価し、目標「${pickedClub.target}」の達成を託したいと考えています。`
+  };
+
+  const offerMail: SmartphoneEmail = {
+    id: `sp_mail_offer_${offerId}`,
+    date,
+    senderType: 'club_offer',
+    senderId: pickedClub.id,
+    senderName: `${pickedClub.name} 取締役会`,
+    senderRole: 'クラブ会長・強化責任者',
+    subject: `【正式監督オファー】${pickedClub.name} 監督就任のご打診`,
+    body: `${state.manager.name}様。${offer.message}\n\n提示条件：契約3年 / 週給 €${offer.weeklyWage.toLocaleString()} / 移籍予算 €${(offer.transferBudget / 1000000).toFixed(1)}M`,
+    isRead: false,
+    isReplied: false,
+    relatedOfferId: offerId
+  };
+
+  const notif: SmartphoneNotification = {
+    id: `sp_notif_offer_${offerId}`,
+    date,
+    type: 'job_offer',
+    title: `監督就任オファー到着：${pickedClub.name}`,
+    message: `${pickedClub.name}（${offer.leagueName}）から正式な監督招聘オファーが届きました。`,
+    isRead: false
+  };
+
+  return {
+    ...withSp,
+    managerJobOffers: [offer, ...existingOffers].slice(0, 15),
+    smartphone: {
+      ...sp,
+      emails: [offerMail, ...sp.emails].slice(0, 80),
+      notifications: [notif, ...sp.notifications].slice(0, 60)
+    }
+  };
+}
+
+/**
+ * Daily smartphone event processor:
+ * - Player direct emails (ONLY when real game conditions apply; never false benching complaints for starters!)
+ * - Front office advisories
+ * - Throttled & deduplicated via `generatedTriggerKeys`
+ */
+export function processDailySmartphoneEvents(state: GameWorldState, nextDate: string): GameWorldState {
+  if (!state.userClubId) return ensureSmartphoneState(state);
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const userClub = withSp.clubs[withSp.userClubId!];
+  if (!userClub) return withSp;
+
+  const triggerKeys = new Set(sp.generatedTriggerKeys || []);
+  const newEmails: SmartphoneEmail[] = [];
+  const newNotices: SmartphoneNotification[] = [];
+
+  const starterIds = new Set((withSp.tactics?.lineup?.starters || []).map(s => s.playerId));
+  const benchIds = new Set(withSp.tactics?.lineup?.bench || []);
+  const teamPlayers = userClub.playerIds.map(id => withSp.players[id]).filter(Boolean);
+  const seasonMonth = nextDate.slice(0, 7);
+
+  // Max 1 player email per 4 days unless urgent, evaluate logically
+  const recentPlayerMail = sp.emails.find(e => e.senderType === 'player');
+  const daysSinceLastPlayerMail = recentPlayerMail
+    ? Math.abs(Math.floor((new Date(nextDate).getTime() - new Date(recentPlayerMail.date).getTime()) / 86400000))
+    : 99;
+
+  if (daysSinceLastPlayerMail >= 4) {
+    // 1. Real non-starter playing time concern (NEVER triggered for current starters or players playing >= 50% of matches)
+    const teamMaxApps = Math.max(1, ...teamPlayers.map(tp => tp.stats?.appearances || 0));
+    const frustratedBenchPlayer = teamPlayers.find(p => {
+      if (p.isRetired || p.injuryStatus === 'INJURED' || p.injury?.isInjured) return false;
+      if (starterIds.has(p.id)) return false; // Starters NEVER get benching complaints!
+      const apps = p.stats?.appearances || 0;
+      const playRatio = teamMaxApps >= 4 ? apps / teamMaxApps : 1;
+      if (playRatio >= 0.45) return false;
+      const wantsPlay = p.squadRole === '絶対的主力' || p.squadRole === '重要選手' || p.personality === '出場機会重視';
+      return wantsPlay && p.ovr >= 70 && !triggerKeys.has(`playtime_${p.id}_${seasonMonth}`);
+    });
+
+    if (frustratedBenchPlayer) {
+      const key = `playtime_${frustratedBenchPlayer.id}_${seasonMonth}`;
+      triggerKeys.add(key);
+      newEmails.push({
+        id: `sp_mail_${key}`,
+        date: nextDate,
+        senderType: 'player',
+        senderId: frustratedBenchPlayer.id,
+        senderName: frustratedBenchPlayer.name,
+        senderRole: `${frustratedBenchPlayer.position} · ${frustratedBenchPlayer.squadRole}`,
+        subject: '出場機会についてお話しさせてください',
+        body: `監督、お忙しいところ失礼します。${frustratedBenchPlayer.name}です。最近の試合で先発メンバーから外れることが増えており、自分のコンディションや立場について少し不安を感じています。今後の起用方針を聞かせていただけませんか？`,
+        isRead: false,
+        isReplied: false,
+        relatedPlayerId: frustratedBenchPlayer.id,
+        triggerKey: key,
+        replyOptions: [
+          {
+            id: 'promise_minutes',
+            label: '次の数試合で必ずチャンスを与える',
+            replyPreview: 'トレーニングの取り組みは評価している。近い試合で必ず先発・出場の機会を作るので準備しておいてくれ。',
+            outcomeDescription: '信頼度 +8 / 満足度 +12（直近起用への期待が高まる）',
+            effectType: 'promise_minutes'
+          },
+          {
+            id: 'tactical_explain',
+            label: '戦術的バランスと競争の必要性を説く',
+            replyPreview: '今は相手との相性と戦術バランスを優先している。チーム内競争に勝てばポジションは戻ってくる。',
+            outcomeDescription: '信頼度 +2 / 誠実な対話として納得',
+            effectType: 'trust_up'
+          },
+          {
+            id: 'loan_or_transfer',
+            label: '出場機会のために移籍/レンタルも容認する',
+            replyPreview: '君のキャリアにとって試合に出ることが最優先なら、移籍リストやレンタルでの出場機会確保も検討しよう。',
+            outcomeDescription: '信頼度 -3 / 本人をレンタル/移籍リスト候補に柔軟対応',
+            effectType: 'loan_allow'
+          }
+        ]
+      });
+    } else {
+      // 2. Expiring contract inquiry (<= 1 year left)
+      const expiringPlayer = teamPlayers.find(p =>
+        !p.isRetired &&
+        (p.contractYearsRemaining ?? p.contractYears ?? 3) <= 1 &&
+        p.ovr >= 72 &&
+        !triggerKeys.has(`contract_${p.id}_${seasonMonth}`)
+      );
+
+      if (expiringPlayer) {
+        const key = `contract_${expiringPlayer.id}_${seasonMonth}`;
+        triggerKeys.add(key);
+        newEmails.push({
+          id: `sp_mail_${key}`,
+          date: nextDate,
+          senderType: 'player',
+          senderId: expiringPlayer.id,
+          senderName: expiringPlayer.name,
+          senderRole: `${expiringPlayer.position} · 残契約${expiringPlayer.contractYears}年`,
+          subject: '今後の契約と来季の去就について',
+          body: `監督、${expiringPlayer.name}です。現在の契約期間が残り1年を切っていることもあり、今後のキャリアと契約更新についてクラブや監督と前向きに話し合いたいと考えています。`,
+          isRead: false,
+          isReplied: false,
+          relatedPlayerId: expiringPlayer.id,
+          triggerKey: key,
+          replyOptions: [
+            {
+              id: 'welcome_renewal',
+              label: '契約延長を強く望んでいると伝える',
+              replyPreview: '君はチームに不可欠な戦力だ。チームハブから正式な契約延長交渉を始めよう。',
+              outcomeDescription: '信頼度 +10 / 満足度 +10（契約交渉への好感度上昇）',
+              effectType: 'trust_up'
+            },
+            {
+              id: 'wait_performance',
+              label: 'シーズン成績を見て判断すると伝える',
+              replyPreview: 'ピッチ上での結果を見てからクラブと条件を詰めたい。引き続き全力でプレーしてほしい。',
+              outcomeDescription: '信頼度 -2 / 現状維持',
+              effectType: 'acknowledge'
+            },
+            {
+              id: 'allow_move',
+              label: '新たな挑戦（移籍）も尊重すると伝える',
+              replyPreview: 'もし他クラブでの新しい挑戦を望むなら、クラブとして柔軟にオファーを検討する。',
+              outcomeDescription: '移籍容認スタンス（移籍リスト連携可能）',
+              effectType: 'transfer_allow'
+            }
+          ]
+        });
+      } else {
+        // 3. Positive morale/form message from an in-form starter
+        const starInForm = teamPlayers.find(p =>
+          starterIds.has(p.id) &&
+          (p.stats?.avgRating || 0) >= 7.4 &&
+          (p.stats?.appearances || 0) >= 3 &&
+          !triggerKeys.has(`form_high_${p.id}_${seasonMonth}`)
+        );
+        if (starInForm) {
+          const key = `form_high_${starInForm.id}_${seasonMonth}`;
+          triggerKeys.add(key);
+          newEmails.push({
+            id: `sp_mail_${key}`,
+            date: nextDate,
+            senderType: 'player',
+            senderId: starInForm.id,
+            senderName: starInForm.name,
+            senderRole: `${starInForm.position} · 先発主力`,
+            subject: 'チームの調子と戦術への手応えについて',
+            body: `監督、最近の試合では戦術の狙いがチーム全体に浸透していて非常にプレーしやすいです。この勢いのまま次の試合も勝利を掴みにいきましょう！`,
+            isRead: false,
+            isReplied: false,
+            relatedPlayerId: starInForm.id,
+            triggerKey: key,
+            replyOptions: [
+              {
+                id: 'praise_leader',
+                label: '君のリーダーシップと活躍に感謝する',
+                replyPreview: 'ピッチ上での素晴らしい貢献に感謝している。これからもチームを引っ張ってくれ！',
+                outcomeDescription: '信頼度 +8 / 満足度 +8',
+                effectType: 'trust_up'
+              },
+              {
+                id: 'keep_focused',
+                label: '油断せずさらに上を目指そうと鼓舞する',
+                replyPreview: '良い流れだがシーズンは長い。気を引き締めて次節も圧倒しよう。',
+                outcomeDescription: '信頼度 +5 / プロ意識向上',
+                effectType: 'acknowledge'
+              }
+            ]
+          });
+        }
+      }
+    }
+  }
+
+  // Monthly Front Office / Club Notice check (on 1st or 15th of month)
+  const dayNum = parseInt(nextDate.slice(8, 10), 10);
+  if ((dayNum === 1 || dayNum === 15) && !triggerKeys.has(`fo_notice_${nextDate}`)) {
+    triggerKeys.add(`fo_notice_${nextDate}`);
+    const injuredCount = teamPlayers.filter(p => p.injuryStatus === 'INJURED' || p.injury?.isInjured).length;
+    const expiringCount = teamPlayers.filter(p => (p.contractYearsRemaining ?? p.contractYears ?? 3) <= 1).length;
+    newNotices.push({
+      id: `sp_notice_club_${nextDate}`,
+      date: nextDate,
+      type: 'board',
+      title: `クラブ定例レポート（${nextDate}）`,
+      message: `残り移籍予算 €${(userClub.transferBudget / 1000000).toFixed(1)}M / 負傷者 ${injuredCount}名 / 契約残1年以下 ${expiringCount}名。${expiringCount > 0 ? 'チームハブから契約更新をご検討ください。' : 'チーム状態は安定しています。'}`,
+      isRead: false
+    });
+  }
+
+  void benchIds;
+  return {
+    ...withSp,
+    smartphone: {
+      ...sp,
+      emails: [...newEmails, ...sp.emails].slice(0, 80),
+      clubNotices: [...newNotices, ...sp.clubNotices].slice(0, 60),
+      lastEvaluatedDate: nextDate,
+      generatedTriggerKeys: Array.from(triggerKeys).slice(-200)
+    }
+  };
+}
+
+export function respondToPlayerEmail(
+  state: GameWorldState,
+  emailId: string,
+  replyOptionId: string
+): GameWorldState {
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const email = sp.emails.find(e => e.id === emailId);
+  if (!email || email.isReplied) return withSp;
+
+  const option = email.replyOptions?.find(o => o.id === replyOptionId);
+  if (!option) return withSp;
+
+  const updatedPlayers = { ...withSp.players };
+  if (email.relatedPlayerId && updatedPlayers[email.relatedPlayerId]) {
+    const p = { ...updatedPlayers[email.relatedPlayerId] };
+    let trust = p.managerTrust ?? 70;
+    let sat = p.satisfaction ?? 75;
+
+    switch (option.effectType) {
+      case 'trust_up':
+        trust = Math.min(100, trust + 8);
+        sat = Math.min(100, sat + 10);
+        break;
+      case 'promise_minutes':
+        trust = Math.min(100, trust + 8);
+        sat = Math.min(100, sat + 12);
+        break;
+      case 'trust_down':
+        trust = Math.max(10, trust - 6);
+        sat = Math.max(10, sat - 8);
+        break;
+      case 'transfer_allow':
+        p.isTransferListed = true;
+        p.transferListed = true;
+        break;
+      case 'loan_allow':
+        p.isLoanListed = true;
+        p.loanListed = true;
+        break;
+      default:
+        trust = Math.min(100, trust + 3);
+        break;
+    }
+
+    p.managerTrust = trust;
+    p.satisfaction = sat;
+    updatedPlayers[p.id] = p;
+  }
+
+  const updatedEmails = sp.emails.map(e =>
+    e.id === emailId
+      ? {
+          ...e,
+          isRead: true,
+          isReplied: true,
+          replyChosenLabel: option.label,
+          replyText: option.replyPreview,
+          replyDate: withSp.currentDate
+        }
+      : e
+  );
+
+  return {
+    ...withSp,
+    players: updatedPlayers,
+    smartphone: {
+      ...sp,
+      emails: updatedEmails
+    }
+  };
+}
+
+export function respondToManagerJobOffer(
+  state: GameWorldState,
+  offerId: string,
+  action: 'accept' | 'decline' | 'negotiate'
+): { state: GameWorldState; message: string } {
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const offers = [...(withSp.managerJobOffers || [])];
+  const idx = offers.findIndex(o => o.id === offerId);
+  if (idx === -1) return { state: withSp, message: 'オファーが見つかりません。' };
+
+  const offer = offers[idx];
+
+  if (action === 'decline') {
+    offers[idx] = { ...offer, status: 'declined' };
+    return {
+      state: {
+        ...withSp,
+        managerJobOffers: offers,
+        smartphone: {
+          ...sp,
+          emails: sp.emails.map(e =>
+            e.relatedOfferId === offerId ? { ...e, isRead: true, isReplied: true, replyChosenLabel: 'オファーを辞退', replyDate: withSp.currentDate } : e
+          )
+        }
+      },
+      message: `${offer.clubName}からの監督就任オファーを辞退しました。`
+    };
+  }
+
+  if (action === 'negotiate') {
+    if ((offer.negotiationCount || 0) >= 2) {
+      return { state: withSp, message: `${offer.clubName}とはこれ以上の条件引き上げ交渉はできません。` };
+    }
+    const improvedWage = Math.round(offer.weeklyWage * 1.12 / 1000) * 1000;
+    const improvedBudget = Math.round(offer.transferBudget * 1.08);
+    offers[idx] = {
+      ...offer,
+      weeklyWage: improvedWage,
+      transferBudget: improvedBudget,
+      negotiationCount: (offer.negotiationCount || 0) + 1,
+      wageNegotiated: true
+    };
+    return {
+      state: {
+        ...withSp,
+        managerJobOffers: offers
+      },
+      message: `条件交渉が成立！週給 €${improvedWage.toLocaleString()}、移籍予算 €${(improvedBudget / 1000000).toFixed(1)}M へ引き上げられました。`
+    };
+  }
+
+  // ACCEPT -> Transition manager cleanly while preserving career history, trophies, stats
+  const targetClub = withSp.clubs[offer.clubId];
+  if (!targetClub) return { state: withSp, message: '移行先クラブが見つかりません。' };
+
+  const oldClubId = withSp.userClubId;
+  const pastManagedClubIds = Array.from(new Set([...(withSp.pastManagedClubIds || []), ...(oldClubId ? [oldClubId] : [])]));
+
+  const updatedClubs = { ...withSp.clubs };
+  if (oldClubId && updatedClubs[oldClubId]) {
+    updatedClubs[oldClubId] = { ...updatedClubs[oldClubId], isUserClub: false };
+  }
+  updatedClubs[targetClub.id] = {
+    ...updatedClubs[targetClub.id],
+    isUserClub: true,
+    transferBudget: offer.transferBudget
+  };
+
+  const newTactics = getDefaultTacticsForClub(updatedClubs[targetClub.id], withSp.players);
+  const updatedFixtures = withSp.fixtures.map(f => ({
+    ...f,
+    isUserMatch: (f.homeClubId === targetClub.id || f.awayClubId === targetClub.id) && f.status === 'upcoming'
+  }));
+
+  offers[idx] = { ...offer, status: 'accepted' };
+  const remainingOffers = offers.map((o, i) => (i === idx ? o : o.status === 'pending' ? { ...o, status: 'declined' as const } : o));
+
+  const moveNewsTitle = `【監督電撃就任】${withSp.manager.name}監督が${targetClub.name}の新指揮官に就任！`;
+
+  return {
+    state: {
+      ...withSp,
+      userClubId: targetClub.id,
+      isManagerFreeAgent: false,
+      managerAppointmentDate: withSp.currentDate,
+      pastManagedClubIds,
+      boardConfidence: 85,
+      fanApproval: 80,
+      consecutiveLosses: 0,
+      consecutiveWinless: 0,
+      clubs: updatedClubs,
+      tactics: newTactics,
+      fixtures: updatedFixtures,
+      managerJobOffers: remainingOffers,
+      news: [
+        {
+          id: `news_mgr_move_${Date.now()}`,
+          date: withSp.currentDate,
+          headline: moveNewsTitle,
+          body: `${withSp.manager.name}監督が${targetClub.name}からの正式オファーを受諾し、新指揮官として契約を締結しました。これまでのキャリア通算実績（${withSp.manager.wins}勝・タイトル${withSp.manager.careerTrophies}回）はそのまま引き継がれます。`,
+          category: 'board',
+          relatedClubId: targetClub.id,
+          importance: 'high'
+        },
+        ...withSp.news
+      ],
+      smartphone: {
+        ...sp,
+        emails: sp.emails.map(e =>
+          e.relatedOfferId === offerId ? { ...e, isRead: true, isReplied: true, replyChosenLabel: 'オファーを受諾・就任', replyDate: withSp.currentDate } : e
+        ),
+        clubNotices: [
+          {
+            id: `sp_notice_join_${Date.now()}`,
+            date: withSp.currentDate,
+            type: 'board',
+            title: `${targetClub.name} 監督就任完了`,
+            message: `ようこそ${targetClub.name}へ！目標「${targetClub.target}」に向けて全力を尽くしましょう。`,
+            isRead: false
+          },
+          ...sp.clubNotices
+        ]
+      }
+    },
+    message: `${targetClub.name}の監督に正式就任しました！`
+  };
+}
+
+export function applyFrontOfficeProposedAction(
+  state: GameWorldState,
+  messageId: string
+): { state: GameWorldState; message: string } {
+  const withSp = ensureSmartphoneState(state);
+  const sp = withSp.smartphone!;
+  const msgIdx = sp.frontOfficeThread.findIndex(m => m.id === messageId);
+  if (msgIdx === -1) return { state: withSp, message: '対象メッセージが見つかりません。' };
+
+  const msg = sp.frontOfficeThread[msgIdx];
+  const action = msg.proposedAction;
+  if (!action || action.applied || action.type === 'none') {
+    return { state: withSp, message: '実行可能なアクションがありません。' };
+  }
+
+  let updatedPlayers = { ...withSp.players };
+  let updatedClubs = { ...withSp.clubs };
+  let resultMsg = 'フロントとの合意事項を実行しました。';
+
+  if ((action.type === 'transfer_list' || action.type === 'loan_list') && action.targetPlayerId && updatedPlayers[action.targetPlayerId]) {
+    const p = { ...updatedPlayers[action.targetPlayerId] };
+    if (action.type === 'transfer_list') {
+      p.isTransferListed = true;
+      p.transferListed = true;
+      resultMsg = `${p.name}を正式に移籍リストへ登録しました。`;
+    } else {
+      p.isLoanListed = true;
+      p.loanListed = true;
+      resultMsg = `${p.name}を期限付き移籍（レンタル）リストへ登録しました。`;
+    }
+    updatedPlayers[p.id] = p;
+  } else if (action.type === 'budget_rebalance' && withSp.userClubId && updatedClubs[withSp.userClubId]) {
+    const club = { ...updatedClubs[withSp.userClubId] };
+    const shift = Math.min(2000000, Math.round(club.transferBudget * 0.1));
+    club.transferBudget = Math.max(0, club.transferBudget - shift);
+    club.wageBudget = club.wageBudget + Math.round(shift / 52);
+    updatedClubs[club.id] = club;
+    resultMsg = `移籍予算から€${(shift / 1000000).toFixed(1)}Mを週給予算枠(+€${Math.round(shift / 52).toLocaleString()}/週)へ再配分しました。`;
+  }
+
+  const nextThread = [...sp.frontOfficeThread];
+  nextThread[msgIdx] = {
+    ...msg,
+    proposedAction: { ...action, applied: true }
+  };
+  nextThread.push({
+    id: `fo_confirm_${Date.now()}`,
+    date: withSp.currentDate,
+    sender: 'front_office',
+    text: `【承認・実行完了】${resultMsg}`
+  });
+
+  return {
+    state: {
+      ...withSp,
+      players: updatedPlayers,
+      clubs: updatedClubs,
+      smartphone: {
+        ...sp,
+        frontOfficeThread: nextThread
+      }
+    },
+    message: resultMsg
+  };
+}
+
+/**
+ * Local deterministic fallback generator for Front Office reply if backend API is unavailable.
+ */
+export function buildDeterministicFrontOfficeReply(
+  state: GameWorldState,
+  userMessage: string
+): { reply: string; proposedAction?: FrontOfficeProposedAction } {
+  const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
+  const squad = userClub ? userClub.playerIds.map(id => state.players[id]).filter(Boolean) : [];
+  const lower = userMessage.toLowerCase();
+
+  // Check if user mentioned a specific squad player by name
+  const mentionedPlayer = squad.find(p =>
+    userMessage.includes(p.name) ||
+    p.name.split(/\s+/).some(part => part.length >= 2 && userMessage.includes(part))
+  );
+
+  if (mentionedPlayer && (lower.includes('売') || lower.includes('放出') || lower.includes('移籍リスト') || lower.includes('sell'))) {
+    return {
+      reply: `承知いたしました。${mentionedPlayer.name}（OVR ${mentionedPlayer.ovr} / 推定市場価値 €${(mentionedPlayer.marketValue / 1000000).toFixed(1)}M）の移籍リスト登録について、オファー獲得に動きます。以下のボタンで最終実行をご承認ください。`,
+      proposedAction: {
+        type: 'transfer_list',
+        targetPlayerId: mentionedPlayer.id,
+        targetPlayerName: mentionedPlayer.name,
+        summary: `${mentionedPlayer.name} を移籍リストに登録する`,
+        requiresConfirmation: true
+      }
+    };
+  }
+
+  if (mentionedPlayer && (lower.includes('レンタル') || lower.includes('loan') || lower.includes('武者修行'))) {
+    return {
+      reply: `了解しました。${mentionedPlayer.name}（${mentionedPlayer.age}歳）の成長機会のため、レンタル移籍リストへ登録して獲得先を募りましょう。実行ボタンを押してください。`,
+      proposedAction: {
+        type: 'loan_list',
+        targetPlayerId: mentionedPlayer.id,
+        targetPlayerName: mentionedPlayer.name,
+        summary: `${mentionedPlayer.name} をレンタルリストに登録する`,
+        requiresConfirmation: true
+      }
+    };
+  }
+
+  if (lower.includes('予算') || lower.includes('給料') || lower.includes('週給') || lower.includes('資金') || lower.includes('budget')) {
+    const availWage = userClub ? Math.max(0, userClub.wageBudget - userClub.currentWageSpend) : 0;
+    return {
+      reply: `現在の${userClub?.name || 'クラブ'}の財務状況は、移籍予算 €${((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M、週給空き枠 €${availWage.toLocaleString()}/週 となっております。移籍予算の一部を週給枠へ回すことも可能です。`,
+      proposedAction: userClub && userClub.transferBudget >= 2000000
+        ? {
+            type: 'budget_rebalance',
+            summary: '移籍予算の10%（最大€2.0M）を週給予算枠へ再配分する',
+            requiresConfirmation: true
+          }
+        : undefined
+    };
+  }
+
+  if (lower.includes('補強') || lower.includes('ポジション') || lower.includes('スカウト') || lower.includes('弱い')) {
+    const gks = squad.filter(p => p.position === 'GK').length;
+    const fws = squad.filter(p => ['ST', 'CF', 'LW', 'RW'].includes(p.position)).length;
+    const avgOvr = squad.length > 0 ? Math.round(squad.reduce((a, p) => a + p.ovr, 0) / squad.length) : 70;
+    return {
+      reply: `スカッド分析（平均OVR ${avgOvr} / GK ${gks}名 / FW ${fws}名）をご報告します。現在の予算（€${((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M）を踏まえると、移籍市場タブから即戦力または若手ポテンシャル株へのオファーが有効です。希望のポジションをお知らせいただければさらに精査します。`
+    };
+  }
+
+  return {
+    reply: `${userClub?.name || 'クラブ'}強化部です。監督のご意向（${userMessage.slice(0, 30)}${userMessage.length > 30 ? '...' : ''}）を確認いたしました。目標「${userClub?.target || '上位進出'}」に向けて全面的にバックアップいたします。特定の選手の放出・レンタルや予算調整が必要な場合はその旨お申し付けください。`
+  };
+}

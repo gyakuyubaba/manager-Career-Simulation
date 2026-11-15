@@ -11,6 +11,7 @@ interface Props {
   onUpdateTactics: (tactics: TeamTactics) => void;
   onSelectPlayer: (player: Player) => void;
   onUpdateState?: (newState: GameWorldState) => void;
+  onOpenTeamHub?: () => void;
 }
 
 const FORMATIONS: FormationName[] = [
@@ -58,7 +59,7 @@ const FORMATIONS: FormationName[] = [
   '3-3-3-1 全方位プレス (ビエルサ流)'
 ];
 
-export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSelectPlayer, onUpdateState }) => {
+export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSelectPlayer, onUpdateState, onOpenTeamHub }) => {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [pitchZoom, setPitchZoom] = useState<number>(100);
   const [replacingPlayer, setReplacingPlayer] = useState<Player | null>(null);
@@ -595,13 +596,23 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
             </div>
           </div>
 
-          {/* Formation dropdown */}
-          <div className="flex items-center gap-2">
+          {/* Team Hub + Formation dropdown */}
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenTeamHub && (
+              <button
+                type="button"
+                onClick={onOpenTeamHub}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/50 text-sky-200 font-bold text-xs sm:text-sm transition-all cursor-pointer shrink-0"
+              >
+                <Users className="w-4 h-4 text-sky-400" />
+                <span>チームハブ</span>
+              </button>
+            )}
             <span className="text-xs font-semibold text-slate-400 shrink-0">フォーメーション:</span>
             <select
               value={tactics.formation}
               onChange={e => handleFormationChange(e.target.value as FormationName)}
-              className="bg-slate-800 border border-emerald-500/50 hover:border-emerald-400 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer shadow-md"
+              className="bg-slate-800 border border-emerald-500/50 hover:border-emerald-400 rounded-xl px-3 py-2 min-h-[44px] text-xs sm:text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all cursor-pointer shadow-md"
             >
               {FORMATION_GROUPS.map(grp => (
                 <optgroup key={grp.group} label={grp.group} className="bg-slate-900 text-slate-300 font-bold">

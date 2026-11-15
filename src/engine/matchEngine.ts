@@ -15,6 +15,8 @@ import {
 } from '../types/game';
 import { addDays, getCompetitionCategory } from './dateEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
+import { getPlayerSkillMatchModifiers, processMatchSkillProgression } from './skillEngine';
+import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
 
 // Condition multiplier for calculations
 export const CONDITION_MULTIPLIER: Record<PlayerCondition, number> = {
@@ -780,11 +782,20 @@ export function simulatePenaltyShootoutKickers(
   const hList = homeStarters.length > 0 ? homeStarters : [{ id: 'h_1', name: `${homeClub.name} キッカー1` }];
   const aList = awayStarters.length > 0 ? awayStarters : [{ id: 'a_1', name: `${awayClub.name} キッカー1` }];
 
+  const getGkPkBonus = (list: (Player | { id: string; name: string; shooting?: number })[]) => {
+    const gk = list.find(p => (p as Player).position === 'GK') as Player | undefined;
+    return gk ? getPlayerSkillMatchModifiers(gk).gkPkStopBonus : 0;
+  };
+  const homeGkPkBonus = getGkPkBonus(hList);
+  const awayGkPkBonus = getGkPkBonus(aList);
+
   // 1. Regular 5 kicks
   for (let k = 1; k <= 5; k++) {
     const homePlayer = hList[(k - 1) % hList.length];
     const hShooting = homePlayer.shooting || 72;
-    const hProb = Math.max(0.62, Math.min(0.90, 0.76 + (hShooting - 70) * 0.003));
+    const hSkillMod = 'position' in homePlayer ? getPlayerSkillMatchModifiers(homePlayer as Player, { minute: 120 }) : null;
+    const hPkBoost = hSkillMod ? (hSkillMod.setPieceBonus * 0.6 + hSkillMod.clutchBonus * 0.4) : 0;
+    const hProb = Math.max(0.58, Math.min(0.92, 0.76 + (hShooting - 70) * 0.003 + hPkBoost - awayGkPkBonus * 0.5));
     const hScored = rng() < hProb;
     if (hScored) homeScore++;
     kickers.push({
@@ -802,7 +813,9 @@ export function simulatePenaltyShootoutKickers(
 
     const awayPlayer = aList[(k - 1) % aList.length];
     const aShooting = awayPlayer.shooting || 72;
-    const aProb = Math.max(0.62, Math.min(0.90, 0.76 + (aShooting - 70) * 0.003));
+    const aSkillMod = 'position' in awayPlayer ? getPlayerSkillMatchModifiers(awayPlayer as Player, { minute: 120 }) : null;
+    const aPkBoost = aSkillMod ? (aSkillMod.setPieceBonus * 0.6 + aSkillMod.clutchBonus * 0.4) : 0;
+    const aProb = Math.max(0.58, Math.min(0.92, 0.76 + (aShooting - 70) * 0.003 + aPkBoost - homeGkPkBonus * 0.5));
     const aScored = rng() < aProb;
     if (aScored) awayScore++;
     kickers.push({
@@ -1288,7 +1301,14 @@ export function finalizeMatchResultAndPlayerStats(params: {
           ? 0.85
           : 1.0;
 
-    const calculatedFatigueDelta = Math.round(15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier);
+    const skillMods = getPlayerSkillMatchModifiers(existing, {
+      minute: ps.minutesPlayed,
+      isSubbedIn: !ps.isStarter
+    });
+    const calculatedFatigueDelta = Math.round(
+      (15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier) /
+      Math.max(1.0, skillMods.staminaRetentionMult)
+    );
     updated.fatigue = Math.max(0, Math.min(100, (updated.fatigue || 0) + calculatedFatigueDelta));
 
     const conceded = ps.clubId === homeClub.id ? awayScore : homeScore;
@@ -1363,13 +1383,45 @@ export function finalizeMatchResultAndPlayerStats(params: {
       goals: ps.goals,
       assists: ps.assists,
       cleanSheet: ps.cleanSheet,
-      isMotm: motmId === pId
+      isMotm: motmId === pId,
+      saves: ps.saves,
+      passesCompleted: ps.passesCompleted
     });
-    updated.exactOvr = growthResult.exactOvr;
-    updated.ovr = growthResult.ovr;
-    updated.matchRatingsHistory = growthResult.matchRatingsHistory;
+    let progressed: Player = {
+      ...updated,
+      pace: growthResult.pace,
+      shooting: growthResult.shooting,
+      passing: growthResult.passing,
+      dribbling: growthResult.dribbling,
+      defending: growthResult.defending,
+      physical: growthResult.physical,
+      gk: growthResult.gk,
+      exactOvr: growthResult.exactOvr,
+      ovr: growthResult.ovr,
+      matchRatingsHistory: growthResult.matchRatingsHistory
+    };
 
-    updatedPlayers[pId] = updated;
+    const skillProg = processMatchSkillProgression(
+      progressed,
+      {
+        rating: ps.rating,
+        goals: ps.goals,
+        assists: ps.assists,
+        cleanSheet: ps.cleanSheet,
+        saves: ps.saves,
+        isMotm: motmId === pId,
+        minutes: ps.minutesPlayed
+      },
+      fixture.date
+    );
+    progressed = syncPlayerGkAttributes(skillProg.player);
+    progressed = recalculateDynamicMarketValue(
+      progressed,
+      fixture.date,
+      ps.goals > 0 || ps.rating >= 7.6 ? '公式戦での活躍に伴う市場価値上昇' : '公式戦パフォーマンス評価更新'
+    );
+
+    updatedPlayers[pId] = progressed;
   });
 
   const finalHomeShots = Math.max(homeScore, params.homeShots ?? countedShotsHome);
@@ -1528,13 +1580,38 @@ export function simulateFullMatch(
     pitchIds: string[],
     tactics: TeamTactics,
     isHomeTeam: boolean,
-    freshBoostCount: number
+    freshBoostCount: number,
+    minute: number = 45,
+    subbedInIds?: Set<string>,
+    goalDiff: number = 0
   ) => {
     const pitchList = pitchIds.map(id => tempPlayers[id]).filter(Boolean);
-    const fwPower = getSubRating(pitchList, ['ST', 'CF', 'RW', 'LW'], 72);
-    const mfPower = getSubRating(pitchList, ['CAM', 'CM', 'CDM', 'RM', 'LM'], 72);
-    const dfPower = getSubRating(pitchList, ['CB', 'RB', 'LB', 'LWB', 'RWB'], 72);
-    const gkPower = pitchList.find(p => p.position === 'GK')?.ovr || 72;
+    const getSkillWeightedSubRating = (positions: string[], role: 'fw' | 'mf' | 'df', fallback: number): number => {
+      const filtered = pitchList.filter(p => positions.includes(p.position));
+      if (filtered.length === 0) return fallback;
+      return filtered.reduce((acc, p) => {
+        const base = calculateEffectivePlayerPower(p);
+        const mods = getPlayerSkillMatchModifiers(p, {
+          minute,
+          isSubbedIn: subbedInIds?.has(p.id),
+          isHome: isHomeTeam,
+          goalDiff
+        });
+        const mult = role === 'fw'
+          ? (mods.finishingMult * 0.45 + mods.dribbleMult * 0.35 + mods.longShotMult * 0.2) * (1 + mods.clutchBonus * 0.5)
+          : role === 'mf'
+            ? (mods.passMult * 0.55 + mods.crossMult * 0.25 + mods.defenseMult * 0.2) * (1 + mods.setPieceBonus * 0.4 + mods.clutchBonus * 0.4)
+            : (mods.defenseMult * 0.8 + mods.passMult * 0.2) * (1 + mods.clutchBonus * 0.4);
+        return acc + base * mult;
+      }, 0) / filtered.length;
+    };
+
+    const fwPower = getSkillWeightedSubRating(['ST', 'CF', 'RW', 'LW'], 'fw', 72);
+    const mfPower = getSkillWeightedSubRating(['CAM', 'CM', 'CDM', 'RM', 'LM'], 'mf', 72);
+    const dfPower = getSkillWeightedSubRating(['CB', 'RB', 'LB', 'LWB', 'RWB'], 'df', 72);
+    const gkPlayer = pitchList.find(p => p.position === 'GK');
+    const gkMods = gkPlayer ? getPlayerSkillMatchModifiers(gkPlayer, { minute, isHome: isHomeTeam, goalDiff }) : null;
+    const gkPower = (gkPlayer?.ovr || 72) * (gkMods ? (gkMods.gkSaveMult * 0.65 + gkMods.gk1v1Mult * 0.2 + gkMods.gkCrossMult * 0.15) : 1.0);
     const profile = getFormationProfile(tactics, pitchList);
     const freshMult = 1 + Math.min(0.06, freshBoostCount * 0.015);
 
@@ -2321,7 +2398,7 @@ export function resimulateRemainingMatchFromMinute(
   );
 }
 
-// Helper: Realistic Scorer Selection based on position and attributes
+// Helper: Realistic Scorer Selection based on position, attributes, and skills
 function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics, rng: () => number = Math.random): Player {
   const weights = pitchPlayers.map(p => {
     let w = 1.0;
@@ -2339,7 +2416,8 @@ function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics, rng: () => 
       w = 0.05;
     }
 
-    w *= p.shooting / 70;
+    const mods = getPlayerSkillMatchModifiers(p);
+    w *= (p.shooting / 70) * ((mods.finishingMult + mods.longShotMult) * 0.5) * (1 + mods.setPieceBonus * 0.5);
     if (tactics?.roles?.penaltyTakerId === p.id) {
       w *= 1.15;
     }
@@ -2358,7 +2436,7 @@ function selectScorer(pitchPlayers: Player[], tactics?: TeamTactics, rng: () => 
   return pitchPlayers[0];
 }
 
-// Helper: Realistic Assister Selection
+// Helper: Realistic Assister Selection based on position, passing, and playmaking skills
 function selectAssister(pitchPlayers: Player[], scorerId: string, rng: () => number = Math.random): Player | undefined {
   const eligible = pitchPlayers.filter(p => p.id !== scorerId && p.position !== 'GK');
   if (eligible.length === 0) return undefined;
@@ -2381,7 +2459,8 @@ function selectAssister(pitchPlayers: Player[], scorerId: string, rng: () => num
       w = 0.2;
     }
 
-    w *= p.passing / 70;
+    const mods = getPlayerSkillMatchModifiers(p);
+    w *= (p.passing / 70) * ((mods.passMult * 0.65) + (mods.crossMult * 0.35));
     return Math.max(0.1, w);
   });
 

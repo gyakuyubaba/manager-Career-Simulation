@@ -43,7 +43,10 @@ import { SackedDismissalModal } from './components/SackedDismissalModal';
 import { UnexpectedEventModal } from './components/UnexpectedEventModal';
 import { BallonDorCeremonyModal } from './components/common/BallonDorCeremonyModal';
 import { CalendarScheduleModal } from './components/common/CalendarScheduleModal';
+import { SmartphoneModal } from './components/SmartphoneModal';
+import { TeamHubModal } from './components/TeamHubModal';
 import { resolveUnexpectedEvent } from './engine/unexpectedEventsEngine';
+import { recordMatchSmartphoneUpdate } from './engine/smartphoneEngine';
 import { Bell, AlertCircle, CheckCircle, Database } from 'lucide-react';
 
 export default function App() {
@@ -60,6 +63,8 @@ export default function App() {
   const [inspectingPlayer, setInspectingPlayer] = useState<Player | null>(null);
   const [dayAlertMessage, setDayAlertMessage] = useState<string | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
+  const [showSmartphone, setShowSmartphone] = useState<boolean>(false);
+  const [showTeamHub, setShowTeamHub] = useState<boolean>(false);
 
   // Initialize or load existing career safely from authoritative IndexedDB
   useEffect(() => {
@@ -239,7 +244,8 @@ export default function App() {
     const stateWithMatchResult = applyMatchResultToWorld(gameState, updatedFixture, updatedPlayers);
 
     // Simulate all other scheduled league matches for this round so ALL clubs update played and standings simultaneously
-    const stateWithAllMatches = simulatePendingAIFixturesForDate(stateWithMatchResult, updatedFixture.date);
+    let stateWithAllMatches = simulatePendingAIFixturesForDate(stateWithMatchResult, updatedFixture.date);
+    stateWithAllMatches = recordMatchSmartphoneUpdate(stateWithAllMatches, updatedFixture);
 
     saveGameState(stateWithAllMatches);
     setGameState(stateWithAllMatches);
@@ -380,6 +386,8 @@ export default function App() {
     setActivePressFixture(null);
     setInspectingPlayer(null);
     setDayAlertMessage(null);
+    setShowSmartphone(false);
+    setShowTeamHub(false);
     setActiveTab('home');
 
     // 3. Clear memory state & storage (creates pre-reset safety backup in IndexedDB first)
@@ -533,6 +541,7 @@ export default function App() {
             onOpenMatch={(f) => setActiveMatchFixture(f)}
             onSelectPreSeason={handleSelectPreSeason}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onOpenSmartphone={() => setShowSmartphone(true)}
           />
         )}
 
@@ -542,6 +551,7 @@ export default function App() {
             onUpdateTactics={handleUpdateTactics}
             onSelectPlayer={(p) => setInspectingPlayer(p)}
             onUpdateState={(ns) => setGameState(ns)}
+            onOpenTeamHub={() => setShowTeamHub(true)}
           />
         )}
 
@@ -814,6 +824,32 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* SMARTPHONE HUB MODAL */}
+      {showSmartphone && gameState && (
+        <SmartphoneModal
+          state={gameState}
+          onUpdateState={(ns) => {
+            saveGameState(ns);
+            setGameState(ns);
+          }}
+          onOpenTeamHub={() => setShowTeamHub(true)}
+          onClose={() => setShowSmartphone(false)}
+        />
+      )}
+
+      {/* TEAM HUB MODAL */}
+      {showTeamHub && gameState && (
+        <TeamHubModal
+          state={gameState}
+          onUpdateState={(ns) => {
+            saveGameState(ns);
+            setGameState(ns);
+          }}
+          onInspectPlayer={(p) => setInspectingPlayer(p)}
+          onClose={() => setShowTeamHub(false)}
+        />
       )}
 
       {/* GLOBAL RESET CONFIRMATION MODAL (Root Level to prevent clipping & z-index issues) */}

@@ -18,11 +18,14 @@ import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionC
 import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { FREE_AGENT_CLUB, FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 import { generateRandomYouthAcademy, generateSingleRandomYouthProspect } from '../data/youthGenerator';
-import { deriveRealisticAltPositions } from '../data/playerPositionsHelper';
+import { deriveRealisticAltPositions, calculatePlayerPositionProficiency } from '../data/playerPositionsHelper';
 import { buildCompletePlayersRegistry, populateClubsWithDefaultSquads, getDefaultTacticsForClub } from '../data/squadPopulator';
 import { getDaysUntilDeadline, calculateAge, rebuildStandingsFromMatchResults } from './dateEngine';
 import { ensureYouthAcademyProspects } from './dataValidator';
 import { generateClubVisionRoadmap } from './clubVisionEngine';
+import { initializePlayerSkills } from './skillEngine';
+import { syncPlayerGkAttributes } from './valuationEngine';
+import { ensureSmartphoneState } from './smartphoneEngine';
 import { 
   saveGameToStorage, 
   loadGameFromStorage, 
@@ -360,7 +363,7 @@ export function createNewGameWorld(
     difficultySettings: difficultySettings || { ...DEFAULT_DIFFICULTY_SETTINGS },
     clubs,
     players: (() => {
-      Object.values(players).forEach(p => {
+      Object.entries(players).forEach(([id, p]) => {
         if (p.birthDate) {
           p.age = calculateAge(p.birthDate, initialDate);
         }
@@ -369,6 +372,20 @@ export function createNewGameWorld(
         if (!p.altPositions || p.altPositions.length === 0) {
           p.altPositions = deriveRealisticAltPositions(p.position, p.preferredFoot, p.playstyle, p.name);
         }
+        p.positionProficiency = calculatePlayerPositionProficiency(p);
+        let enriched = initializePlayerSkills(p);
+        enriched = syncPlayerGkAttributes(enriched);
+        if (!enriched.marketValueHistory || enriched.marketValueHistory.length === 0) {
+          enriched.marketValueHistory = [
+            {
+              date: initialDate,
+              value: enriched.marketValue,
+              ovr: enriched.ovr,
+              reason: 'シーズン開幕時評価'
+            }
+          ];
+        }
+        players[id] = enriched;
       });
       return players;
     })(),
@@ -379,7 +396,15 @@ export function createNewGameWorld(
     news: [welcomeNews],
     youthAcademy: generateRandomYouthAcademy(manager.nationality === '日本' ? '日本' : 'イングランド', 6),
     careerHistory: [],
-    trainingFocus: 'バランス総合'
+    trainingFocus: 'バランス総合',
+    smartphone: ensureSmartphoneState({
+      currentDate: initialDate,
+      season: '2026/27',
+      manager: updatedManagerProfile,
+      clubs,
+      players,
+      news: [welcomeNews]
+    } as GameWorldState).smartphone
   };
 }
 
@@ -554,7 +579,7 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
 
   const chosenClub = updatedClubs[chosenClubId] || ALL_CLUBS.find(c => c.id === chosenClubId) || J2_20_CLUBS.find(c => c.id === chosenClubId);
 
-  Object.values(updatedPlayers).forEach(p => {
+  Object.entries(updatedPlayers).forEach(([id, p]) => {
     if (p.birthDate) {
       p.age = calculateAge(p.birthDate, state.currentDate);
     }
@@ -563,6 +588,10 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     if (!p.altPositions || p.altPositions.length === 0) {
       p.altPositions = deriveRealisticAltPositions(p.position, p.preferredFoot, p.playstyle, p.name);
     }
+    p.positionProficiency = calculatePlayerPositionProficiency(p);
+    let enriched = initializePlayerSkills(p);
+    enriched = syncPlayerGkAttributes(enriched);
+    updatedPlayers[id] = enriched;
   });
 
   const userTactics = getDefaultTacticsForClub(chosenClub, updatedPlayers);
@@ -625,7 +654,7 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     careerStartDate: state.manager.careerStartDate || (isMidSeason ? state.currentDate : '2026-07-01')
   };
 
-  const nextState: GameWorldState = {
+  const baseNextState: GameWorldState = {
     ...state,
     manager: updatedManagerProfile,
     managerAppointmentDate: state.currentDate,
@@ -642,6 +671,11 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     fanApproval: 80,
     consecutiveWinless: 0,
     clubVision
+  };
+
+  const nextState: GameWorldState = {
+    ...baseNextState,
+    smartphone: ensureSmartphoneState(baseNextState).smartphone
   };
 
   saveGameState(nextState);

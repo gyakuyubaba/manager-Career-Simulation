@@ -34,7 +34,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
   // 1. リオネル・メッシ (39歳)
   {
     id: 'fa_lionel_messi',
-    name: 'リオネル・メッシ (Lionel Messi)',
+    name: 'Lionel Messi',
     age: 39,
     birthDate: '1987-06-24',
     nationality: 'アルゼンチン',
@@ -47,7 +47,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
       CF: 1.0,
       RW: 0.98,
       CAM: 0.96,
-      ST: 0.92,
+      ST: 1.0,
       CM: 0.85,
       LW: 0.82,
       RM: 0.80
@@ -100,7 +100,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
   // 2. クリスティアーノ・ロナウド (41歳)
   {
     id: 'fa_cristiano_ronaldo',
-    name: 'クリスティアーノ・ロナウド (Cristiano Ronaldo)',
+    name: 'Cristiano Ronaldo',
     age: 41,
     birthDate: '1985-02-05',
     nationality: 'ポルトガル',
@@ -164,7 +164,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
   // 3. ネイマール (34歳)
   {
     id: 'fa_neymar_jr',
-    name: 'ネイマール (Neymar Jr.)',
+    name: 'Neymar Jr.',
     age: 34,
     birthDate: '1992-02-05',
     nationality: 'ブラジル',
@@ -177,7 +177,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
       LW: 1.0,
       CAM: 0.96,
       CF: 0.92,
-      ST: 0.88,
+      ST: 1.0,
       LM: 0.86,
       RW: 0.84
     },
@@ -229,7 +229,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
   // 4. ハメス・ロドリゲス (35歳)
   {
     id: 'fa_james_rodriguez',
-    name: 'ハメス・ロドリゲス (James Rodríguez)',
+    name: 'James Rodríguez',
     age: 35,
     birthDate: '1991-06-12',
     nationality: 'コロンビア',
@@ -293,7 +293,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
   // 5. ダニ・カルバハル (34歳)
   {
     id: 'fa_dani_carvajal',
-    name: 'ダニ・カルバハル (Dani Carvajal)',
+    name: 'Dani Carvajal',
     age: 34,
     birthDate: '1992-01-11',
     nationality: 'スペイン',
@@ -357,7 +357,7 @@ export const FREE_AGENT_SUPERSTARS: Player[] = [
   // 6. セルヒオ・ラモス (40歳)
   {
     id: 'fa_sergio_ramos',
-    name: 'セルヒオ・ラモス (Sergio Ramos)',
+    name: 'Sergio Ramos',
     age: 40,
     birthDate: '1986-03-30',
     nationality: 'スペイン',

@@ -1067,6 +1067,7 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
     'kaa_gent_new26_4_tsuyoshiwa',
     'kaa_gent_new26_13_atsukiito',
     'JP_000010', // 宮代 大聖 (Las Palmas)
+    'oita-trinita_j26_4_', // 安藤 智哉 (FC St. Pauli)
     'omiya-ardija_jtop26_11_10', // 山本 桜大 (RB Leipzig)
     'JP_000186' // 荒木 遼太郎 (if overseas)
   ]);
@@ -1143,6 +1144,7 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
             p.name.includes('町田 浩樹') ||
             p.name.includes('町野 修斗') ||
             p.name.includes('渡辺 剛') ||
+            p.name.includes('安藤 智哉') ||
             p.name.includes('宮代') ||
             p.name.includes('山本 桜大') ||
             p.name.includes('荒木 遼太郎') ||

@@ -8,8 +8,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig({
-  base: '/manager-Career-Simulation/',
+  base: process.env.GITHUB_ACTIONS === 'true' ? '/manager-Career-Simulation/' : '/',
   plugins: [react(), tailwindcss()],
+  server: {
+    hmr: false,
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

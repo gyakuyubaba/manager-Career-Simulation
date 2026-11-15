@@ -46,6 +46,9 @@ const FAMOUS_PLAYERS_VERSATILITY: Record<string, Position[]> = {
   '家長 昭博': ['RW', 'CAM', 'RM'],
   '脇坂 泰斗': ['CAM', 'CM', 'LW'],
   'マテウス・サヴィオ': ['CAM', 'LW', 'RW', 'CM'],
+  '師岡 柊生': ['CF', 'CAM'],
+  '名古 新太郎': ['CF', 'ST'],
+  '三井寺 眞': ['LW', 'RW', 'CM'],
 
   // --- European Elite Stars ---
   'Bukayo Saka': ['RM', 'LW', 'RWB'],
@@ -78,7 +81,8 @@ const FAMOUS_PLAYERS_VERSATILITY: Record<string, Position[]> = {
   'Pedri': ['CAM', 'LW'],
   'Gavi': ['CAM', 'LW', 'CDM'],
   'Robert Lewandowski': ['CF'],
-  'Raphinha': ['RW', 'CAM', 'LM'],
+  'Raphinha': ['RW', 'CF', 'ST'],
+  'Matheus Cunha': ['CF', 'LW'],
   'Jules Koundé': ['CB', 'RWB'],
   'Jules Kounde': ['CB', 'RWB'],
   'Alejandro Balde': ['LWB', 'LM'],
@@ -90,6 +94,26 @@ const FAMOUS_PLAYERS_VERSATILITY: Record<string, Position[]> = {
   'Son Heung-min': ['CF', 'LW', 'RW', 'ST'],
   'Cole Palmer': ['CAM', 'RW', 'RM', 'CF']
 };
+
+export function isNagoShintaro(player: { id?: string; name?: string }): boolean {
+  const n = player.name || '';
+  return player.id === 'JP_J1_000071' || n.includes('名古') || n.toLowerCase().includes('shintaro nago');
+}
+
+export function playerHasCfAptitude(player: {
+  position: Position;
+  altPositions?: Position[];
+  secondaryPositions?: Position[];
+  preferredPositions?: Position[];
+  positionProficiency?: Partial<Record<Position, number>>;
+}): boolean {
+  if (player.position === 'CF') return true;
+  if (player.preferredPositions?.includes('CF')) return true;
+  if (player.altPositions?.includes('CF')) return true;
+  if (player.secondaryPositions?.includes('CF')) return true;
+  if ((player.positionProficiency?.CF ?? 0) >= 0.90) return true;
+  return false;
+}
 
 /**
  * Procedurally derive realistic alternative positions based on player attributes, position, foot, and playstyle
@@ -316,12 +340,17 @@ export function deriveRealisticHistoricalPositions(
  * Calculates continuous position proficiency ratio (0.0 to 1.0)
  */
 export function calculatePlayerPositionProficiency(player: {
+  id?: string;
+  name?: string;
   position: Position;
   altPositions?: Position[];
+  secondaryPositions?: Position[];
+  preferredPositions?: Position[];
   historicalPositions?: Position[];
+  positionProficiency?: Partial<Record<Position, number>>;
 }): Partial<Record<Position, number>> {
   const map: Partial<Record<Position, number>> = {};
-  
+
   // 1. Primary position (100% capacity)
   map[player.position] = 1.0;
 
@@ -329,16 +358,27 @@ export function calculatePlayerPositionProficiency(player: {
     return map;
   }
 
+  // Merge any pre-existing explicit proficiencies
+  if (player.positionProficiency) {
+    (Object.entries(player.positionProficiency) as [Position, number][]).forEach(([pos, val]) => {
+      if (pos !== 'GK' && typeof val === 'number') {
+        map[pos] = val;
+      }
+    });
+  }
+
   // 2. Alternative positions (98% capacity - minimal penalty)
-  const alts = player.altPositions || [];
+  const alts = (player.altPositions && player.altPositions.length > 0)
+    ? player.altPositions
+    : (player.secondaryPositions || []);
   alts.forEach(pos => {
-    if (pos !== 'GK') map[pos] = 0.98;
+    if (pos !== 'GK' && map[pos] === undefined) map[pos] = 0.98;
   });
 
   // 3. Historical positions (95% capacity)
   const historical = player.historicalPositions || [];
   historical.forEach(pos => {
-    if (pos !== 'GK' && !map[pos]) map[pos] = 0.95;
+    if (pos !== 'GK' && map[pos] === undefined) map[pos] = 0.95;
   });
 
   // 4. Closely related compatible positions (92% capacity)
@@ -362,7 +402,7 @@ export function calculatePlayerPositionProficiency(player: {
 
   const related = relatedRoles[player.position] || [];
   related.forEach(pos => {
-    if (pos !== 'GK' && !map[pos]) map[pos] = 0.92;
+    if (pos !== 'GK' && map[pos] === undefined) map[pos] = 0.92;
   });
 
   // 5. Same field sector (Defenders, Midfielders, Forwards) (88% capacity)
@@ -372,7 +412,7 @@ export function calculatePlayerPositionProficiency(player: {
 
   const ALL_POSITIONS: Position[] = ['GK', 'CB', 'LB', 'RB', 'LWB', 'RWB', 'CDM', 'CM', 'CAM', 'LM', 'RM', 'LW', 'RW', 'CF', 'ST'];
   ALL_POSITIONS.forEach(pos => {
-    if (pos === 'GK' || map[pos]) return;
+    if (pos === 'GK' || map[pos] !== undefined) return;
     if (isDef && ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(pos)) {
       map[pos] = 0.88;
     } else if (isMid && ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(pos)) {
@@ -380,10 +420,19 @@ export function calculatePlayerPositionProficiency(player: {
     } else if (isFwd && ['LW', 'RW', 'CF', 'ST'].includes(pos)) {
       map[pos] = 0.88;
     } else {
-      // Cross-sector outfield (e.g. Defender placed at Forward in emergency) (82% capacity)
       map[pos] = 0.82;
     }
   });
+
+  // Global rule: Players with CF aptitude get ST = 1.0 (S), without adding CF to anyone who lacks it
+  if (playerHasCfAptitude({ ...player, positionProficiency: map })) {
+    map.ST = 1.0;
+  }
+
+  // Specific rule: Shintaro Nago CM proficiency capped at B (<= 0.92)
+  if (isNagoShintaro(player)) {
+    map.CM = Math.min(map.CM ?? 0.92, 0.92);
+  }
 
   return map;
 }
@@ -402,9 +451,34 @@ export interface PlayablePositionGrade {
  */
 export function getPlayablePositionsWithGrades(player: Player): PlayablePositionGrade[] {
   const result: PlayablePositionGrade[] = [];
+  const nagoFlag = isNagoShintaro(player);
+  const hasCf = playerHasCfAptitude(player);
+
+  const addOrUpgradeGrade = (entry: PlayablePositionGrade) => {
+    // Shintaro Nago CM cap: strictly B max
+    if (nagoFlag && entry.position === 'CM') {
+      entry = {
+        position: 'CM',
+        grade: 'B',
+        symbol: '△',
+        label: '類似ポジション・戦術的起用可 (92%)',
+        category: '類似・起用可能',
+        proficiencyPercent: 92
+      };
+    }
+    const idx = result.findIndex(r => r.position === entry.position);
+    if (idx === -1) {
+      result.push(entry);
+    } else {
+      const rank = { S: 4, A: 3, B: 2, C: 1 };
+      if (rank[entry.grade] > rank[result[idx].grade]) {
+        result[idx] = entry;
+      }
+    }
+  };
 
   // 1. Primary position (◎ 本職 - Grade S)
-  result.push({
+  addOrUpgradeGrade({
     position: player.position,
     grade: 'S',
     symbol: '◎',
@@ -413,16 +487,74 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
     proficiencyPercent: 100
   });
 
+  // Global rule: CF aptitude -> ST is Grade S
+  if (hasCf && player.position !== 'GK') {
+    addOrUpgradeGrade({
+      position: 'ST',
+      grade: 'S',
+      symbol: '◎',
+      label: '本職級・CF連動ST適性 (100%)',
+      category: '本職',
+      proficiencyPercent: 100
+    });
+  }
+
+  // Explicit positionProficiency overrides (>= 0.90)
+  if (player.position !== 'GK' && player.positionProficiency) {
+    (Object.entries(player.positionProficiency) as [Position, number][]).forEach(([pos, val]) => {
+      if (pos === 'GK' || typeof val !== 'number') return;
+      if (val >= 0.99) {
+        addOrUpgradeGrade({
+          position: pos,
+          grade: 'S',
+          symbol: '◎',
+          label: '本職・最高適性 (100%)',
+          category: '本職',
+          proficiencyPercent: 100
+        });
+      } else if (val >= 0.96) {
+        addOrUpgradeGrade({
+          position: pos,
+          grade: 'A',
+          symbol: '◎',
+          label: `サブ適性・高い適応力 (${Math.round(val * 100)}%)`,
+          category: 'サブ適性',
+          proficiencyPercent: Math.round(val * 100)
+        });
+      } else if (val >= 0.94) {
+        addOrUpgradeGrade({
+          position: pos,
+          grade: 'A',
+          symbol: '○',
+          label: `過去の起用実績・経験ポジション (${Math.round(val * 100)}%)`,
+          category: '過去の経験ポジション',
+          proficiencyPercent: Math.round(val * 100)
+        });
+      } else if (val >= 0.90) {
+        addOrUpgradeGrade({
+          position: pos,
+          grade: 'B',
+          symbol: '△',
+          label: `類似ポジション・戦術的起用可 (${Math.round(val * 100)}%)`,
+          category: '類似・起用可能',
+          proficiencyPercent: Math.round(val * 100)
+        });
+      }
+    });
+  }
+
   // 2. Alternative positions (◎ サブ適性 - Grade A)
-  const alts = (player.secondaryPositions && player.secondaryPositions.length > 0)
+  const rawAlts = (player.secondaryPositions && player.secondaryPositions.length > 0)
     ? player.secondaryPositions
     : (player.altPositions && player.altPositions.length > 0)
       ? player.altPositions
       : deriveRealisticAltPositions(player.position, player.preferredFoot, player.playstyle, player.name);
 
+  const alts = nagoFlag ? rawAlts.filter(p => p !== 'CM') : rawAlts;
+
   alts.forEach(pos => {
-    if (pos !== player.position && !result.some(r => r.position === pos)) {
-      result.push({
+    if (pos !== player.position && !(nagoFlag && pos === 'CM')) {
+      addOrUpgradeGrade({
         position: pos,
         grade: 'A',
         symbol: '◎',
@@ -434,13 +566,14 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
   });
 
   // 3. Historical positions (○ 過去の経験ポジション)
-  const historical = (player.historicalPositions && player.historicalPositions.length > 0)
+  const rawHistorical = (player.historicalPositions && player.historicalPositions.length > 0)
     ? player.historicalPositions
     : deriveRealisticHistoricalPositions(player.position, alts, player.age, player.name);
+  const historical = nagoFlag ? rawHistorical.filter(p => p !== 'CM') : rawHistorical;
 
   historical.forEach(pos => {
-    if (pos !== player.position && !result.some(r => r.position === pos)) {
-      result.push({
+    if (pos !== player.position && !(nagoFlag && pos === 'CM')) {
+      addOrUpgradeGrade({
         position: pos,
         grade: 'A',
         symbol: '○',
@@ -472,17 +605,29 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
 
   const compatibles = relatedRoles[player.position] || [];
   compatibles.forEach(pos => {
-    if (!result.some(r => r.position === pos)) {
-      result.push({
-        position: pos,
-        grade: 'B',
-        symbol: '△',
-        label: '類似ポジション・戦術的起用可 (92%)',
-        category: '類似・起用可能',
-        proficiencyPercent: 92
-      });
-    }
+    addOrUpgradeGrade({
+      position: pos,
+      grade: 'B',
+      symbol: '△',
+      label: '類似ポジション・戦術的起用可 (92%)',
+      category: '類似・起用可能',
+      proficiencyPercent: 92
+    });
   });
+
+  if (nagoFlag) {
+    const cmIdx = result.findIndex(r => r.position === 'CM');
+    const cappedCm: PlayablePositionGrade = {
+      position: 'CM',
+      grade: 'B',
+      symbol: '△',
+      label: '類似ポジション・戦術的起用可 (92%)',
+      category: '類似・起用可能',
+      proficiencyPercent: 92
+    };
+    if (cmIdx >= 0) result[cmIdx] = cappedCm;
+    else result.push(cappedCm);
+  }
 
   return result;
 }
@@ -491,24 +636,33 @@ export function getPlayablePositionsWithGrades(player: Player): PlayablePosition
  * Ensures player object has complete position flexibility fields populated
  */
 export function ensurePlayerRealisticAltPositions(player: Player): Player {
-  const alts = (player.altPositions && player.altPositions.length > 0)
+  const nagoFlag = isNagoShintaro(player);
+  const rawAlts = (player.altPositions && player.altPositions.length > 0)
     ? player.altPositions
     : deriveRealisticAltPositions(player.position, player.preferredFoot, player.playstyle, player.name);
 
-  const historical = (player.historicalPositions && player.historicalPositions.length > 0)
+  const alts = nagoFlag ? rawAlts.filter(p => p !== 'CM') : rawAlts;
+
+  const rawHistorical = (player.historicalPositions && player.historicalPositions.length > 0)
     ? player.historicalPositions
     : deriveRealisticHistoricalPositions(player.position, alts, player.age, player.name);
+  const historical = nagoFlag ? rawHistorical.filter(p => p !== 'CM') : rawHistorical;
 
   const profMap = calculatePlayerPositionProficiency({
+    id: player.id,
+    name: player.name,
     position: player.position,
     altPositions: alts,
-    historicalPositions: historical
+    secondaryPositions: nagoFlag ? (player.secondaryPositions || alts).filter(p => p !== 'CM') : player.secondaryPositions,
+    preferredPositions: player.preferredPositions,
+    historicalPositions: historical,
+    positionProficiency: player.positionProficiency
   });
 
   return {
     ...player,
     preferredPositions: player.preferredPositions || [player.position],
-    secondaryPositions: player.secondaryPositions || alts,
+    secondaryPositions: nagoFlag ? (player.secondaryPositions || alts).filter(p => p !== 'CM') : (player.secondaryPositions || alts),
     historicalPositions: historical,
     positionProficiency: profMap,
     altPositions: alts

@@ -50,6 +50,26 @@ import { generateBallonDorCandidates, checkAndAdvanceBallonDor } from './ballonD
 import { SCOUT_REGIONS, canScoutThisMonth, dispatchMonthlyScout, signScoutedProspect, isType2PlayerUnavailableOnDate } from './scoutEngine';
 import { generateUnexpectedEventDaily, resolveUnexpectedEvent } from './unexpectedEventsEngine';
 import { getFatigueInfo } from '../components/common/FatigueGauge';
+import {
+  NORMAL_SKILLS_CATALOG,
+  RARE_SKILLS_CATALOG,
+  initializePlayerSkills,
+  getPlayerSkillMatchModifiers,
+  processMatchSkillProgression,
+  processSkillDeclineCheck
+} from './skillEngine';
+import { syncPlayerGkAttributes, recalculateDynamicMarketValue } from './valuationEngine';
+import {
+  ensureSmartphoneState,
+  recordMatchSmartphoneUpdate,
+  processDailySmartphoneEvents,
+  respondToPlayerEmail,
+  buildDeterministicFrontOfficeReply,
+  applyFrontOfficeProposedAction,
+  evaluateManagerJobOffers,
+  respondToManagerJobOffer
+} from './smartphoneEngine';
+import { calculatePlayerPositionProficiency } from '../data/playerPositionsHelper';
 
 export interface TestResult {
   id: string;
@@ -4686,6 +4706,381 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 133', name: '検証7: 試合終了統合集計検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 134: 2026年11月15日基準・主要実在選手移籍＆データ補正検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const miyashiro = baseState.players['JP_000010'];
+    const terStegen = baseState.players['bar_terstegen'];
+    const kvara = baseState.players['napoli_10_khvichakva'];
+    const ando = baseState.players['oita-trinita_j26_4_'];
+    const iwasaki = baseState.players['JP_J1_000279_A'];
+    const kanamori = baseState.players['JP_J1_000272_A'];
+    const murakami = baseState.players['JP_J1_000261_A'];
+    const miidera = baseState.players['yokohama-f-marinos_v26_shin_miidera'];
+
+    const passed = Boolean(
+      miyashiro?.clubId === 'las_palmas' &&
+      terStegen?.clubId === 'afc_ajax' && terStegen?.isLoaned === true &&
+      kvara?.clubId === 'psg' && kvara?.shirtNumber === 7 && kvara?.ovr === 87 &&
+      ando?.clubId === 'st_pauli' &&
+      iwasaki?.clubId === 'v-varen-nagasaki' &&
+      !kanamori &&
+      murakami?.clubId === 'kyoto-sanga' &&
+      miidera?.clubId === 'yokohama-f-marinos' &&
+      miidera?.ovr === 68 &&
+      miidera?.potential === 80 &&
+      miidera?.birthDate === '2010-04-02' &&
+      miidera?.shirtNumber === 47 &&
+      miidera?.preferredFoot === '左' &&
+      miidera?.position === 'CAM'
+    );
+
+    results.push({
+      id: 'TEST 134',
+      name: '2026-11-15基準・宮代/テアシュテーゲン/クヴァラ/安藤/岩崎/金森/村上/三井寺眞データ検証',
+      passed,
+      details: passed
+        ? '成功: 宮代(ラス・パルマス)、テアシュテーゲン(アヤックス期限付き)、クヴァラ(PSG #7 OVR87)、安藤(ザンクト・パウリ)、岩崎(長崎)、金森削除、村上(京都)、三井寺眞(横浜FM #47 2010-04-02 左 CAM 68/80)がすべて基準通りに反映されています。'
+        : `失敗: 宮代(${miyashiro?.clubId}), TerStegen(${terStegen?.clubId}), Kvara(${kvara?.clubId}/#${kvara?.shirtNumber}), 安藤(${ando?.clubId}), 岩崎(${iwasaki?.clubId}), 金森(${!!kanamori}), 村上(${murakami?.clubId}), 三井寺(${miidera?.clubId}/${miidera?.ovr}/${miidera?.birthDate})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 134', name: '2026-11-15基準選手データ検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 135: サニブラウン pace=89限定、名古新太郎 CM<=0.92、師岡＆CF→ST適正ルール
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const sani = Object.values(baseState.players).find(p => p.name.includes('サニブラウン'));
+    const nago = Object.values(baseState.players).find(p => p.name.includes('名古') && p.name.includes('新太郎'));
+    const morooka = Object.values(baseState.players).find(p => p.name.includes('師岡'));
+    const raphinha = Object.values(baseState.players).find(p => p.name.includes('Raphinha'));
+    const cunha = Object.values(baseState.players).find(p => p.name.includes('Matheus Cunha'));
+
+    const saniOk = Boolean(sani && sani.pace === 89 && sani.ovr === 66);
+    const nagoProf = nago ? (nago.positionProficiency || calculatePlayerPositionProficiency(nago)) : null;
+    const nagoOk = Boolean(nagoProf && (nagoProf['CM'] ?? 0) <= 0.92);
+    const morookaProf = morooka ? (morooka.positionProficiency || calculatePlayerPositionProficiency(morooka)) : null;
+    const morookaOk = Boolean(
+      morookaProf &&
+      (morookaProf['ST'] ?? 0) >= 0.98 &&
+      ((morookaProf['CF'] ?? 0) >= 0.93 || (morookaProf['CAM'] ?? 0) >= 0.93)
+    );
+    const raphinhaProf = raphinha ? (raphinha.positionProficiency || calculatePlayerPositionProficiency(raphinha)) : null;
+    const raphinhaOk = Boolean(raphinha && raphinhaProf && (raphinhaProf['ST'] ?? 0) >= 0.98 && raphinha.position !== 'CF');
+    const cunhaProf = cunha ? (cunha.positionProficiency || calculatePlayerPositionProficiency(cunha)) : null;
+    const cunhaOk = Boolean(cunhaProf && (cunhaProf['ST'] ?? 0) >= 0.98);
+
+    // Global CF -> ST=S rule check
+    const cfPlayers = Object.values(baseState.players).filter(
+      p => p.position === 'CF' || (p.altPositions && p.altPositions.includes('CF'))
+    );
+    const allCfHaveStS = cfPlayers.every(p => (p.positionProficiency?.['ST'] ?? calculatePlayerPositionProficiency(p)['ST'] ?? 0) >= 0.98);
+
+    const passed = saniOk && nagoOk && morookaOk && raphinhaOk && cunhaOk && allCfHaveStS;
+    results.push({
+      id: 'TEST 135',
+      name: 'サニブラウン走力89・名古CM<=B・師岡シャドー+ST=S・ハフィーニャ/クーニャ/CF→ST=S検証',
+      passed,
+      details: passed
+        ? `成功: サニブラウン(pace=${sani?.pace}, ovr=${sani?.ovr})、名古(CM=${nagoProf?.['CM']?.toFixed(2)})、師岡(ST=${morookaProf?.['ST']?.toFixed(2)})、ハフィーニャ/クーニャ、および全CF保有選手${cfPlayers.length}名でST=Sを確認。`
+        : `失敗: sani=${saniOk}(${sani?.pace}/${sani?.ovr}), nago=${nagoOk}(${nagoProf?.['CM']}), morooka=${morookaOk}, raphinha=${raphinhaOk}, cunha=${cunhaOk}, allCF=${allCfHaveStS}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 135', name: '選手能力・ポジション適正詳細検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 136: フリーエージェント英語表記クリーン化＆メッシ/ネイマールST適正S検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const messi = baseState.players['fa_messi_10'];
+    const ronaldo = baseState.players['fa_ronaldo_7'];
+    const neymar = baseState.players['fa_neymar_10'];
+    const james = baseState.players['fa_james_10'];
+    const carvajal = baseState.players['fa_carvajal_2'];
+    const ramos = baseState.players['fa_ramos_4'];
+
+    const noJapaneseParens = FREE_AGENT_SUPERSTARS.every(fa => !/[（()）\u3040-\u30ff\u4e00-\u9faf]/.test(fa.name));
+    const messiStOk = Boolean(messi && (messi.positionProficiency?.['ST'] ?? 0) >= 0.98);
+    const neymarStOk = Boolean(neymar && (neymar.positionProficiency?.['ST'] ?? 0) >= 0.98);
+    const namesOk =
+      messi?.name === 'Lionel Messi' &&
+      ronaldo?.name === 'Cristiano Ronaldo' &&
+      neymar?.name === 'Neymar Jr.' &&
+      james?.name === 'James Rodríguez' &&
+      carvajal?.name === 'Dani Carvajal' &&
+      ramos?.name === 'Sergio Ramos';
+
+    const passed = noJapaneseParens && namesOk && messiStOk && neymarStOk;
+    results.push({
+      id: 'TEST 136',
+      name: 'フリーエージェント英語正式名クリーン化＆メッシ/ネイマールST=S検証',
+      passed,
+      details: passed
+        ? '成功: 全フリーエージェント選手が日本語・括弧なし英語正式名に統一され、Lionel Messi と Neymar Jr. に ST=S 適正が付与されています。'
+        : `失敗: noJP=${noJapaneseParens}, namesOk=${namesOk}, messiST=${messi?.positionProficiency?.['ST']}, neymarST=${neymar?.positionProficiency?.['ST']}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 136', name: 'フリーエージェント表記・適正検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 137: GK主要6項目＋補助8項目能力＆動的市場価値連動検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const sampleGk = Object.values(baseState.players).find(p => p.position === 'GK');
+    const syncedGk = sampleGk ? syncPlayerGkAttributes(sampleGk) : null;
+    const gkAttrs = syncedGk?.gkAttributes;
+    const gkComplete = Boolean(
+      gkAttrs &&
+      gkAttrs.gkSaving > 0 &&
+      gkAttrs.gkReflexes > 0 &&
+      gkAttrs.gkPositioning > 0 &&
+      gkAttrs.gkHandling > 0 &&
+      gkAttrs.gkRushingOut > 0 &&
+      gkAttrs.gkCrossClaiming > 0 &&
+      gkAttrs.shortPassing > 0 &&
+      gkAttrs.longPassing > 0 &&
+      gkAttrs.kickingAccuracy > 0 &&
+      gkAttrs.physical > 0 &&
+      gkAttrs.jumping > 0 &&
+      gkAttrs.pace > 0 &&
+      gkAttrs.stamina > 0 &&
+      gkAttrs.composure > 0
+    );
+
+    const sampleFw = Object.values(baseState.players).find(p => p.position === 'ST' && p.ovr >= 78 && p.age <= 26)!;
+    const boostedFw: Player = {
+      ...sampleFw,
+      ovr: sampleFw.ovr + 4,
+      exactOvr: (sampleFw.exactOvr ?? sampleFw.ovr) + 4,
+      stats: { ...sampleFw.stats, appearances: 15, goals: 14, assists: 5, avgRating: 7.9 }
+    };
+    const revalued = recalculateDynamicMarketValue(boostedFw, '2026-11-15', '好調・活躍による評価上昇');
+    const valueIncreased = revalued.marketValue > sampleFw.marketValue && (revalued.marketValueHistory?.length || 0) >= 1;
+
+    const passed = gkComplete && valueIncreased;
+    results.push({
+      id: 'TEST 137',
+      name: 'GK詳細能力14項目(主要6+補助8)＆動的市場価値連動・履歴記録検証',
+      passed,
+      details: passed
+        ? `成功: ${sampleGk?.name}のGK専用能力14項目が生成され、活躍連動で${sampleFw.name}の市場価値が €${(sampleFw.marketValue / 1e6).toFixed(1)}M → €${(revalued.marketValue / 1e6).toFixed(1)}M へ上昇・履歴記録されました。`
+        : `失敗: gkComplete=${gkComplete}, valueIncreased=${valueIncreased}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 137', name: 'GK詳細能力＆動的市場価値検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 138: 選手スキル80種＋レアスキル15種・試合補正・成長・衰退検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const catalogOk = NORMAL_SKILLS_CATALOG.length === 80 && RARE_SKILLS_CATALOG.length === 15;
+    const youngStar: Player = {
+      ...playerA,
+      id: 'skill_test_young',
+      position: 'ST',
+      age: 20,
+      ovr: 84,
+      skills: [{ id: 'skill_01', tier: '成長中', progressPoints: 90 }],
+      rareSkills: [{ id: 'rare_01', tier: '通常', progressPoints: 0 }]
+    };
+    const mods = getPlayerSkillMatchModifiers(youngStar, { minute: 82, isSubbedIn: true, goalDiff: 0 });
+    const modWorks = mods.finishingMult > 1.05;
+
+    const progOutcome = processMatchSkillProgression(
+      youngStar,
+      { rating: 8.6, goals: 2, assists: 1, isMotm: true, minutes: 90 },
+      '2026-11-15'
+    );
+    const upgraded = progOutcome.player.skills?.some(s => s.id === 'skill_01' && s.tier === '熟練');
+
+    const veteran: Player = {
+      ...playerA,
+      id: 'skill_test_vet',
+      position: 'LW',
+      age: 35,
+      pace: 66,
+      skills: [
+        { id: 'skill_17', tier: '熟練', progressPoints: 0 }, // 高速ドリブル (physical, declines)
+        { id: 'skill_23', tier: '卓越', progressPoints: 0 }  // スルーパス (declineResistant)
+      ],
+      rareSkills: []
+    };
+    const decOutcome = processSkillDeclineCheck(veteran, '2026-11-15', true);
+    const speedDeclined = decOutcome.player.skills?.some(s => s.id === 'skill_17' && s.tier === '成長中');
+    const visionKept = decOutcome.player.skills?.some(s => s.id === 'skill_23' && s.tier === '卓越');
+
+    const initOut = initializePlayerSkills({ ...playerB, skills: undefined, rareSkills: undefined });
+    const initWorks = (initOut.skills?.length || 0) >= 1;
+
+    const passed = catalogOk && modWorks && Boolean(upgraded) && Boolean(speedDeclined) && Boolean(visionKept) && initWorks;
+    results.push({
+      id: 'TEST 138',
+      name: '80通常スキル+15レアスキル・試合エンジン補正・熟練度成長・加齢選別衰退検証',
+      passed,
+      details: passed
+        ? '成功: 通常80種/レア15種カタログ、試合補正乗算、活躍による習熟度昇格(成長中→熟練)、およびベテラン選手の走力スキル衰退・視野スキル維持を確認しました。'
+        : `失敗: catalog=${catalogOk}, modWorks=${modWorks}, upgraded=${upgraded}, speedDeclined=${speedDeclined}, visionKept=${visionKept}, init=${initWorks}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 138', name: '選手スキル体系総合検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 139: スマホ機能（試合後ニュース/みんなの反応・選手メール整合・フロント実行・監督オファー）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let spState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    const opp = spState.clubs['chelsea'];
+    const finishedFix: MatchFixture = {
+      id: 'fix_sp_test_1',
+      date: '2026-10-20',
+      competition: 'premier-league',
+      competitionName: 'Premier League',
+      homeClubId: 'arsenal',
+      awayClubId: opp.id,
+      homeScore: 3,
+      awayScore: 1,
+      status: 'finished',
+      isUserMatch: true
+    };
+    spState = recordMatchSmartphoneUpdate(spState, finishedFix);
+    const latestPost = spState.smartphone?.newsFeed[0];
+    const hasFactCheckedComments = Boolean(
+      latestPost &&
+      latestPost.comments.length >= 2 &&
+      latestPost.comments.every(c => c.sentiment !== 'critical')
+    );
+
+    // Starters must NOT receive benching complaints
+    const starterId = spState.tactics.lineup.starters[0].playerId;
+    spState.players[starterId] = { ...spState.players[starterId], squadRole: '絶対的主力', ovr: 86 };
+    spState = processDailySmartphoneEvents(spState, '2026-11-01');
+    const falseStarterComplaint = spState.smartphone?.emails.some(
+      e => e.relatedPlayerId === starterId && e.subject.includes('出場機会')
+    );
+
+    // Player email reply test
+    const benchId = spState.tactics.lineup.bench[0];
+    spState.players[benchId] = {
+      ...spState.players[benchId],
+      ovr: 82,
+      squadRole: '絶対的主力',
+      managerTrust: 65,
+      stats: { ...spState.players[benchId].stats, appearances: 0 }
+    };
+    spState.players[starterId].stats.appearances = 10;
+    spState = processDailySmartphoneEvents({
+      ...spState,
+      smartphone: {
+        ...spState.smartphone!,
+        emails: spState.smartphone!.emails.filter(e => e.senderType !== 'player')
+      }
+    }, '2026-11-10');
+    const benchMail = spState.smartphone?.emails.find(e => e.senderType === 'player' && e.replyOptions && e.replyOptions.length > 0);
+    const afterReply = benchMail && benchMail.replyOptions?.[0]
+      ? respondToPlayerEmail(spState, benchMail.id, benchMail.replyOptions[0].id)
+      : spState;
+    const replyApplied = Boolean(benchMail && afterReply.smartphone?.emails.find(e => e.id === benchMail.id)?.isReplied);
+
+    // Front office deterministic proposal & confirm action
+    const squadTarget = spState.players[starterId];
+    const foReply = buildDeterministicFrontOfficeReply(spState, `${squadTarget.name} を移籍リストに出して売却したい`);
+    const foMsgId = 'fo_test_msg_1';
+    spState = {
+      ...spState,
+      smartphone: {
+        ...spState.smartphone!,
+        frontOfficeThread: [
+          ...spState.smartphone!.frontOfficeThread,
+          { id: foMsgId, date: '2026-11-12', sender: 'front_office', text: foReply.reply, proposedAction: foReply.proposedAction }
+        ]
+      }
+    };
+    const afterFoAction = applyFrontOfficeProposedAction(spState, foMsgId);
+    const foActionWorked = Boolean(
+      foReply.proposedAction?.type === 'transfer_list' &&
+      afterFoAction.state.players[starterId]?.isTransferListed === true
+    );
+
+    // Manager job offer generation + negotiation + acceptance preserving trophies
+    let offerState: GameWorldState = {
+      ...afterFoAction.state,
+      manager: { ...afterFoAction.state.manager, reputation: 88, wins: 22, matchesManaged: 28, careerTrophies: 2 }
+    };
+    offerState = evaluateManagerJobOffers(offerState, '2026-11-14', true);
+    const pendingOffer = offerState.managerJobOffers?.find(o => o.status === 'pending');
+    const negRes = pendingOffer ? respondToManagerJobOffer(offerState, pendingOffer.id, 'negotiate') : { state: offerState, message: '' };
+    const negOffer = negRes.state.managerJobOffers?.find(o => o.id === pendingOffer?.id);
+    const accRes = pendingOffer ? respondToManagerJobOffer(negRes.state, pendingOffer.id, 'accept') : { state: offerState, message: '' };
+    const offerFlowOk = Boolean(
+      pendingOffer &&
+      negOffer &&
+      negOffer.weeklyWage > pendingOffer.weeklyWage &&
+      accRes.state.userClubId === pendingOffer.clubId &&
+      accRes.state.manager.careerTrophies === 2
+    );
+
+    const passed = hasFactCheckedComments && !falseStarterComplaint && replyApplied && foActionWorked && offerFlowOk;
+    results.push({
+      id: 'TEST 139',
+      name: 'スマホ機能統合検証(試合ニュース/みんなの反応・選手メール・フロント承認・監督オファー移籍)',
+      passed,
+      details: passed
+        ? '成功: 試合事実準拠コメント生成、スタメン選手への誤苦情防止、選手メール返信、フロント提案承認による移籍リスト連動、監督オファー交渉＆クラブ移籍(トロフィー保持)すべて正常動作しました。'
+        : `失敗: comments=${hasFactCheckedComments}, falseStarter=${falseStarterComplaint}, reply=${replyApplied}, foAction=${foActionWorked}, offer=${offerFlowOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 139', name: 'スマホ機能統合検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 140: V6(2026-11-15)セーブデータ移行保護（キャリア/予算/トロフィー保護＋スキル/適正補完）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const oldV5Save: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    oldV5Save.schemaVersion = 6;
+    oldV5Save.rosterDataVersion = '2026_27_V5_2026_11_01';
+    oldV5Save.manager.careerTrophies = 5;
+    oldV5Save.clubs['arsenal'].transferBudget = 98765432;
+    delete oldV5Save.smartphone;
+    const starterSampleId = oldV5Save.tactics.lineup.starters[0].playerId;
+    if (oldV5Save.players[starterSampleId]) {
+      delete oldV5Save.players[starterSampleId].skills;
+      delete oldV5Save.players[starterSampleId].positionProficiency;
+    }
+
+    const migrated = migrateGameState(oldV5Save);
+    const merged = merge2026_27MasterRosterIntoSave(migrated);
+    const finalState = merged.state;
+
+    const passed = Boolean(
+      finalState.schemaVersion === CURRENT_SCHEMA_VERSION &&
+      finalState.rosterDataVersion === CURRENT_ROSTER_DATA_VERSION &&
+      finalState.manager.careerTrophies === 5 &&
+      finalState.clubs['arsenal'].transferBudget === 98765432 &&
+      finalState.smartphone &&
+      (finalState.players[starterSampleId]?.skills?.length || 0) > 0 &&
+      finalState.players[starterSampleId]?.positionProficiency &&
+      finalState.players['JP_000010']?.clubId === 'las_palmas'
+    );
+
+    results.push({
+      id: 'TEST 140',
+      name: 'V6(2026-11-15)セーブ移行保護（トロフィー/資金維持＋スマホ/スキル/最新移籍自動補完）',
+      passed,
+      details: passed
+        ? `成功: セーブ移行後も監督トロフィー(5)・クラブ予算が保持され、スマホ機能・スキル・適正・2026-11-15移籍修正が完全補完されました。`
+        : `失敗: schema=${finalState.schemaVersion}, ver=${finalState.rosterDataVersion}, trophies=${finalState.manager.careerTrophies}, sp=${Boolean(finalState.smartphone)}, miyashiro=${finalState.players['JP_000010']?.clubId}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 140', name: 'V6セーブ移行保護検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -4704,6 +5099,7 @@ export const runAll110Tests = runAll27Tests;
 export const runAll125Tests = runAll27Tests;
 export const runAll126Tests = runAll27Tests;
 export const runAll133Tests = runAll27Tests;
+export const runAll140Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

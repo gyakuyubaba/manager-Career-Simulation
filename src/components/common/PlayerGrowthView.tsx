@@ -246,6 +246,61 @@ export const PlayerGrowthView: React.FC<Props> = ({ player }) => {
         </div>
       </div>
 
+      {/* Skill Progression & Market Value History Summary */}
+      {(player.skillHistory && player.skillHistory.length > 0) && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+            <div className="flex items-center gap-1.5">
+              <Award className="w-4 h-4 text-purple-400" />
+              <span>スキル習得・習熟・衰退ログ</span>
+            </div>
+            <span className="text-[10px] font-mono text-slate-400">{player.skillHistory.length}件</span>
+          </div>
+          <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+            {player.skillHistory.slice(0, 6).map((sh, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-2 text-[11px] p-2 rounded-lg bg-slate-950 border border-slate-800/80">
+                <div className="min-w-0">
+                  <span className={`font-bold ${
+                    sh.action === 'declined' ? 'text-rose-400' : sh.action === 'acquired' ? 'text-emerald-400' : 'text-cyan-300'
+                  }`}>
+                    {sh.skillName}
+                  </span>
+                  <span className="text-slate-400 ml-1.5">{sh.reason}</span>
+                </div>
+                <span className="text-[10px] font-mono text-slate-500 shrink-0 tabular-nums">{sh.date}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(player.marketValueHistory && player.marketValueHistory.length > 0) && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+            <div className="flex items-center gap-1.5">
+              <Star className="w-4 h-4 text-emerald-400" />
+              <span>市場価値変動履歴 (Dynamic Valuation)</span>
+            </div>
+            <span className="text-xs font-mono font-bold text-emerald-400 tabular-nums">
+              現在 €{(player.marketValue / 1000000).toFixed(1)}M
+            </span>
+          </div>
+          <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+            {player.marketValueHistory.slice(-5).reverse().map((mv, idx) => (
+              <div key={idx} className="flex items-center justify-between text-[11px] p-2 rounded-lg bg-slate-950 border border-slate-800/80">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] font-mono text-slate-500 shrink-0 tabular-nums">{mv.date}</span>
+                  <span className="text-slate-300 truncate">{mv.reason}</span>
+                </div>
+                <span className="font-mono font-bold text-emerald-300 shrink-0 tabular-nums">
+                  €{(mv.value / 1000000).toFixed(1)}M
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Coaching Advice */}
       <div className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-xl flex items-start gap-2.5">
         <Zap className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
