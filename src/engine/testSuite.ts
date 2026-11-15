@@ -21,7 +21,8 @@ import {
   determineMatchOutcome,
   rebuildStandingsFromMatchResults,
   getRecentLeagueForm,
-  scheduleSecondDivisionPlayoffs
+  scheduleSecondDivisionPlayoffs,
+  addDays
 } from './dateEngine';
 import { evaluateMatchBoardConfidence, calculateClubStature, evaluateSeasonObjectivesBoardConfidence, getBoardConfidenceStage } from './boardConfidenceEngine';
 import { generateClubVisionRoadmap, isSecondDivisionLeague } from './clubVisionEngine';
@@ -61,6 +62,8 @@ import {
 import { syncPlayerGkAttributes, recalculateDynamicMarketValue } from './valuationEngine';
 import {
   ensureSmartphoneState,
+  getUnreadSmartphoneCount,
+  addSmartphoneNotification,
   recordMatchSmartphoneUpdate,
   processDailySmartphoneEvents,
   respondToPlayerEmail,
@@ -69,6 +72,7 @@ import {
   evaluateManagerJobOffers,
   respondToManagerJobOffer
 } from './smartphoneEngine';
+import { calculatePlayerValuation } from './transferEngine';
 import { calculatePlayerPositionProficiency } from '../data/playerPositionsHelper';
 
 export interface TestResult {
@@ -5081,6 +5085,266 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 140', name: 'V6セーブ移行保護検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 141: ニュース・移籍情報・監督通知の通知停止（データ自体は保持）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let nState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    nState = ensureSmartphoneState(nState);
+    nState = addSmartphoneNotification(nState, {
+      date: '2026-10-20',
+      type: 'skill_decline',
+      title: 'テスト通知',
+      message: '通知が鳴らないことを確認'
+    });
+    nState = recordMatchSmartphoneUpdate(nState, {
+      id: 'fix_notif_off_1',
+      date: '2026-10-21',
+      competition: 'premier-league',
+      competitionName: 'Premier League',
+      homeClubId: 'arsenal',
+      awayClubId: 'chelsea',
+      homeScore: 2,
+      awayScore: 0,
+      status: 'finished',
+      isUserMatch: true
+    });
+    nState.incomingOffers = [
+      {
+        id: 'offer_notif_off_1',
+        date: '2026-10-21',
+        buyerClubId: 'barcelona',
+        playerId: nState.tactics.lineup.starters[1].playerId,
+        type: 'permanent',
+        fee: 30000000,
+        wageContribution: 0,
+        status: 'pending',
+        negotiationRounds: 0,
+        dialogueHistory: []
+      }
+    ];
+    const preDailyUnread = getUnreadSmartphoneCount(nState);
+    nState = processDailySmartphoneEvents(nState, '2026-11-01');
+
+    const unreadCount = getUnreadSmartphoneCount(nState);
+    const expectedPlayerDmAndJobUnread =
+      nState.smartphone!.emails.filter(e => e.senderType === 'player' && !e.isRead).length +
+      (nState.managerJobOffers || []).filter(o => o.status === 'pending').length;
+    const hasNewsPreserved = (nState.smartphone?.newsFeed.length || 0) >= 2 && nState.news.length >= 1;
+    const hasOffersPreserved = (nState.incomingOffers?.length || 0) === 1;
+    const zeroManagerNotifsAdded = (nState.smartphone?.notifications.length || 0) === 0;
+
+    const passed =
+      preDailyUnread === 0 &&
+      unreadCount === expectedPlayerDmAndJobUnread &&
+      hasNewsPreserved &&
+      hasOffersPreserved &&
+      zeroManagerNotifsAdded;
+    results.push({
+      id: 'TEST 141',
+      name: 'ニュース・移籍情報・監督通知の通知停止＆本体データ保持検証',
+      passed,
+      details: passed
+        ? `成功: ニュース・移籍情報・監督通知の未読通知数は0のまま停止され(pre=${preDailyUnread}, post=${unreadCount}==選手DM等のみ)、ニュース記事(${nState.smartphone?.newsFeed.length}件)・移籍オファー履歴(${nState.incomingOffers?.length}件)自体はすべて保持されました。`
+        : `失敗: pre=${preDailyUnread}, unreadCount=${unreadCount}, expected=${expectedPlayerDmAndJobUnread}, news=${nState.smartphone?.newsFeed.length}, offers=${nState.incomingOffers?.length}, notifs=${nState.smartphone?.notifications.length}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 141', name: '通知停止検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 142: 選手DM現実的頻度(通常0〜2件/月・複数不満1〜3件/月・連続同選手/重複禁止)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    // 1. Normal squad 90-day simulation
+    let normalState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    normalState = ensureSmartphoneState(normalState);
+    normalState.smartphone!.emails = normalState.smartphone!.emails.filter(e => e.senderType !== 'player');
+    const normalCounts: Record<string, number> = { '2026-08': 0, '2026-09': 0, '2026-10': 0 };
+    for (let day = 0; day < 90; day++) {
+      const dt = addDays('2026-08-01', day);
+      normalState.currentDate = dt;
+      normalState = processDailySmartphoneEvents(normalState, dt);
+    }
+    const normalDms = normalState.smartphone!.emails.filter(e => e.senderType === 'player').reverse();
+    normalDms.forEach(e => {
+      const m = e.date.slice(0, 7);
+      if (normalCounts[m] !== undefined) normalCounts[m]++;
+    });
+    const normalPerMonthOk = Object.values(normalCounts).every(c => c >= 0 && c <= 2);
+
+    // 2. Multi-dissatisfaction squad 90-day simulation
+    let unhappyState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    unhappyState = ensureSmartphoneState(unhappyState);
+    unhappyState.smartphone!.emails = [];
+    const benchIds = unhappyState.tactics.lineup.bench;
+    const starterIdRef = unhappyState.tactics.lineup.starters[0].playerId;
+    unhappyState.players[starterIdRef].stats.appearances = 10;
+    benchIds.slice(0, 4).forEach((bId, idx) => {
+      const p = unhappyState.players[bId];
+      if (p) {
+        unhappyState.players[bId] = {
+          ...p,
+          ovr: Math.max(82, p.ovr),
+          age: 25,
+          squadRole: '絶対的主力',
+          contractYears: idx === 1 ? 1 : 3,
+          contractYearsRemaining: idx === 1 ? 1 : 3,
+          satisfaction: 50,
+          managerTrust: 52,
+          stats: { ...p.stats, appearances: 0 }
+        };
+      }
+    });
+
+    const unhappyCounts: Record<string, number> = { '2026-08': 0, '2026-09': 0, '2026-10': 0 };
+    for (let day = 0; day < 90; day++) {
+      const dt = addDays('2026-08-01', day);
+      unhappyState.currentDate = dt;
+      unhappyState = processDailySmartphoneEvents(unhappyState, dt);
+      // Reply to emails after 3 days to simulate normal play
+      const unreplied = unhappyState.smartphone!.emails.find(e => e.senderType === 'player' && !e.isReplied && e.date <= addDays(dt, -3));
+      if (unreplied && unreplied.replyOptions?.[0]) {
+        unhappyState = respondToPlayerEmail(unhappyState, unreplied.id, unreplied.replyOptions[0].id);
+      }
+    }
+    const unhappyDms = unhappyState.smartphone!.emails.filter(e => e.senderType === 'player').reverse();
+    unhappyDms.forEach(e => {
+      const m = e.date.slice(0, 7);
+      if (unhappyCounts[m] !== undefined) unhappyCounts[m]++;
+    });
+    const unhappyPerMonthOk = Object.values(unhappyCounts).every(c => c >= 1 && c <= 3);
+
+    // Check no consecutive DMs from same player
+    let hasConsecutiveSamePlayer = false;
+    for (let i = 1; i < unhappyDms.length; i++) {
+      if (unhappyDms[i].relatedPlayerId && unhappyDms[i].relatedPlayerId === unhappyDms[i - 1].relatedPlayerId) {
+        hasConsecutiveSamePlayer = true;
+      }
+    }
+
+    const passed = normalPerMonthOk && unhappyPerMonthOk && !hasConsecutiveSamePlayer;
+    results.push({
+      id: 'TEST 142',
+      name: '選手DM現実的頻度(通常0〜2/月・複数不満1〜3/月)＆連続同選手/重複抑制検証',
+      passed,
+      details: passed
+        ? `成功: 通常月別DM=${JSON.stringify(normalCounts)}, 複数不満月別DM=${JSON.stringify(unhappyCounts)}, 同選手連続0件を確認。`
+        : `失敗: normal=${JSON.stringify(normalCounts)}, unhappy=${JSON.stringify(unhappyCounts)}, consecutive=${hasConsecutiveSamePlayer}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 142', name: '選手DM頻度検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 143: 市場価値インフレ完全修正・OVR帯域整合・加齢減価・移籍金分離検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const allPlayers = Object.values(baseState.players);
+    const over180M = allPlayers.filter(p => p.marketValue > 180_000_000);
+    const prime80to84 = allPlayers.filter(p => p.ovr >= 80 && p.ovr <= 84 && p.age >= 22 && p.age <= 27 && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
+    const prime85to87 = allPlayers.filter(p => p.ovr >= 85 && p.ovr <= 87 && p.age >= 22 && p.age <= 27 && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
+    const prime88to90 = allPlayers.filter(p => p.ovr >= 88 && p.ovr <= 90 && p.age >= 22 && p.age <= 27 && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
+    const band80Ok = prime80to84.every(p => p.marketValue >= 15_000_000 && p.marketValue <= 40_000_000);
+    const band85Ok = prime85to87.every(p => p.marketValue >= 30_000_000 && p.marketValue <= 65_000_000);
+    const band88Ok = prime88to90.every(p => p.marketValue >= 45_000_000 && p.marketValue <= 90_000_000);
+
+    // Aging decline & slump drop
+    const baseSt = allPlayers.find(p => p.position === 'ST' && p.ovr >= 82 && p.ovr <= 85 && p.age <= 26)!;
+    const aged35 = recalculateDynamicMarketValue({ ...baseSt, age: 35, contractYears: 2, contractYearsRemaining: 2 }, '2026-11-15', '加齢テスト');
+    const grown = recalculateDynamicMarketValue({ ...baseSt, ovr: baseSt.ovr + 2, exactOvr: baseSt.ovr + 2 }, '2026-11-15', '成長テスト');
+    const agingDrops = aged35.marketValue < baseSt.marketValue * 0.55;
+    const growthRises = grown.marketValue > baseSt.marketValue;
+
+    // Asking fee calculation stays decoupled from player.marketValue
+    const sellerClub = baseState.clubs[baseSt.clubId] || baseState.clubs['arsenal'];
+    const beforeMv = baseSt.marketValue;
+    const askingFee = calculatePlayerValuation(baseSt, sellerClub, 'chelsea');
+    const feeSeparate = baseSt.marketValue === beforeMv && askingFee !== baseSt.marketValue;
+
+    const passed = over180M.length === 0 && band80Ok && band85Ok && band88Ok && agingDrops && growthRises && feeSeparate;
+    results.push({
+      id: 'TEST 143',
+      name: '市場価値インフレ修正(180M超0件・OVR帯準拠・成長上昇/高齢低下・移籍金分離)検証',
+      passed,
+      details: passed
+        ? `成功: 全${allPlayers.length}名で180M超=0件、80-84/85-87/88-90帯域100%適合、成長上昇(${(baseSt.marketValue/1e6).toFixed(1)}→${(grown.marketValue/1e6).toFixed(1)}M)・35歳低下(${(aged35.marketValue/1e6).toFixed(1)}M)・移籍金分離を確認。`
+        : `失敗: over180=${over180M.length}, band80=${band80Ok}, band85=${band85Ok}, band88=${band88Ok}, aging=${agingDrops}, growth=${growthRises}, sep=${feeSeparate}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 143', name: '市場価値インフレ修正検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 144: 全329クラブ初期移籍予算の大幅増額＆クラブ格差反映検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const clubs = Object.values(baseState.clubs).filter(c => c.id !== 'free_agent');
+    const realMadrid = baseState.clubs['real_madrid'];
+    const manCity = baseState.clubs['man_city'];
+    const arsenal = baseState.clubs['arsenal'];
+    const barca = baseState.clubs['barcelona'];
+    const bigOk = [realMadrid, manCity, arsenal, barca].every(c => c && c.transferBudget >= 100_000_000 && c.transferBudget <= 250_000_000);
+    const j1Clubs = clubs.filter(c => c.league === 'j1-league');
+    const j2Clubs = clubs.filter(c => c.league === 'j2-league');
+    const j3Clubs = clubs.filter(c => c.league === 'j3-league');
+    const jOk =
+      j1Clubs.every(c => c.transferBudget >= 5_000_000 && c.transferBudget <= 20_000_000) &&
+      j2Clubs.every(c => c.transferBudget >= 2_000_000 && c.transferBudget <= 15_000_000) &&
+      j3Clubs.every(c => c.transferBudget >= 1_000_000 && c.transferBudget <= 10_000_000);
+    // Ensure non-flat differentiation across Premier League Elite/Upper
+    const plBudgets = new Set(clubs.filter(c => c.league === 'premier-league').map(c => c.transferBudget));
+    const distinctOk = plBudgets.size >= 12;
+
+    const passed = clubs.length === 329 && bigOk && jOk && distinctOk;
+    results.push({
+      id: 'TEST 144',
+      name: '全329クラブ初期移籍予算の全面増加・リーグ/格差反映・一律禁止検証',
+      passed,
+      details: passed
+        ? `成功: ビッグクラブ(${(realMadrid.transferBudget/1e6).toFixed(0)}M/${(manCity.transferBudget/1e6).toFixed(0)}M/${(arsenal.transferBudget/1e6).toFixed(0)}M)〜J1/J2/J3まで全329クラブの予算増加と多様性(${plBudgets.size}通り in PL)を確認。`
+        : `失敗: clubs=${clubs.length}, bigOk=${bigOk}, jOk=${jOk}, distinctPL=${plBudgets.size}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 144', name: 'クラブ移籍予算調整検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 145: 既存セーブV8→V9移行時のインフレ市場価値個別補正＆低予算引き上げ保護検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const legacySave: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    legacySave.schemaVersion = 8;
+    delete legacySave.marketValueNormalized2026;
+    delete legacySave.budgetRebalanced2026;
+    legacySave.manager.careerTrophies = 3;
+    // Inject inflated market value (OVR 87 player at 195M) and old default low Barca budget (45M)
+    const sample87 = Object.values(legacySave.players).find(p => p.ovr >= 85 && p.ovr <= 87 && p.age <= 27)!;
+    legacySave.players[sample87.id] = { ...sample87, marketValue: 195_000_000 };
+    legacySave.clubs['barcelona'] = { ...legacySave.clubs['barcelona'], transferBudget: 45_000_000 };
+
+    const migratedV9 = migrateGameState(legacySave, 8);
+    const fixedPlayerMv = migratedV9.players[sample87.id].marketValue;
+    const barcaUpdatedBudget = migratedV9.clubs['barcelona'].transferBudget;
+
+    const passed = Boolean(
+      migratedV9.schemaVersion === CURRENT_SCHEMA_VERSION &&
+      migratedV9.manager.careerTrophies === 3 &&
+      fixedPlayerMv <= 65_000_000 &&
+      barcaUpdatedBudget >= 115_000_000
+    );
+    results.push({
+      id: 'TEST 145',
+      name: '既存セーブV8→V9移行時のインフレ市場価値個別正規化＆低予算引き上げ保護検証',
+      passed,
+      details: passed
+        ? `成功: トロフィー(3)保持のまま、OVR${sample87.ovr}の市場価値(195.0M→${(fixedPlayerMv/1e6).toFixed(1)}M)を個別正規化し、バルセロナ予算(45M→${(barcaUpdatedBudget/1e6).toFixed(1)}M)を安全に引き上げました。`
+        : `失敗: schema=${migratedV9.schemaVersion}, mv=${fixedPlayerMv}, barca=${barcaUpdatedBudget}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 145', name: 'V8→V9移行正規化検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -5100,6 +5364,7 @@ export const runAll125Tests = runAll27Tests;
 export const runAll126Tests = runAll27Tests;
 export const runAll133Tests = runAll27Tests;
 export const runAll140Tests = runAll27Tests;
+export const runAll145Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

@@ -15,6 +15,7 @@
  */
 
 import { GameWorldState, ScoutProspect, Player, Position, PlayStyle, PlayerPersonality, NewsItem } from '../types/game';
+import { recalculateDynamicMarketValue } from './valuationEngine';
 
 export interface ScoutRegion {
   id: string;
@@ -233,8 +234,46 @@ export function dispatchMonthlyScout(
       scoutReport = `【現地スカウト総括：B+級・即戦力有望株】「${region.focusTraits}において高い水準を誇る優良株。チームの戦術にフィットすれば大きな戦力となるでしょう。」`;
     }
 
-    const baseVal = isGenerational ? 75000000 : (ovr >= 75 ? 8000000 : 2500000);
-    const baseWage = isGenerational ? 65000 : 5000;
+    const baseVal = recalculateDynamicMarketValue({
+      id: `tmp_scout_${i}`,
+      name,
+      age,
+      birthDate,
+      nationality,
+      position: pos,
+      altPositions: altPos,
+      preferredFoot: i % 3 === 0 ? '左' : '右',
+      ovr,
+      initialOvr: ovr,
+      exactOvr: ovr,
+      potential,
+      pace: ovr,
+      shooting: ovr,
+      passing: ovr,
+      dribbling: ovr,
+      defending: ovr,
+      physical: ovr,
+      gk: pos === 'GK' ? ovr : 10,
+      marketValue: 1000000,
+      wage: 5000,
+      contractYears: 3,
+      contractYearsRemaining: 3,
+      clubId: 'scout_pool',
+      squadRole: '若手・育成枠',
+      playstyle: playstyles[i % playstyles.length],
+      personality: personalities[i % personalities.length],
+      managerTrust: 70,
+      relationships: [],
+      injury: { isInjured: false, recoveryDays: 0 },
+      suspension: { isSuspended: false, matchesRemaining: 0 },
+      isLoaned: false,
+      fatigue: 0,
+      condition: 'yellow',
+      squadStatus: 'RESERVE',
+      shirtNumber: 30,
+      stats: { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0 }
+    } as Player).marketValue;
+    const baseWage = isGenerational ? 55000 : (ovr >= 75 ? 18000 : 5000);
 
     prospects.push({
       id: `scout_prospect_${Date.now()}_${i}`,

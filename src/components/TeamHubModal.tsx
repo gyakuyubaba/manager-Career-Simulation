@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Club, GameWorldState, Player } from '../types/game';
 import { recalculateDynamicMarketValue } from '../engine/valuationEngine';
-import { addSmartphoneNotification } from '../engine/smartphoneEngine';
 import { Check, MessageSquare, Search, Shield, Users, X } from 'lucide-react';
 
 interface Props {
@@ -138,7 +137,7 @@ export const TeamHubModal: React.FC<Props> = ({
       currentWageSpend: Math.max(0, userClub.currentWageSpend + wageDelta)
     };
 
-    let nextState: GameWorldState = {
+    const nextState: GameWorldState = {
       ...state,
       players: {
         ...state.players,
@@ -149,13 +148,6 @@ export const TeamHubModal: React.FC<Props> = ({
         [updatedClub.id]: updatedClub
       }
     };
-
-    nextState = addSmartphoneNotification(nextState, {
-      date: state.currentDate,
-      type: 'board',
-      title: `契約合意完了：${revaluedPlayer.name}`,
-      message: `${revaluedPlayer.name}と週給 €${proposedWage.toLocaleString()}・${proposedYears}年契約・役割「${proposedRole}」で合意しました。`
-    });
 
     onUpdateState(nextState);
     setNegotiationDone(true);

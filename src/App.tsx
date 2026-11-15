@@ -592,7 +592,7 @@ export default function App() {
       <BottomTabBar
         activeTab={activeTab}
         onChangeTab={(t) => setActiveTab(t)}
-        unreadNewsCount={gameState.news.length}
+        unreadNewsCount={0}
         hasMatchToday={gameState.fixtures.some(f => f.date === gameState.currentDate && (f.homeClubId === gameState.userClubId || f.awayClubId === gameState.userClubId) && f.status === 'upcoming')}
       />
 

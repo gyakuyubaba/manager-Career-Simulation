@@ -129,32 +129,20 @@ export function ensureSmartphoneState(state: GameWorldState): GameWorldState {
 export function getUnreadSmartphoneCount(state: GameWorldState): number {
   const sp = state.smartphone;
   if (!sp) return 0;
-  const newsUnread = sp.newsFeed.filter(n => !n.isRead).length;
-  const emailUnread = sp.emails.filter(e => !e.isRead).length;
-  const noticeUnread = sp.clubNotices.filter(n => !n.isRead).length;
-  const notifUnread = sp.notifications.filter(n => !n.isRead).length;
+  // News, Transfer info, Club notices, and Manager notifications do NOT emit unread notifications.
+  // Only genuine actionable items (unread Player DMs & pending Manager Job Offers) count.
+  const playerDmUnread = sp.emails.filter(e => e.senderType === 'player' && !e.isRead).length;
   const pendingOffers = (state.managerJobOffers || []).filter(o => o.status === 'pending').length;
-  return newsUnread + emailUnread + noticeUnread + notifUnread + pendingOffers;
+  return playerDmUnread + pendingOffers;
 }
 
 export function addSmartphoneNotification(
   state: GameWorldState,
-  notif: Omit<SmartphoneNotification, 'id' | 'isRead'>
+  _notif: Omit<SmartphoneNotification, 'id' | 'isRead'>
 ): GameWorldState {
-  const withSp = ensureSmartphoneState(state);
-  const sp = withSp.smartphone!;
-  const newItem: SmartphoneNotification = {
-    ...notif,
-    id: `sp_notif_${notif.type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-    isRead: false
-  };
-  return {
-    ...withSp,
-    smartphone: {
-      ...sp,
-      notifications: [newItem, ...sp.notifications].slice(0, 60)
-    }
-  };
+  // Manager/news/transfer notifications are completely silenced per specification;
+  // users inspect News / Transfers / Notices manually inside the Smartphone app.
+  return ensureSmartphoneState(state);
 }
 
 /**
@@ -306,21 +294,11 @@ export function recordMatchSmartphoneUpdate(state: GameWorldState, fixture: Matc
     comments: buildFactCheckedMatchComments(fixture, userClub, oppClub, isUserHome, withSp.players)
   };
 
-  const notif: SmartphoneNotification = {
-    id: `sp_notif_match_${fixture.id}`,
-    date: fixture.date,
-    type: 'match',
-    title: `試合結果確定: vs ${oppClub.shortName} (${uScore}-${oScore})`,
-    message: `${fixture.competitionName}の結果とファン反応・選手成長データが更新されました。`,
-    isRead: false
-  };
-
   let nextState: GameWorldState = {
     ...withSp,
     smartphone: {
       ...sp,
-      newsFeed: [post, ...sp.newsFeed].slice(0, 60),
-      notifications: [notif, ...sp.notifications].slice(0, 60)
+      newsFeed: [post, ...sp.newsFeed].slice(0, 60)
     }
   };
 
@@ -429,31 +407,72 @@ export function evaluateManagerJobOffers(
     relatedOfferId: offerId
   };
 
-  const notif: SmartphoneNotification = {
-    id: `sp_notif_offer_${offerId}`,
-    date,
-    type: 'job_offer',
-    title: `監督就任オファー到着：${pickedClub.name}`,
-    message: `${pickedClub.name}（${offer.leagueName}）から正式な監督招聘オファーが届きました。`,
-    isRead: false
-  };
-
   return {
     ...withSp,
     managerJobOffers: [offer, ...existingOffers].slice(0, 15),
     smartphone: {
       ...sp,
-      emails: [offerMail, ...sp.emails].slice(0, 80),
-      notifications: [notif, ...sp.notifications].slice(0, 60)
+      emails: [offerMail, ...sp.emails].slice(0, 80)
     }
   };
 }
 
+type PlayerDmTopic = 'playtime' | 'contract' | 'wage' | 'loan' | 'transfer' | 'role';
+
+function addIsoDays(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function diffIsoDays(a: string, b: string): number {
+  const ta = new Date(`${a}T00:00:00Z`).getTime();
+  const tb = new Date(`${b}T00:00:00Z`).getTime();
+  return Math.abs(Math.floor((tb - ta) / 86400000));
+}
+
+function deterministicUnitRoll(seedText: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < seedText.length; i++) {
+    hash ^= seedText.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % 10000) / 10000;
+}
+
+function computeExpectedFairWage(player: Player, club: Club): number {
+  const ovr = player.ovr || 70;
+  let base = 4000;
+  if (ovr >= 90) base = 240000;
+  else if (ovr >= 86) base = 150000;
+  else if (ovr >= 82) base = 95000;
+  else if (ovr >= 78) base = 52000;
+  else if (ovr >= 74) base = 26000;
+  else if (ovr >= 70) base = 12000;
+  else base = 6000;
+
+  if (club.league.startsWith('j')) base *= 0.35;
+  else if (club.league !== 'premier-league' && club.league !== 'laliga' && club.league !== 'bundesliga' && club.league !== 'serie-a' && club.league !== 'ligue-1') {
+    base *= 0.65;
+  }
+  return Math.max(2000, Math.round(base));
+}
+
+interface PlayerDmCandidate {
+  player: Player;
+  topic: PlayerDmTopic;
+  priority: number;
+  buildEmail: (nextDate: string, key: string) => SmartphoneEmail;
+}
+
 /**
  * Daily smartphone event processor:
- * - Player direct emails (ONLY when real game conditions apply; never false benching complaints for starters!)
- * - Front office advisories
- * - Throttled & deduplicated via `generatedTriggerKeys`
+ * - Player DMs ONLY on genuine game conditions with realistic monthly pacing:
+ *   - Normal state: 0-2 DMs/month
+ *   - Multiple dissatisfaction factors: 1-3 DMs/month
+ *   - Critical unresolved issues: higher chance
+ *   - Strictly blocks consecutive DMs from the same player and duplicate unresolved topics
+ * - Club notices saved passively without emitting unread notification badges
  */
 export function processDailySmartphoneEvents(state: GameWorldState, nextDate: string): GameWorldState {
   if (!state.userClubId) return ensureSmartphoneState(state);
@@ -465,96 +484,108 @@ export function processDailySmartphoneEvents(state: GameWorldState, nextDate: st
   const triggerKeys = new Set(sp.generatedTriggerKeys || []);
   const newEmails: SmartphoneEmail[] = [];
   const newNotices: SmartphoneNotification[] = [];
+  const nextCooldowns: Record<string, string> = { ...(sp.playerDmCooldowns || {}) };
+  let nextLastPlayerDmDate = sp.lastPlayerDmDate;
+  let nextLastPlayerDmPlayerId = sp.lastPlayerDmPlayerId;
+  const nextMonthlyCounts = { ...(sp.monthlyPlayerDmCounts || {}) };
 
   const starterIds = new Set((withSp.tactics?.lineup?.starters || []).map(s => s.playerId));
   const benchIds = new Set(withSp.tactics?.lineup?.bench || []);
   const teamPlayers = userClub.playerIds.map(id => withSp.players[id]).filter(Boolean);
   const seasonMonth = nextDate.slice(0, 7);
 
-  // Max 1 player email per 4 days unless urgent, evaluate logically
-  const recentPlayerMail = sp.emails.find(e => e.senderType === 'player');
-  const daysSinceLastPlayerMail = recentPlayerMail
-    ? Math.abs(Math.floor((new Date(nextDate).getTime() - new Date(recentPlayerMail.date).getTime()) / 86400000))
-    : 99;
+  const playerEmailsInHistory = sp.emails.filter(e => e.senderType === 'player');
+  const recentPlayerMail = playerEmailsInHistory[0];
+  const lastDmDate = recentPlayerMail?.date || sp.lastPlayerDmDate;
+  const lastDmPlayerId = recentPlayerMail?.relatedPlayerId || sp.lastPlayerDmPlayerId;
+  const daysSinceLastPlayerMail = lastDmDate ? diffIsoDays(lastDmDate, nextDate) : 99;
+  const playerMailsThisMonth = playerEmailsInHistory.filter(e => e.date.startsWith(seasonMonth)).length;
 
-  if (daysSinceLastPlayerMail >= 4) {
-    // 1. Real non-starter playing time concern (NEVER triggered for current starters or players playing >= 50% of matches)
-    const teamMaxApps = Math.max(1, ...teamPlayers.map(tp => tp.stats?.appearances || 0));
-    const frustratedBenchPlayer = teamPlayers.find(p => {
-      if (p.isRetired || p.injuryStatus === 'INJURED' || p.injury?.isInjured) return false;
-      if (starterIds.has(p.id)) return false; // Starters NEVER get benching complaints!
-      const apps = p.stats?.appearances || 0;
-      const playRatio = teamMaxApps >= 4 ? apps / teamMaxApps : 1;
-      if (playRatio >= 0.45) return false;
+  const teamMaxApps = Math.max(1, ...teamPlayers.map(tp => tp.stats?.appearances || 0));
+
+  // Collect all genuine dissatisfaction triggers across the squad
+  const candidates: PlayerDmCandidate[] = [];
+
+  for (const p of teamPlayers) {
+    if (p.isRetired) continue;
+    const isInjured = p.injuryStatus === 'INJURED' || p.injury?.isInjured;
+    const isStarter = starterIds.has(p.id);
+    const apps = p.stats?.appearances || 0;
+    const playRatio = teamMaxApps >= 4 ? apps / teamMaxApps : 1;
+    const yearsLeft = p.contractYearsRemaining ?? p.contractYears ?? 3;
+
+    // 1. Playing time concern (NEVER for starters or >= 45% appearance share)
+    if (!isInjured && !isStarter && playRatio < 0.45 && p.ovr >= 70) {
       const wantsPlay = p.squadRole === '絶対的主力' || p.squadRole === '重要選手' || p.personality === '出場機会重視';
-      return wantsPlay && p.ovr >= 70 && !triggerKeys.has(`playtime_${p.id}_${seasonMonth}`);
-    });
+      if (wantsPlay) {
+        const isCriticalZeroPlay = p.squadRole === '絶対的主力' && apps === 0 && teamMaxApps >= 6;
+        candidates.push({
+          player: p,
+          topic: 'playtime',
+          priority: isCriticalZeroPlay ? 96 : p.squadRole === '絶対的主力' ? 82 : 70,
+          buildEmail: (date, key) => ({
+            id: `sp_mail_${key}`,
+            date,
+            senderType: 'player',
+            senderId: p.id,
+            senderName: p.name,
+            senderRole: `${p.position} · ${p.squadRole}`,
+            subject: '出場機会についてお話しさせてください',
+            body: `監督、お忙しいところ失礼します。${p.name}です。最近の試合で先発メンバーから外れることが続いており、自分のコンディションや立場について不安を感じています。今後の起用方針を聞かせていただけませんか？`,
+            isRead: false,
+            isReplied: false,
+            relatedPlayerId: p.id,
+            triggerKey: key,
+            dmTopic: 'playtime',
+            replyOptions: [
+              {
+                id: 'promise_minutes',
+                label: '次の数試合で必ずチャンスを与える',
+                replyPreview: 'トレーニングの取り組みは評価している。近い試合で必ず出場の機会を作るので準備しておいてくれ。',
+                outcomeDescription: '信頼度 +8 / 満足度 +12（直近起用への期待が高まる）',
+                effectType: 'promise_minutes'
+              },
+              {
+                id: 'tactical_explain',
+                label: '戦術的バランスと競争の必要性を説く',
+                replyPreview: '今は相手との相性と戦術バランスを優先している。チーム内競争に勝てばポジションは戻ってくる。',
+                outcomeDescription: '信頼度 +2 / 誠実な対話として納得',
+                effectType: 'trust_up'
+              },
+              {
+                id: 'loan_or_transfer',
+                label: '出場機会のために移籍/レンタルも容認する',
+                replyPreview: '君のキャリアにとって試合に出ることが最優先なら、移籍リストやレンタルでの出場機会確保も検討しよう。',
+                outcomeDescription: '信頼度 -3 / 本人をレンタル/移籍リスト候補に柔軟対応',
+                effectType: 'loan_allow'
+              }
+            ]
+          })
+        });
+      }
+    }
 
-    if (frustratedBenchPlayer) {
-      const key = `playtime_${frustratedBenchPlayer.id}_${seasonMonth}`;
-      triggerKeys.add(key);
-      newEmails.push({
-        id: `sp_mail_${key}`,
-        date: nextDate,
-        senderType: 'player',
-        senderId: frustratedBenchPlayer.id,
-        senderName: frustratedBenchPlayer.name,
-        senderRole: `${frustratedBenchPlayer.position} · ${frustratedBenchPlayer.squadRole}`,
-        subject: '出場機会についてお話しさせてください',
-        body: `監督、お忙しいところ失礼します。${frustratedBenchPlayer.name}です。最近の試合で先発メンバーから外れることが増えており、自分のコンディションや立場について少し不安を感じています。今後の起用方針を聞かせていただけませんか？`,
-        isRead: false,
-        isReplied: false,
-        relatedPlayerId: frustratedBenchPlayer.id,
-        triggerKey: key,
-        replyOptions: [
-          {
-            id: 'promise_minutes',
-            label: '次の数試合で必ずチャンスを与える',
-            replyPreview: 'トレーニングの取り組みは評価している。近い試合で必ず先発・出場の機会を作るので準備しておいてくれ。',
-            outcomeDescription: '信頼度 +8 / 満足度 +12（直近起用への期待が高まる）',
-            effectType: 'promise_minutes'
-          },
-          {
-            id: 'tactical_explain',
-            label: '戦術的バランスと競争の必要性を説く',
-            replyPreview: '今は相手との相性と戦術バランスを優先している。チーム内競争に勝てばポジションは戻ってくる。',
-            outcomeDescription: '信頼度 +2 / 誠実な対話として納得',
-            effectType: 'trust_up'
-          },
-          {
-            id: 'loan_or_transfer',
-            label: '出場機会のために移籍/レンタルも容認する',
-            replyPreview: '君のキャリアにとって試合に出ることが最優先なら、移籍リストやレンタルでの出場機会確保も検討しよう。',
-            outcomeDescription: '信頼度 -3 / 本人をレンタル/移籍リスト候補に柔軟対応',
-            effectType: 'loan_allow'
-          }
-        ]
-      });
-    } else {
-      // 2. Expiring contract inquiry (<= 1 year left)
-      const expiringPlayer = teamPlayers.find(p =>
-        !p.isRetired &&
-        (p.contractYearsRemaining ?? p.contractYears ?? 3) <= 1 &&
-        p.ovr >= 72 &&
-        !triggerKeys.has(`contract_${p.id}_${seasonMonth}`)
-      );
-
-      if (expiringPlayer) {
-        const key = `contract_${expiringPlayer.id}_${seasonMonth}`;
-        triggerKeys.add(key);
-        newEmails.push({
+    // 2. Expiring contract inquiry (<= 1 year left)
+    if (yearsLeft <= 1 && p.ovr >= 72) {
+      const isCriticalExpiry = yearsLeft <= 0.5 && p.ovr >= 78;
+      candidates.push({
+        player: p,
+        topic: 'contract',
+        priority: isCriticalExpiry ? 91 : 68,
+        buildEmail: (date, key) => ({
           id: `sp_mail_${key}`,
-          date: nextDate,
+          date,
           senderType: 'player',
-          senderId: expiringPlayer.id,
-          senderName: expiringPlayer.name,
-          senderRole: `${expiringPlayer.position} · 残契約${expiringPlayer.contractYears}年`,
+          senderId: p.id,
+          senderName: p.name,
+          senderRole: `${p.position} · 残契約${p.contractYears}年`,
           subject: '今後の契約と来季の去就について',
-          body: `監督、${expiringPlayer.name}です。現在の契約期間が残り1年を切っていることもあり、今後のキャリアと契約更新についてクラブや監督と前向きに話し合いたいと考えています。`,
+          body: `監督、${p.name}です。現在の契約期間が残り少なくなっており、今後のキャリアと契約更新についてクラブや監督と前向きに話し合いたいと考えています。`,
           isRead: false,
           isReplied: false,
-          relatedPlayerId: expiringPlayer.id,
+          relatedPlayerId: p.id,
           triggerKey: key,
+          dmTopic: 'contract',
           replyOptions: [
             {
               id: 'welcome_renewal',
@@ -578,54 +609,240 @@ export function processDailySmartphoneEvents(state: GameWorldState, nextDate: st
               effectType: 'transfer_allow'
             }
           ]
-        });
+        })
+      });
+    }
+
+    // 3. Wage dissatisfaction vs OVR / club level
+    const fairWage = computeExpectedFairWage(p, userClub);
+    if (!p.isYouthRegen && p.ovr >= 73 && p.wage < fairWage * 0.65 && (p.age >= 21 || p.squadRole !== '若手・育成枠')) {
+      const severeUnderpay = p.wage < fairWage * 0.48 || p.personality === '給与重視';
+      candidates.push({
+        player: p,
+        topic: 'wage',
+        priority: severeUnderpay ? 79 : 60,
+        buildEmail: (date, key) => ({
+          id: `sp_mail_${key}`,
+          date,
+          senderType: 'player',
+          senderId: p.id,
+          senderName: p.name,
+          senderRole: `${p.position} · 週給 €${p.wage.toLocaleString()}`,
+          subject: '現在の年俸・契約条件の見直しのお願い',
+          body: `監督、恐れ入ります。${p.name}です。チーム内での役割や現在の実力を踏まえ、週給条件について一度見直しをご相談できないかと考えています。チームハブで交渉の場をいただけないでしょうか。`,
+          isRead: false,
+          isReplied: false,
+          relatedPlayerId: p.id,
+          triggerKey: key,
+          dmTopic: 'wage',
+          replyOptions: [
+            {
+              id: 'promise_wage_review',
+              label: 'チームハブで昇給交渉を行うと約束する',
+              replyPreview: '貢献度に見合う条件を検討する価値がある。近日中にチームハブで条件を見直そう。',
+              outcomeDescription: '信頼度 +5 / 満足度 +8',
+              effectType: 'wage_talk'
+            },
+            {
+              id: 'explain_budget_cap',
+              label: 'クラブの給与枠の制約を丁寧に説明する',
+              replyPreview: '評価はしているが今はクラブ全体の給与バランスを守る必要がある。活躍を続ければ必ず考慮する。',
+              outcomeDescription: '信頼度 +2 / 現状維持',
+              effectType: 'acknowledge'
+            }
+          ]
+        })
+      });
+    }
+
+    // 4. Young player loan request
+    if (!isInjured && !isStarter && !p.isLoaned && !p.isLoanListed && p.age <= 22 && p.ovr >= 63 && p.ovr <= 77 && teamMaxApps >= 5 && apps <= 1) {
+      candidates.push({
+        player: p,
+        topic: 'loan',
+        priority: 58,
+        buildEmail: (date, key) => ({
+          id: `sp_mail_${key}`,
+          date,
+          senderType: 'player',
+          senderId: p.id,
+          senderName: p.name,
+          senderRole: `${p.position} · ${p.age}歳`,
+          subject: '成長のためのレンタル移籍について相談',
+          body: `監督、${p.name}です。トップチームで出場機会を得るのは簡単な競争ではないと感じています。もし当面の出番が限られるなら、実戦経験を積むためにレンタル移籍も検討していただけないでしょうか？`,
+          isRead: false,
+          isReplied: false,
+          relatedPlayerId: p.id,
+          triggerKey: key,
+          dmTopic: 'loan',
+          replyOptions: [
+            {
+              id: 'approve_loan',
+              label: 'レンタルリストへ登録し実戦機会を探す',
+              replyPreview: '試合経験を積むことは成長に不可欠だ。レンタルで成長できるクラブを探そう。',
+              outcomeDescription: '信頼度 +4 / レンタルリスト登録',
+              effectType: 'loan_allow'
+            },
+            {
+              id: 'keep_for_cup',
+              label: 'チームに残してカップ戦や交代で起用すると伝える',
+              replyPreview: '過密日程の中で必ず君の力が必要になる。チームに残ってアピールを続けてくれ。',
+              outcomeDescription: '信頼度 +3 / チーム残留',
+              effectType: 'trust_up'
+            }
+          ]
+        })
+      });
+    }
+
+    // 5. Senior player transfer wish due to low morale / frozen out
+    if (!isStarter && !p.isTransferListed && p.age >= 23 && ((p.satisfaction ?? 75) < 58 || (p.managerTrust ?? 70) < 58 || (teamMaxApps >= 8 && apps <= 1 && p.ovr >= 74))) {
+      const isCritical = (p.satisfaction ?? 75) < 46 || (p.managerTrust ?? 70) < 46;
+      candidates.push({
+        player: p,
+        topic: 'transfer',
+        priority: isCritical ? 90 : 75,
+        buildEmail: (date, key) => ({
+          id: `sp_mail_${key}`,
+          date,
+          senderType: 'player',
+          senderId: p.id,
+          senderName: p.name,
+          senderRole: `${p.position} · ${p.squadRole}`,
+          subject: '移籍について前向きに検討させてほしい',
+          body: `監督、率直にお伝えします。現在の自分の状況や起用バランスを踏まえると、他クラブで新たな環境を求めるべき時期ではないかと考えています。移籍市場での動きを容認していただけますか？`,
+          isRead: false,
+          isReplied: false,
+          relatedPlayerId: p.id,
+          triggerKey: key,
+          dmTopic: 'transfer',
+          replyOptions: [
+            {
+              id: 'accept_transfer_request',
+              label: '移籍を容認し移籍リストへ登録する',
+              replyPreview: '希望は理解した。双方にとって良い条件が届けば移籍を前向きに進めよう。',
+              outcomeDescription: '移籍リスト登録',
+              effectType: 'transfer_allow'
+            },
+            {
+              id: 'convince_to_stay',
+              label: 'チームに不可欠だと説得し慰留する',
+              replyPreview: '簡単には手放せない。今後の起用と対話を通じて信頼関係を取り戻したい。',
+              outcomeDescription: '信頼度 +5 / 満足度 +6',
+              effectType: 'trust_up'
+            }
+          ]
+        })
+      });
+    }
+
+    // 6. Squad role dissatisfaction (star player stuck in backup/rotation role)
+    if (p.ovr >= 82 && (p.squadRole === '控え・バックアップ' || p.squadRole === 'ローテーション') && teamMaxApps >= 4 && playRatio < 0.55) {
+      candidates.push({
+        player: p,
+        topic: 'role',
+        priority: 71,
+        buildEmail: (date, key) => ({
+          id: `sp_mail_${key}`,
+          date,
+          senderType: 'player',
+          senderId: p.id,
+          senderName: p.name,
+          senderRole: `${p.position} · OVR ${p.ovr}`,
+          subject: 'チーム内の序列・役割設定について',
+          body: `監督、${p.name}です。現在の自分の実力であれば主力の一角としてチームを牽引できると自負しています。チーム内での位置づけ（役割設定）を見直していただけないでしょうか。`,
+          isRead: false,
+          isReplied: false,
+          relatedPlayerId: p.id,
+          triggerKey: key,
+          dmTopic: 'role',
+          replyOptions: [
+            {
+              id: 'review_role',
+              label: 'チームハブで役割の見直しを検討する',
+              replyPreview: '実力は認めている。チームハブで役割と契約条件のバランスを見直そう。',
+              outcomeDescription: '信頼度 +6 / 満足度 +8',
+              effectType: 'trust_up'
+            },
+            {
+              id: 'maintain_hierarchy',
+              label: '現状の役割でプロとしての貢献を求める',
+              replyPreview: 'チーム全体のバランス上の判断だ。どの役割でも結果を出し続けてほしい。',
+              outcomeDescription: '信頼度 -2 / 現状維持',
+              effectType: 'acknowledge'
+            }
+          ]
+        })
+      });
+    }
+  }
+
+  // Filter out anti-spam violations:
+  // - NEVER consecutive DM from the same player
+  // - NEVER send to a player who already has an unreplied DM
+  // - NEVER repeat an unresolved / recently sent (<= 55 days) topic for the same player
+  // - Enforce >= 25 days per-player cooldown across any topic
+  const eligible = candidates
+    .filter(c => {
+      const pId = c.player.id;
+      if (lastDmPlayerId && pId === lastDmPlayerId) return false;
+      const hasUnreplied = playerEmailsInHistory.some(e => e.relatedPlayerId === pId && !e.isReplied);
+      if (hasUnreplied) return false;
+
+      const sameTopicRecent = playerEmailsInHistory.some(
+        e =>
+          e.relatedPlayerId === pId &&
+          (e.dmTopic === c.topic || e.triggerKey?.startsWith(`${c.topic}_${pId}`)) &&
+          diffIsoDays(e.date, nextDate) < 55
+      );
+      if (sameTopicRecent) return false;
+
+      const topicCd = nextCooldowns[`${pId}_${c.topic}`];
+      if (topicCd && topicCd > nextDate) return false;
+
+      const playerCd = nextCooldowns[`player_${pId}`];
+      if (playerCd && playerCd > nextDate) return false;
+
+      return true;
+    })
+    .sort((a, b) => b.priority - a.priority);
+
+  if (eligible.length > 0) {
+    const distinctIssuePlayers = new Set(candidates.map(c => c.player.id)).size;
+    const topCandidate = eligible[0];
+    const hasCritical = topCandidate.priority >= 90;
+    const hasMultiIssue = distinctIssuePlayers >= 2;
+    const monthlyCap = hasMultiIssue ? 3 : 2;
+    const minGapDays = hasCritical ? 7 : hasMultiIssue ? 8 : 13;
+
+    if (playerMailsThisMonth < monthlyCap && daysSinceLastPlayerMail >= minGapDays) {
+      let shouldSend = false;
+      if (hasCritical) {
+        shouldSend = true;
       } else {
-        // 3. Positive morale/form message from an in-form starter
-        const starInForm = teamPlayers.find(p =>
-          starterIds.has(p.id) &&
-          (p.stats?.avgRating || 0) >= 7.4 &&
-          (p.stats?.appearances || 0) >= 3 &&
-          !triggerKeys.has(`form_high_${p.id}_${seasonMonth}`)
-        );
-        if (starInForm) {
-          const key = `form_high_${starInForm.id}_${seasonMonth}`;
-          triggerKeys.add(key);
-          newEmails.push({
-            id: `sp_mail_${key}`,
-            date: nextDate,
-            senderType: 'player',
-            senderId: starInForm.id,
-            senderName: starInForm.name,
-            senderRole: `${starInForm.position} · 先発主力`,
-            subject: 'チームの調子と戦術への手応えについて',
-            body: `監督、最近の試合では戦術の狙いがチーム全体に浸透していて非常にプレーしやすいです。この勢いのまま次の試合も勝利を掴みにいきましょう！`,
-            isRead: false,
-            isReplied: false,
-            relatedPlayerId: starInForm.id,
-            triggerKey: key,
-            replyOptions: [
-              {
-                id: 'praise_leader',
-                label: '君のリーダーシップと活躍に感謝する',
-                replyPreview: 'ピッチ上での素晴らしい貢献に感謝している。これからもチームを引っ張ってくれ！',
-                outcomeDescription: '信頼度 +8 / 満足度 +8',
-                effectType: 'trust_up'
-              },
-              {
-                id: 'keep_focused',
-                label: '油断せずさらに上を目指そうと鼓舞する',
-                replyPreview: '良い流れだがシーズンは長い。気を引き締めて次節も圧倒しよう。',
-                outcomeDescription: '信頼度 +5 / プロ意識向上',
-                effectType: 'acknowledge'
-              }
-            ]
-          });
+        const roll = deterministicUnitRoll(`${nextDate}_${userClub.id}_${topCandidate.player.id}_${topCandidate.topic}`);
+        if (hasMultiIssue) {
+          shouldSend = daysSinceLastPlayerMail >= 11 || roll < 0.38;
+        } else {
+          // Normal state: average 0-2 DMs per month
+          shouldSend = daysSinceLastPlayerMail >= 15 && roll < 0.30;
         }
+      }
+
+      if (shouldSend) {
+        const key = `${topCandidate.topic}_${topCandidate.player.id}_${nextDate}`;
+        triggerKeys.add(key);
+        newEmails.push(topCandidate.buildEmail(nextDate, key));
+        nextLastPlayerDmDate = nextDate;
+        nextLastPlayerDmPlayerId = topCandidate.player.id;
+        nextMonthlyCounts[seasonMonth] = playerMailsThisMonth + 1;
+        nextCooldowns[`${topCandidate.player.id}_${topCandidate.topic}`] = addIsoDays(nextDate, 55);
+        nextCooldowns[`player_${topCandidate.player.id}`] = addIsoDays(nextDate, 28);
       }
     }
   }
 
-  // Monthly Front Office / Club Notice check (on 1st or 15th of month)
+  // Monthly Front Office / Club Notice check (saved passively on 1st or 15th; zero notification badge)
   const dayNum = parseInt(nextDate.slice(8, 10), 10);
   if ((dayNum === 1 || dayNum === 15) && !triggerKeys.has(`fo_notice_${nextDate}`)) {
     triggerKeys.add(`fo_notice_${nextDate}`);
@@ -637,7 +854,7 @@ export function processDailySmartphoneEvents(state: GameWorldState, nextDate: st
       type: 'board',
       title: `クラブ定例レポート（${nextDate}）`,
       message: `残り移籍予算 €${(userClub.transferBudget / 1000000).toFixed(1)}M / 負傷者 ${injuredCount}名 / 契約残1年以下 ${expiringCount}名。${expiringCount > 0 ? 'チームハブから契約更新をご検討ください。' : 'チーム状態は安定しています。'}`,
-      isRead: false
+      isRead: true
     });
   }
 
@@ -649,7 +866,11 @@ export function processDailySmartphoneEvents(state: GameWorldState, nextDate: st
       emails: [...newEmails, ...sp.emails].slice(0, 80),
       clubNotices: [...newNotices, ...sp.clubNotices].slice(0, 60),
       lastEvaluatedDate: nextDate,
-      generatedTriggerKeys: Array.from(triggerKeys).slice(-200)
+      generatedTriggerKeys: Array.from(triggerKeys).slice(-200),
+      lastPlayerDmDate: nextLastPlayerDmDate,
+      lastPlayerDmPlayerId: nextLastPlayerDmPlayerId,
+      monthlyPlayerDmCounts: nextMonthlyCounts,
+      playerDmCooldowns: nextCooldowns
     }
   };
 }
@@ -681,6 +902,10 @@ export function respondToPlayerEmail(
       case 'promise_minutes':
         trust = Math.min(100, trust + 8);
         sat = Math.min(100, sat + 12);
+        break;
+      case 'wage_talk':
+        trust = Math.min(100, trust + 5);
+        sat = Math.min(100, sat + 8);
         break;
       case 'trust_down':
         trust = Math.max(10, trust - 6);
@@ -717,12 +942,18 @@ export function respondToPlayerEmail(
       : e
   );
 
+  const nextCooldowns = { ...(sp.playerDmCooldowns || {}) };
+  if (email.relatedPlayerId && email.dmTopic) {
+    nextCooldowns[`${email.relatedPlayerId}_${email.dmTopic}`] = addIsoDays(withSp.currentDate, 55);
+  }
+
   return {
     ...withSp,
     players: updatedPlayers,
     smartphone: {
       ...sp,
-      emails: updatedEmails
+      emails: updatedEmails,
+      playerDmCooldowns: nextCooldowns
     }
   };
 }

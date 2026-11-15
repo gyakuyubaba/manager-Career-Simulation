@@ -22,10 +22,11 @@ import { generateRandomYouthAcademy } from '../data/youthGenerator';
 import { REPAIR_SAVE_DATA_INTEGRITY, extractNameMatchTokens } from './dataValidator';
 import { rebuildStandingsFromMatchResults, determineMatchOutcome } from './dateEngine';
 import { initializePlayerSkills } from './skillEngine';
-import { syncPlayerGkAttributes } from './valuationEngine';
+import { normalizeAllPlayerMarketValues, syncPlayerGkAttributes } from './valuationEngine';
+import { rebalanceExistingSaveClubBudgets } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V6_2026_11_15_VERIFIED';
 export const APP_CODE_VERSION = '2026.2.4';
 export const DB_NAME = 'FootballManager2026_CareerDB';
@@ -366,6 +367,25 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
   // 6. Ensure Smartphone Hub state exists cleanly without losing messages/offers
   migrated.smartphone = ensureSmartphoneState(migrated).smartphone;
 
+  // 7. Normalize inflated market values individually across existing save players (Schema V9)
+  if ((oldVersion < 9 || !migrated.marketValueNormalized2026) && migrated.players) {
+    const norm = normalizeAllPlayerMarketValues(
+      migrated.players,
+      migrated.currentDate || '2026-07-01',
+      '市場価値評価システム正規化'
+    );
+    migrated.players = norm.players;
+    migrated.marketValueNormalized2026 = true;
+  }
+
+  // 8. Safely uplift club transfer budgets for existing saves while preserving surpluses & active deltas (Schema V9)
+  if ((oldVersion < 9 || !migrated.budgetRebalanced2026) && migrated.clubs) {
+    const reb = rebalanceExistingSaveClubBudgets(migrated.clubs);
+    migrated.clubs = reb.clubs;
+    migrated.budgetRebalanced2026 = true;
+  }
+
+  migrated.schemaVersion = CURRENT_SCHEMA_VERSION;
   return migrated;
 }
 

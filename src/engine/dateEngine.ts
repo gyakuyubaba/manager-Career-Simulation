@@ -13,7 +13,7 @@ import { initializeTournamentCompetitions, populateEuropeanKnockoutFixtures, adv
 import { evaluateDailyUnexpectedEvent } from './unexpectedEventsEngine';
 import { processSkillDeclineCheck } from './skillEngine';
 import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
-import { addSmartphoneNotification, processDailySmartphoneEvents, recordMatchSmartphoneUpdate } from './smartphoneEngine';
+import { processDailySmartphoneEvents, recordMatchSmartphoneUpdate } from './smartphoneEngine';
 
 // Get competition category for isolated disciplinary suspensions
 export function getCompetitionCategory(competition: string): CompetitionCategory {
@@ -840,10 +840,6 @@ export function advanceOneDay(
           relatedPlayerId: p.id,
           importance: 'high'
         });
-
-        if ((loanClubId === userClubId || parentClubId === userClubId) && !autoSimulateUserMatch) {
-          stoppedReason = `【レンタル移籍終了】${p.name}の期限付き移籍期間が満了し、${parentClub.name}への復帰手続きが完了しました。`;
-        }
       }
     }
   });
@@ -1022,7 +1018,7 @@ export function advanceOneDay(
     }
   }
 
-  // Winter transfer window opening on Jan 1
+  // Winter transfer window opening on Jan 1 (logged in news without emitting notification popup)
   if (nextDate.endsWith('-01-01') && !autoSimulateUserMatch) {
     state.news = [{
       id: `news_winter_window_open_${Date.now()}`,
@@ -1032,7 +1028,6 @@ export function advanceOneDay(
       category: 'transfer',
       importance: 'high'
     }, ...state.news];
-    stoppedReason = '【冬の移籍市場開幕】1月1日を迎え、冬の移籍ウィンドウがオープンしました！';
   }
 
   // Transfer window deadline day check (Summer: Aug 31, Winter: Jan 31)
@@ -1059,15 +1054,8 @@ export function advanceOneDay(
       state = recordMatchSmartphoneUpdate(state, userSimulatedFixture);
     }
 
-    // Smartphone daily events, skill decline alerts, and unread notices
-    skillDeclineNotices.forEach(msg => {
-      state = addSmartphoneNotification(state, {
-        date: nextDate,
-        type: 'skill_decline',
-        title: '選手コンディション・スキル変化',
-        message: msg
-      });
-    });
+    // Smartphone daily events (manager/skill notifications silenced)
+    void skillDeclineNotices;
     state = processDailySmartphoneEvents(state, nextDate);
 
     // Unexpected Events System (Requirement 10: 「予期せぬ出来事」)
@@ -2672,7 +2660,7 @@ export function generateAIClubsYouthPromotions(currentState: GameWorldState): Ga
         isType2: false
       };
 
-      players[regenId] = regenPlayer;
+      players[regenId] = recalculateDynamicMarketValue(regenPlayer, state.currentDate, 'アカデミー昇格');
       if (!club.playerIds.includes(regenId)) {
         club.playerIds = [...club.playerIds, regenId];
       }

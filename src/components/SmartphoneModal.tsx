@@ -72,10 +72,6 @@ export const SmartphoneModal: React.FC<Props> = ({
   const [actionBanner, setActionBanner] = useState<string | null>(null);
 
   const unreadTotal = getUnreadSmartphoneCount(safeState);
-  const unreadNews = sp.newsFeed.filter(n => !n.isRead).length;
-  const unreadMails = sp.emails.filter(e => !e.isRead).length;
-  const unreadNotices = sp.clubNotices.filter(n => !n.isRead).length;
-  const unreadNotifs = sp.notifications.filter(n => !n.isRead).length;
   const unreadPlayerDms = sp.emails.filter(e => e.senderType === 'player' && !e.isRead).length;
   const pendingJobOffers = (safeState.managerJobOffers || []).filter(o => o.status === 'pending');
 
@@ -350,7 +346,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                     id: 'news' as const,
                     label: 'ニュース',
                     sub: 'みんなの反応',
-                    badge: unreadNews,
+                    badge: 0,
                     color: 'bg-sky-500/15 border-sky-500/35 text-sky-300',
                     icon: Newspaper
                   },
@@ -358,7 +354,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                     id: 'mail' as const,
                     label: 'メール',
                     sub: '返信・オファー',
-                    badge: unreadMails + pendingJobOffers.length,
+                    badge: unreadPlayerDms + pendingJobOffers.length,
                     color: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300',
                     icon: Mail
                   },
@@ -382,7 +378,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                     id: 'notices' as const,
                     label: 'お知らせ',
                     sub: 'クラブ公式通達',
-                    badge: unreadNotices,
+                    badge: 0,
                     color: 'bg-purple-500/15 border-purple-500/35 text-purple-300',
                     icon: Shield
                   },
@@ -390,7 +386,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                     id: 'notifications' as const,
                     label: '監督通知',
                     sub: 'スキル・査定',
-                    badge: unreadNotifs,
+                    badge: 0,
                     color: 'bg-rose-500/15 border-rose-500/35 text-rose-300',
                     icon: Bell
                   },
@@ -398,7 +394,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                     id: 'transfers' as const,
                     label: '移籍情報',
                     sub: '市場・オファー',
-                    badge: (safeState.incomingOffers || []).filter(o => o.status === 'pending').length,
+                    badge: 0,
                     color: 'bg-teal-500/15 border-teal-500/35 text-teal-300',
                     icon: Briefcase
                   },
@@ -453,28 +449,6 @@ export const SmartphoneModal: React.FC<Props> = ({
                   <span className="text-[9px] text-emerald-400/80 leading-tight">契約・年俸交渉</span>
                 </button>
               </div>
-
-              {/* Latest Notification Preview */}
-              {sp.notifications.length > 0 && (
-                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 space-y-2">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-300">最新の通知</span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveApp('notifications')}
-                      className="text-emerald-400 font-bold cursor-pointer"
-                    >
-                      すべて見る →
-                    </button>
-                  </div>
-                  {sp.notifications.slice(0, 2).map(n => (
-                    <div key={n.id} className="p-2 rounded-xl bg-slate-950 border border-slate-800/80 text-xs">
-                      <div className="font-bold text-white truncate">{n.title}</div>
-                      <div className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">{n.message}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
 

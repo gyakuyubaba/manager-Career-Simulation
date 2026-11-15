@@ -405,6 +405,7 @@ export interface SmartphoneEmail {
   relatedPlayerId?: string;
   relatedOfferId?: string;
   triggerKey?: string;
+  dmTopic?: 'playtime' | 'contract' | 'wage' | 'loan' | 'transfer' | 'role';
   replyOptions?: SmartphoneEmailReplyOption[];
 }
 
@@ -443,6 +444,10 @@ export interface SmartphoneState {
   frontOfficeThread: FrontOfficeMessageRecord[];
   lastEvaluatedDate?: string;
   generatedTriggerKeys?: string[];
+  lastPlayerDmDate?: string;
+  lastPlayerDmPlayerId?: string;
+  monthlyPlayerDmCounts?: Record<string, number>;
+  playerDmCooldowns?: Record<string, string>;
 }
 
 export type LeagueKey = 
@@ -995,6 +1000,8 @@ export interface GameWorldState {
   currentDate: string; // ISO string e.g. "2026-07-01"
   season: string; // "2026/27" (2026/27 official database)
   rosterDataVersion?: string; // Tracks official roster updates e.g. "2026_27_V2_OFFICIAL"
+  marketValueNormalized2026?: boolean;
+  budgetRebalanced2026?: boolean;
   isTransferWindowOpen: boolean;
   transferWindowClosingDays: number;
   manager: ManagerProfile;

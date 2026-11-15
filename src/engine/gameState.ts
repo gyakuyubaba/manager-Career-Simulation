@@ -25,6 +25,7 @@ import { ensureYouthAcademyProspects } from './dataValidator';
 import { generateClubVisionRoadmap } from './clubVisionEngine';
 import { initializePlayerSkills } from './skillEngine';
 import { syncPlayerGkAttributes } from './valuationEngine';
+import { calculateCalibratedClubTransferBudget } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
 import { 
   saveGameToStorage, 
@@ -35,7 +36,8 @@ import {
   validateStateIntegrity,
   migrateGameState,
   PRIMARY_SLOT_ID,
-  CURRENT_ROSTER_DATA_VERSION
+  CURRENT_ROSTER_DATA_VERSION,
+  CURRENT_SCHEMA_VERSION
 } from './storageEngine';
 
 export { 
@@ -282,7 +284,8 @@ export function createNewGameWorld(
     FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {
-    initialClubsMap[c.id] = { ...c, playerIds: [] };
+    const calibratedBudget = calculateCalibratedClubTransferBudget(c);
+    initialClubsMap[c.id] = { ...c, transferBudget: calibratedBudget, playerIds: [] };
   });
 
   const playersRegistry = buildCompletePlayersRegistry();
@@ -347,9 +350,12 @@ export function createNewGameWorld(
   });
 
   return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     currentDate: initialDate,
     season: '2026/27',
     rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
+    marketValueNormalized2026: true,
+    budgetRebalanced2026: true,
     isTransferWindowOpen: !isMidSeason,
     transferWindowClosingDays: isMidSeason ? 0 : getDaysUntilDeadline(initialDate),
     manager: updatedManagerProfile,

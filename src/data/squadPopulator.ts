@@ -25,6 +25,7 @@ import { EUROPEAN_GERMANY_2026_SEEDS } from './europeanGermanyRosters2026';
 import { EUROPEAN_ITALY_2026_SEEDS } from './europeanItalyRosters2026';
 import { EUROPEAN_FRANCE_2026_SEEDS } from './europeanFranceRosters2026';
 import { EUROPEAN_NEW_LEAGUES_2026_SEEDS } from './europeanNewLeaguesFullRosters2026';
+import { recalculateDynamicMarketValue } from '../engine/valuationEngine';
 
 // Standard 25 squad positions template (3 GKs, 4 CBs, 2 LBs, 2 RBs, 2 CDMs, 2 CMs, 2 CAMs, 1 LM, 1 RM, 1 LW, 1 RW, 3 STs, 1 CF)
 const SQUAD_POSITIONS_TEMPLATE: Position[] = [
@@ -916,6 +917,11 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     }
   });
 
+  // Normalize every player's initial market value to eliminate legacy static over/under-valuation
+  Object.entries(baseRegistry).forEach(([pId, p]) => {
+    baseRegistry[pId] = recalculateDynamicMarketValue(p);
+  });
+
   return baseRegistry;
 }
 
@@ -979,7 +985,7 @@ export function populateClubsWithDefaultSquads(
       gkPlayer.defending = Math.floor(gkPlayer.gk * 0.45);
       gkPlayer.isVerified = false;
       gkPlayer.verificationStatus = 'unconfirmed';
-      cleanPlayers[pId] = gkPlayer;
+      cleanPlayers[pId] = recalculateDynamicMarketValue(gkPlayer);
       club.playerIds.push(pId);
     }
 
@@ -1011,7 +1017,7 @@ export function populateClubsWithDefaultSquads(
       );
       outfieldPlayer.isVerified = false;
       outfieldPlayer.verificationStatus = 'unconfirmed';
-      cleanPlayers[pId] = outfieldPlayer;
+      cleanPlayers[pId] = recalculateDynamicMarketValue(outfieldPlayer);
       club.playerIds.push(pId);
     }
   });
