@@ -911,7 +911,7 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
       if (targetPlayer) {
         const cooldowns = updatedState.recentOffersCooldown || {};
         const aiBuyers = Object.values(updatedState.clubs).filter(c => {
-          if (c.id === userClub.id) return false;
+          if (c.id === userClub.id || c.id === 'free_agent' || c.isTournamentOnly || (c.league as string) === 'uefa-tournament') return false;
           if (c.transferBudget <= targetPlayer.marketValue * 0.85) return false;
           // Requirement 7: 30-day cooldown prevents same AI club from repeating offers
           const key = `${c.id}_${targetPlayer.id}`;
@@ -986,7 +986,7 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
 
   // 2. AI to AI clubs autonomous transfer market (Requirements 8 & 27: 25% chance per day during transfer window)
   if (Math.random() < 0.25) {
-    const allClubs = Object.values(updatedState.clubs).filter(c => c.id !== updatedState.userClubId && c.transferBudget > 15000000);
+    const allClubs = Object.values(updatedState.clubs).filter(c => c.id !== updatedState.userClubId && c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament' && c.transferBudget > 15000000);
     if (allClubs.length >= 2) {
       const buyerClub = allClubs[Math.floor(Math.random() * allClubs.length)];
       const sellerClubCandidates = allClubs.filter(c => c.id !== buyerClub.id && !isRivalClub(buyerClub.id, c.id));
@@ -1045,6 +1045,8 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
     const eligibleClubs = Object.values(updatedState.clubs).filter(c => 
       c.id !== updatedState.userClubId && 
       c.id !== 'free_agent' &&
+      !c.isTournamentOnly &&
+      (c.league as string) !== 'uefa-tournament' &&
       (c.playerIds?.length || 0) < 32 &&
       (c.tier === 'Elite' || c.tier === 'Upper' || c.wageBudget > targetFA.wage * 4)
     );

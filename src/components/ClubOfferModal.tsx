@@ -1,11 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Club, ManagerProfile, LeagueKey, Player } from '../types/game';
-import { ALL_CLUBS } from '../data/clubsData';
-import { J2_20_CLUBS, J3_20_CLUBS } from '../data/jLeagueData';
-import { ALL_EUROPEAN_2ND_DIVISION_CLUBS } from '../data/europeanSecondDivisionClubs';
-import { ALL_NEW_4_LEAGUES_CLUBS } from '../data/europeanNewLeaguesData';
 import { buildCompletePlayersRegistry } from '../data/squadPopulator';
 import { generateClubVisionRoadmap } from '../engine/clubVisionEngine';
+import { getAllCalibratedSelectableClubs, getClubWithCalibratedBudget } from '../engine/clubBudgetEngine';
 import { 
   Trophy, 
   DollarSign, 
@@ -25,18 +22,13 @@ import {
 interface Props {
   manager: ManagerProfile;
   offers: Club[];
+  clubs?: Record<string, Club>;
   players?: Record<string, Player>;
   onSelectClub: (clubId: string) => void;
   onBackToManagerCreation?: () => void;
 }
 
-const ALL_SELECTABLE_CLUBS: Club[] = [
-  ...ALL_CLUBS,
-  ...J2_20_CLUBS,
-  ...J3_20_CLUBS,
-  ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
-  ...ALL_NEW_4_LEAGUES_CLUBS
-];
+const CALIBRATED_SELECTABLE_CLUBS: Club[] = getAllCalibratedSelectableClubs();
 
 const LEAGUES: { id: LeagueKey; name: string; flag: string; count: number }[] = [
   { id: 'j1-league', name: 'J1百年構想リーグ', flag: '🇯🇵', count: 20 },
@@ -58,7 +50,22 @@ const LEAGUES: { id: LeagueKey; name: string; flag: string; count: number }[] = 
   { id: 'pro-league', name: 'ベルギー・プロ・リーグ', flag: '🇧🇪', count: 16 }
 ];
 
-export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSelectClub, onBackToManagerCreation }) => {
+export const ClubOfferModal: React.FC<Props> = ({ manager, offers, clubs, players, onSelectClub, onBackToManagerCreation }) => {
+  const allSelectableClubs = useMemo(() => {
+    if (clubs && Object.keys(clubs).length > 50) {
+      return CALIBRATED_SELECTABLE_CLUBS.map(c => clubs[c.id] || c).filter(
+        c => c && c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament'
+      );
+    }
+    return CALIBRATED_SELECTABLE_CLUBS;
+  }, [clubs]);
+
+  const calibratedOffers = useMemo(() => {
+    return offers
+      .filter(o => o && o.id !== 'free_agent' && !o.isTournamentOnly && (o.league as string) !== 'uefa-tournament')
+      .map(o => clubs?.[o.id] || getClubWithCalibratedBudget(o));
+  }, [offers, clubs]);
+
   // Safe players registry
   const allPlayersMap = useMemo(() => {
     if (players && Object.keys(players).length > 500) {
@@ -69,8 +76,8 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
 
   // Default to first offer or Vissel Kobe if manager is Japanese
   const initialDefaultId = (manager.nationality === '日本'
-    ? (offers.find(c => c.league === 'j1-league')?.id || 'vissel-kobe')
-    : (offers[0]?.id || 'arsenal'));
+    ? (calibratedOffers.find(c => c.league === 'j1-league')?.id || 'vissel-kobe')
+    : (calibratedOffers[0]?.id || 'arsenal'));
 
   const [selectedClubId, setSelectedClubId] = useState<string>(initialDefaultId);
   const [viewMode, setViewMode] = useState<'offers' | 'all'>('offers');
@@ -78,10 +85,10 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
   const [searchQuery, setSearchQuery] = useState('');
 
   // Find currently selected club from all selectable clubs (including J1, J2, and European clubs)
-  const selectedClub = ALL_SELECTABLE_CLUBS.find(c => c.id === selectedClubId) || 
-                       offers.find(c => c.id === selectedClubId) || 
-                       offers[0] || 
-                       ALL_SELECTABLE_CLUBS[0];
+  const selectedClub = allSelectableClubs.find(c => c.id === selectedClubId) || 
+                       calibratedOffers.find(c => c.id === selectedClubId) || 
+                       calibratedOffers[0] || 
+                       allSelectableClubs[0];
 
   // Players belonging to currently selected club
   const clubPlayers = useMemo(() => {
@@ -97,7 +104,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
   }, [selectedClub]);
 
   // Filtered clubs for "All Clubs" browse mode
-  const filteredClubs = ALL_SELECTABLE_CLUBS.filter(c => {
+  const filteredClubs = allSelectableClubs.filter(c => {
     const matchLeague = selectedLeague === 'all' || c.league === selectedLeague;
     const q = searchQuery.trim().toLowerCase();
     const matchSearch = q === '' || 
@@ -110,7 +117,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
   const handleSelectLeagueTab = (lgId: LeagueKey | 'all') => {
     setSelectedLeague(lgId);
     // Auto-select first club of selected league so preview and bottom bar update immediately
-    const firstOfLeague = ALL_SELECTABLE_CLUBS.find(c => c.league === lgId);
+    const firstOfLeague = allSelectableClubs.find(c => c.league === lgId);
     if (firstOfLeague) {
       setSelectedClubId(firstOfLeague.id);
     }
@@ -119,7 +126,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
   const handleOpenJ1Mode = () => {
     setViewMode('all');
     setSelectedLeague('j1-league');
-    const firstJ1 = ALL_SELECTABLE_CLUBS.find(c => c.league === 'j1-league');
+    const firstJ1 = allSelectableClubs.find(c => c.league === 'j1-league');
     if (firstJ1) {
       setSelectedClubId(firstJ1.id);
     }
@@ -128,7 +135,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
   const handleOpenJ2Mode = () => {
     setViewMode('all');
     setSelectedLeague('j2-league');
-    const firstJ2 = ALL_SELECTABLE_CLUBS.find(c => c.league === 'j2-league');
+    const firstJ2 = allSelectableClubs.find(c => c.league === 'j2-league');
     if (firstJ2) {
       setSelectedClubId(firstJ2.id);
     }
@@ -137,7 +144,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
   const handleOpenJ3Mode = () => {
     setViewMode('all');
     setSelectedLeague('j3-league');
-    const firstJ3 = ALL_SELECTABLE_CLUBS.find(c => c.league === 'j3-league');
+    const firstJ3 = allSelectableClubs.find(c => c.league === 'j3-league');
     if (firstJ3) {
       setSelectedClubId(firstJ3.id);
     }
@@ -229,7 +236,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
               setViewMode('all');
               if (selectedLeague === 'j1-league' || selectedLeague === 'j2-league' || selectedLeague === 'j3-league') {
                 setSelectedLeague('premier-league');
-                const firstPL = ALL_SELECTABLE_CLUBS.find(c => c.league === 'premier-league');
+                const firstPL = allSelectableClubs.find(c => c.league === 'premier-league');
                 if (firstPL) setSelectedClubId(firstPL.id);
               }
             }}
@@ -270,7 +277,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-              {offers.map(club => {
+              {calibratedOffers.map(club => {
                 const isSelected = club.id === selectedClubId;
                 const isJ1 = club.league === 'j1-league';
                 const tagLabel = 
@@ -451,7 +458,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
                         <div className="text-xs sm:text-sm font-bold text-white truncate">{c.name}</div>
                         <div className="flex items-center justify-between text-[10px] mt-1 font-mono">
                           <span className="text-emerald-400">€{(c.transferBudget / 1000000).toFixed(1)}M</span>
-                          <span className="text-amber-300/90 text-[9px] font-sans">選手 25名登録済</span>
+                          <span className="text-amber-300/90 text-[9px] font-sans">選手 {c.playerIds?.length || 25}名登録済</span>
                         </div>
                       </div>
 
@@ -720,7 +727,7 @@ export const ClubOfferModal: React.FC<Props> = ({ manager, offers, players, onSe
             </div>
             <div className="truncate">
               <div className="text-xs text-slate-400 truncate">
-                選択中: <span className="text-white font-bold">{selectedClub.name}</span> ({isCurrentJ1 ? '🇯🇵 J1百年構想リーグ' : isCurrentJ2 ? '🇯🇵 J2リーグ' : isCurrentJ3 ? '🇯🇵 J3リーグ' : selectedClub.league.replace('-', ' ')}) · <span className="text-emerald-400 font-semibold">25名登録済</span>
+                選択中: <span className="text-white font-bold">{selectedClub.name}</span> ({isCurrentJ1 ? '🇯🇵 J1百年構想リーグ' : isCurrentJ2 ? '🇯🇵 J2リーグ' : isCurrentJ3 ? '🇯🇵 J3リーグ' : selectedClub.league.replace('-', ' ')}) · <span className="text-emerald-400 font-semibold">{clubPlayers.length}名登録済</span>
               </div>
               <div className="text-[11px] text-emerald-400 font-mono">
                 補強予算 €{(selectedClub.transferBudget / 1000000).toFixed(1)}M · 提示年俸 €{(selectedClub.tier === 'Elite' ? 3800000 : selectedClub.tier === 'Upper' ? 2200000 : selectedClub.tier === 'Mid' ? 1200000 : 650000).toLocaleString()}

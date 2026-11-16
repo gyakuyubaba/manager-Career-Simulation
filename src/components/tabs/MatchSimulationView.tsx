@@ -12,6 +12,7 @@ import {
   removePlayerFromTacticsPitch,
   resimulateRemainingMatchFromMinute,
   finalizeMatchResultAndPlayerStats,
+  calculateMatchFatigueDelta,
   createPRNG,
   hashStringToNumber
 } from '../../engine/matchEngine';
@@ -89,13 +90,28 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Track players who have already been subbed off to strictly forbid re-entry
   const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
 
-  // In-match user tactical instructions & live pitch state for BOTH home and away teams
-  const [tactics, setTactics] = useState<TeamTactics>(state.tactics);
+  // Helper: Deep clone TeamTactics so match-only mutations (B) NEVER touch permanent club tactics (A)
+  const cloneTacticsDeep = (src: TeamTactics): TeamTactics => ({
+    ...src,
+    customPositions: src.customPositions
+      ? Object.fromEntries(Object.entries(src.customPositions).map(([k, v]) => [k, { ...v }]))
+      : undefined,
+    lineup: {
+      starters: (src.lineup?.starters || []).map(s => ({ ...s })),
+      bench: [...(src.lineup?.bench || [])],
+      reserves: [...(src.lineup?.reserves || [])]
+    },
+    instructions: { ...(src.instructions || {}) },
+    roles: { ...(src.roles || {}) }
+  });
+
+  // In-match user tactical instructions & live pitch state (B: Match-Only Live Tactics, isolated from A: state.tactics)
+  const [tactics, setTactics] = useState<TeamTactics>(() => cloneTacticsDeep(state.tactics));
   const [homeLiveTactics, setHomeLiveTactics] = useState<TeamTactics>(() =>
-    isUserHome ? state.tactics : (homeClub ? getDefaultTacticsForClub(homeClub, state.players) : state.tactics)
+    cloneTacticsDeep(isUserHome ? state.tactics : (homeClub ? getDefaultTacticsForClub(homeClub, state.players) : state.tactics))
   );
   const [awayLiveTactics, setAwayLiveTactics] = useState<TeamTactics>(() =>
-    !isUserHome ? state.tactics : (awayClub ? getDefaultTacticsForClub(awayClub, state.players) : state.tactics)
+    cloneTacticsDeep(!isUserHome ? state.tactics : (awayClub ? getDefaultTacticsForClub(awayClub, state.players) : state.tactics))
   );
   const homeLiveTacticsRef = useRef<TeamTactics>(homeLiveTactics);
   const awayLiveTacticsRef = useRef<TeamTactics>(awayLiveTactics);
@@ -140,6 +156,22 @@ export const MatchSimulationView: React.FC<Props> = ({
     }
   };
 
+  const getLiveInMatchFatigue = (
+    p: Player,
+    clubId: string,
+    currentMin: number,
+    eventsList: MatchEvent[],
+    pressIntensity: string = '標準的'
+  ): number => {
+    const subInEv = eventsList.find(
+      e => e.type === 'sub' && e.clubId === clubId && e.subInPlayerId === p.id
+    );
+    const enteredMin = subInEv ? subInEv.minute : 0;
+    const playedMins = Math.max(0, currentMin - enteredMin);
+    const delta = calculateMatchFatigueDelta(p, playedMins, pressIntensity, Boolean(subInEv));
+    return Math.min(100, Math.round((p.fatigue ?? 0) + delta));
+  };
+
   const applyEventsToLiveTactics = (eventsToApply: MatchEvent[]) => {
     if (!homeClub || !awayClub || eventsToApply.length === 0) return;
     let nextHomeTac = homeLiveTacticsRef.current;
@@ -148,6 +180,7 @@ export const MatchSimulationView: React.FC<Props> = ({
     let homeChanged = false;
     let awayChanged = false;
     let subOutChanged = false;
+    let userSubEventsAdded = 0;
 
     eventsToApply.forEach(ev => {
       if (ev.clubId === homeClub.id) {
@@ -164,6 +197,9 @@ export const MatchSimulationView: React.FC<Props> = ({
         }
       }
       if (ev.type === 'sub') {
+        if (ev.clubId === state.userClubId) {
+          userSubEventsAdded++;
+        }
         const outId = ev.subOutPlayerId || ev.playerId;
         if (outId && !nextSubbedOut.includes(outId)) {
           nextSubbedOut = [...nextSubbedOut, outId];
@@ -185,6 +221,9 @@ export const MatchSimulationView: React.FC<Props> = ({
     if (subOutChanged) {
       subbedOutPlayerIdsRef.current = nextSubbedOut;
       setSubbedOutPlayerIds(nextSubbedOut);
+    }
+    if (userSubEventsAdded > 0) {
+      setSubCount(c => Math.min(5, c + userSubEventsAdded));
     }
   };
 
@@ -828,11 +867,12 @@ export const MatchSimulationView: React.FC<Props> = ({
 
     const homeTac = homeLiveTacticsRef.current;
     const awayTac = awayLiveTacticsRef.current;
+    // 即時スキップ時は自クラブにもAI自動交代（疲労・警告・適性考慮・最大5枠）を有効化
     const ffOptions = {
       initialHomeStarterIds: initialHomeStarterIdsRef.current,
       initialAwayStarterIds: initialAwayStarterIdsRef.current,
-      skipAutoSubsForClubId: state.userClubId || undefined,
-      subbedOutPlayerIds: subbedOutPlayerIdsRef.current
+      subbedOutPlayerIds: subbedOutPlayerIdsRef.current,
+      forceResimulateRemaining: true
     };
 
     if (minute < 45) {
@@ -2085,7 +2125,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
                   {homeStartersList.map((s, idx) => {
                     const p = s.player;
-                    const dynamicFatigue = Math.min(100, Math.round((p.fatigue || 20) + (minute * 0.25)));
+                    const dynamicFatigue = getLiveInMatchFatigue(p, homeClub?.id || '', minute, revealedEvents, homeTactics.instructions?.pressIntensity);
                     const isUserPlayer = isUserHome;
                     const isSubIn = !initialHomeStarterIdsRef.current.includes(p.id);
                     return (
@@ -2156,7 +2196,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
                   {awayStartersList.map((s, idx) => {
                     const p = s.player;
-                    const dynamicFatigue = Math.min(100, Math.round((p.fatigue ?? 0) + (minute * 0.25)));
+                    const dynamicFatigue = getLiveInMatchFatigue(p, awayClub?.id || '', minute, revealedEvents, awayTactics.instructions?.pressIntensity);
                     const isUserPlayer = !isUserHome;
                     const isSubIn = !initialAwayStarterIdsRef.current.includes(p.id);
                     return (
@@ -2223,8 +2263,8 @@ export const MatchSimulationView: React.FC<Props> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
               {userStarters.map(p => {
-                // Dynamic in-match fatigue: increases as match minutes advance
-                const dynamicFatigue = Math.min(100, Math.round(p.fatigue + (minute * 0.25)));
+                // Dynamic in-match fatigue: balanced calculation from actual minutes played (respects sub entry minute & base fatigue 0)
+                const dynamicFatigue = getLiveInMatchFatigue(p, state.userClubId || '', minute, revealedEvents, tactics.instructions?.pressIntensity);
 
                 return (
                   <div key={p.id} className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
@@ -2407,7 +2447,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                 <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                   {userStarters.map(p => {
                     const isSelected = subPlayerOffId === p.id;
-                    const dynamicFatigue = Math.min(100, Math.round(p.fatigue + (minute * 0.25)));
+                    const dynamicFatigue = getLiveInMatchFatigue(p, state.userClubId || '', minute, revealedEvents, tactics.instructions?.pressIntensity);
 
                     return (
                       <button
@@ -2515,7 +2555,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  スコアや相手の出方に合わせ、試合中にフォーメーションや戦術指示を即座に切り替えます。
+                  スコアや相手の出方に合わせ、試合中にフォーメーションや戦術指示を即座に切り替えます（※通常チームのフォーメーション・自由配置は変更されません）。
                 </p>
               </div>
               <button
@@ -2549,9 +2589,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                     const newForm = e.target.value as FormationName;
                     const updated = updateTacticsFormation(tactics, newForm);
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
-                    setInMatchTacticsToast(`フォーメーションを ${newForm} に変更しました`);
+                    setInMatchTacticsToast(`この試合のフォーメーションを ${newForm} に変更しました（クラブ基本戦術は維持）`);
                     setTimeout(() => setInMatchTacticsToast(null), 3000);
                   }}
                   className="bg-slate-800 border border-emerald-500/50 hover:border-emerald-400 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none cursor-pointer"
@@ -2612,9 +2651,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                       onClick={() => {
                         const updated = updateTacticsFormation(tactics, preset as FormationName);
                         syncUserAndLiveTactics(updated, false);
-                        onUpdateTactics?.(updated);
                         triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
-                        setInMatchTacticsToast(`フォーメーションを ${preset} に変更しました`);
+                        setInMatchTacticsToast(`この試合のフォーメーションを ${preset} に変更しました`);
                         setTimeout(() => setInMatchTacticsToast(null), 3000);
                       }}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
@@ -2643,7 +2681,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                       instructions: { ...tactics.instructions, attackingStyle: e.target.value as any }
                     };
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`攻撃スタイルを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
@@ -2672,7 +2709,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                       instructions: { ...tactics.instructions, defensiveStyle: e.target.value as any }
                     };
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`守備スタイルを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
@@ -2700,7 +2736,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                       instructions: { ...tactics.instructions, pressIntensity: e.target.value as any }
                     };
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`プレス強度を「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
@@ -2726,7 +2761,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                       instructions: { ...tactics.instructions, defensiveLine: e.target.value as any }
                     };
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`ライン高さを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
@@ -2752,7 +2786,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                       instructions: { ...tactics.instructions, tempo: e.target.value as any }
                     };
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`テンポを「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
@@ -2778,7 +2811,6 @@ export const MatchSimulationView: React.FC<Props> = ({
                       instructions: { ...tactics.instructions, counterUrgency: e.target.value as any }
                     };
                     syncUserAndLiveTactics(updated, false);
-                    onUpdateTactics?.(updated);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`カウンター意識を「${e.target.value}」に変更`);
                     setTimeout(() => setInMatchTacticsToast(null), 2500);
@@ -3442,7 +3474,9 @@ export const MatchSimulationView: React.FC<Props> = ({
             tactics={tactics}
             onCompleteReplacement={(newTactics, updatedPlayers) => {
               syncUserAndLiveTactics(newTactics, true);
-              if (onUpdateTactics) onUpdateTactics(newTactics);
+              if (matchPhase === 'pre' && onUpdateTactics) {
+                onUpdateTactics(cloneTacticsDeep(newTactics));
+              }
               
               // Re-check eligibility
               const newCheck = finalMatchEligibilityCheck(

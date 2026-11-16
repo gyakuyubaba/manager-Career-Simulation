@@ -17,6 +17,7 @@ import { addDays, getCompetitionCategory } from './dateEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 import { getPlayerSkillMatchModifiers, processMatchSkillProgression } from './skillEngine';
 import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
+import { getPositionFitOvr } from './tacticsEngine';
 
 // Condition multiplier for calculations
 export const CONDITION_MULTIPLIER: Record<PlayerCondition, number> = {
@@ -1266,7 +1267,7 @@ export function finalizeMatchResultAndPlayerStats(params: {
   // Apply cumulative stats, fatigue, and OVR growth for ALL match participants (starters + subs)
   Object.entries(participants).forEach(([pId, ps]) => {
     const existing = updatedPlayers[pId];
-    if (!existing) return;
+    if (!existing || pId.startsWith('euro_synth_')) return;
 
     const updated: Player = {
       ...existing,
@@ -1275,39 +1276,13 @@ export function finalizeMatchResultAndPlayerStats(params: {
       competitionStats: existing.competitionStats ? { ...existing.competitionStats } : {}
     };
 
-    const playerStamina = existing.stamina || existing.physical || 75;
-    const staminaFactor = Math.max(0.65, Math.min(1.35, 1.0 - (playerStamina - 75) * 0.012));
-
-    let positionWorkrate = 1.0;
-    if (['LWB', 'RWB', 'LM', 'RM'].includes(existing.position)) {
-      positionWorkrate = 1.25;
-    } else if (['CM', 'CDM', 'CAM'].includes(existing.position)) {
-      positionWorkrate = 1.15;
-    } else if (['ST', 'CF', 'LW', 'RW'].includes(existing.position)) {
-      positionWorkrate = 1.05;
-    } else if (['CB', 'LB', 'RB'].includes(existing.position)) {
-      positionWorkrate = 0.9;
-    } else if (existing.position === 'GK') {
-      positionWorkrate = 0.35;
-    }
-
-    const timeFactor = ps.minutesPlayed / 90;
     const tacticsPress =
       (ps.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
-    const pressMultiplier =
-      tacticsPress === '非常に激しい' || tacticsPress === '相手CB・GK限定猛プレス'
-        ? 1.2
-        : tacticsPress === '自陣引き気味'
-          ? 0.85
-          : 1.0;
-
-    const skillMods = getPlayerSkillMatchModifiers(existing, {
-      minute: ps.minutesPlayed,
-      isSubbedIn: !ps.isStarter
-    });
-    const calculatedFatigueDelta = Math.round(
-      (15 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier) /
-      Math.max(1.0, skillMods.staminaRetentionMult)
+    const calculatedFatigueDelta = calculateMatchFatigueDelta(
+      existing,
+      ps.minutesPlayed,
+      tacticsPress,
+      !ps.isStarter
     );
     updated.fatigue = Math.max(0, Math.min(100, (updated.fatigue || 0) + calculatedFatigueDelta));
 
@@ -1497,7 +1472,111 @@ export function simulateFullMatch(
     hashStringToNumber(`${fixture.id}_${homeClub.id}_${awayClub.id}_${fixture.date || '2026-08-01'}_${startMinute}`);
   const rng = createPRNG(effectiveSeed);
 
-  const sanitizeStarters = (club: Club, tactics?: TeamTactics): string[] => {
+  const buildEphemeralTournamentSquad = (club: Club, seedBase: number): { starters: string[]; bench: string[] } => {
+    const r = club.tournamentRatings || {
+      overall: Math.max(66, Math.min(84, club.reputation || 75)),
+      attack: Math.max(66, Math.min(84, club.reputation || 75)),
+      midfield: Math.max(66, Math.min(84, club.reputation || 75)),
+      defense: Math.max(66, Math.min(84, club.reputation || 75)),
+      gk: Math.max(66, Math.min(84, club.reputation || 75))
+    };
+    const slotDefs: Array<{ pos: Player['position']; role: string; ovr: number }> = [
+      { pos: 'GK', role: 'GK', ovr: r.gk },
+      { pos: 'RB', role: 'RB', ovr: r.defense },
+      { pos: 'CB', role: 'CB', ovr: r.defense },
+      { pos: 'CB', role: 'CB', ovr: r.defense },
+      { pos: 'LB', role: 'LB', ovr: r.defense },
+      { pos: 'CDM', role: 'CDM', ovr: r.midfield },
+      { pos: 'CM', role: 'CM', ovr: r.midfield },
+      { pos: 'CAM', role: 'CAM', ovr: r.midfield },
+      { pos: 'RW', role: 'RW', ovr: r.attack },
+      { pos: 'ST', role: 'ST', ovr: r.attack },
+      { pos: 'LW', role: 'LW', ovr: r.attack },
+      { pos: 'GK', role: 'Sub GK', ovr: Math.max(62, r.gk - 3) },
+      { pos: 'CB', role: 'Sub DF', ovr: Math.max(62, r.defense - 3) },
+      { pos: 'CM', role: 'Sub MF', ovr: Math.max(62, r.midfield - 3) },
+      { pos: 'LW', role: 'Sub WG', ovr: Math.max(62, r.attack - 3) },
+      { pos: 'ST', role: 'Sub FW', ovr: Math.max(62, r.attack - 2) }
+    ];
+    const starters: string[] = [];
+    const bench: string[] = [];
+    slotDefs.forEach((def, idx) => {
+      const pId = `euro_synth_${club.id}_${idx}`;
+      const synthAge = 24 + ((seedBase + idx) % 6);
+      const synth: Player = {
+        id: pId,
+        name: `${club.shortName || club.name.slice(0, 3)} #${idx + 1} (${def.pos})`,
+        age: synthAge,
+        birthDate: `${2026 - synthAge}-06-15`,
+        nationality: club.country,
+        position: def.pos,
+        altPositions: [],
+        preferredFoot: idx % 4 === 0 ? '左' : '右',
+        ovr: def.ovr,
+        exactOvr: def.ovr,
+        potential: def.ovr + 2,
+        pace: def.ovr,
+        shooting: def.pos === 'ST' || def.pos === 'RW' || def.pos === 'LW' || def.pos === 'CAM' ? def.ovr : Math.max(55, def.ovr - 12),
+        passing: def.pos === 'CM' || def.pos === 'CAM' || def.pos === 'CDM' ? def.ovr : Math.max(60, def.ovr - 6),
+        dribbling: def.ovr - 2,
+        defending: def.pos === 'CB' || def.pos === 'LB' || def.pos === 'RB' || def.pos === 'CDM' ? def.ovr : Math.max(45, def.ovr - 22),
+        physical: def.ovr - 1,
+        stamina: 80,
+        gk: def.pos === 'GK' ? def.ovr : 20,
+        marketValue: 5_000_000,
+        wage: 25_000,
+        contractYears: 3,
+        clubId: club.id,
+        squadRole: idx < 11 ? '絶対的主力' : '控え・バックアップ',
+        playstyle: 'バランス型',
+        personality: 'プロフェッショナル',
+        managerTrust: 75,
+        relationships: [],
+        injury: { isInjured: false, recoveryDays: 0 },
+        suspension: { isSuspended: false, matchesRemaining: 0 },
+        isLoaned: false,
+        fatigue: 0,
+        condition: 'yellow',
+        squadStatus: idx < 11 ? 'STARTING' : 'BENCH',
+        shirtNumber: idx + 1,
+        stats: {
+          appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
+          cleanSheets: 0, yellowCards: 0, redCards: 0, avgRating: 0, saves: 0, goalsConceded: 0
+        },
+        isVerified: true,
+        verificationStatus: 'verified'
+      };
+      tempPlayers[pId] = synth;
+      if (idx < 11) starters.push(pId);
+      else bench.push(pId);
+    });
+    return { starters, bench };
+  };
+
+  let effectiveHomeTactics = homeTactics;
+  let effectiveAwayTactics = awayTactics;
+
+  const sanitizeStarters = (club: Club, tactics?: TeamTactics): { starters: string[]; updatedTactics?: TeamTactics } => {
+    if (club.isTournamentOnly || (club.league as string) === 'uefa-tournament') {
+      const synth = buildEphemeralTournamentSquad(club, effectiveSeed);
+      return {
+        starters: synth.starters,
+        updatedTactics: {
+          ...(tactics || homeTactics),
+          lineup: {
+            starters: synth.starters.map((pId, idx) => ({
+              playerId: pId,
+              position: tempPlayers[pId].position,
+              pitchX: 50,
+              pitchY: idx === 0 ? 92 : 50
+            })),
+            bench: synth.bench,
+            reserves: []
+          }
+        }
+      };
+    }
+
     const rawStarters = (tactics?.lineup?.starters || [])
       .map((s: any) => (typeof s === 'string' ? s : s?.playerId))
       .filter(Boolean);
@@ -1523,11 +1602,15 @@ export function simulateFullMatch(
       }
     }
 
-    return valid;
+    return { starters: valid };
   };
 
-  let homePitchPlayers = sanitizeStarters(homeClub, homeTactics);
-  let awayPitchPlayers = sanitizeStarters(awayClub, awayTactics);
+  const homeSanitized = sanitizeStarters(homeClub, homeTactics);
+  const awaySanitized = sanitizeStarters(awayClub, awayTactics);
+  let homePitchPlayers = homeSanitized.starters;
+  let awayPitchPlayers = awaySanitized.starters;
+  if (homeSanitized.updatedTactics) effectiveHomeTactics = homeSanitized.updatedTactics;
+  if (awaySanitized.updatedTactics) effectiveAwayTactics = awaySanitized.updatedTactics;
 
   const initialHomeStarterIds = options?.initialHomeStarterIds
     ? [...options.initialHomeStarterIds]
@@ -1539,12 +1622,6 @@ export function simulateFullMatch(
   const homeStartersList = homePitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
   const awayStartersList = awayPitchPlayers.map(id => tempPlayers[id]).filter(Boolean);
 
-  const getSubRating = (list: Player[], positions: string[], fallback: number): number => {
-    const filtered = list.filter(p => positions.includes(p.position));
-    if (filtered.length === 0) return fallback;
-    return filtered.reduce((acc, p) => acc + calculateEffectivePlayerPower(p), 0) / filtered.length;
-  };
-
   const getFormationProfile = (tactics: TeamTactics, startersList: Player[]) => {
     const f = tactics.formation;
     const is5Back = f.startsWith('5-') || startersList.filter(p => ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.position)).length >= 5;
@@ -1554,11 +1631,37 @@ export function simulateFullMatch(
     const centralCount = startersList.filter(p => ['CAM', 'CM', 'CDM', 'ST', 'CF'].includes(p.position)).length;
     const fwCount = startersList.filter(p => ['ST', 'CF', 'RW', 'LW'].includes(p.position)).length;
     const mfCount = startersList.filter(p => ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(p.position)).length;
-    const avgPitchY =
-      tactics.lineup.starters.length > 0
-        ? tactics.lineup.starters.reduce((acc, s) => acc + (s.pitchY || 50), 0) / tactics.lineup.starters.length
-        : 50;
-    const pushUpFactor = Math.max(0.85, Math.min(1.18, (55 - avgPitchY) * 0.012 + 1.0));
+
+    const coords = (tactics.lineup.starters || []).map(s => {
+      const freeCoord = tactics.placementMode === 'free' ? tactics.customPositions?.[s.playerId] : undefined;
+      return {
+        x: freeCoord ? freeCoord.x : (s.pitchX || 50) / 100,
+        y: freeCoord ? freeCoord.y : (s.pitchY || 50) / 100,
+        pos: freeCoord?.position || s.position
+      };
+    });
+    const outfieldCoords = coords.filter(c => c.pos !== 'GK');
+    const avgPitchY = outfieldCoords.length > 0
+      ? (outfieldCoords.reduce((acc, c) => acc + c.y, 0) / outfieldCoords.length) * 100
+      : 50;
+    const widthSpread = outfieldCoords.length > 0
+      ? outfieldCoords.reduce((acc, c) => acc + Math.abs(c.x - 0.5), 0) / outfieldCoords.length
+      : 0.22;
+    const dfLineY = outfieldCoords.length > 0
+      ? Math.max(...outfieldCoords.map(c => c.y))
+      : 0.80;
+    const fwDepthY = outfieldCoords.length > 0
+      ? Math.min(...outfieldCoords.map(c => c.y))
+      : 0.16;
+
+    const pushUpBase = Math.max(0.84, Math.min(1.20, (52 - avgPitchY) * 0.012 + 1.0));
+    const freeAttackFactor = tactics.placementMode === 'free'
+      ? Math.max(0.92, Math.min(1.12, (0.22 - fwDepthY) * 0.35 + (widthSpread > 0.25 ? 1.03 : 1.0)))
+      : 1.0;
+    const freeDefenseFactor = tactics.placementMode === 'free'
+      ? Math.max(0.92, Math.min(1.12, (dfLineY - 0.72) * 0.45 + (widthSpread < 0.21 ? 1.03 : 1.0)))
+      : 1.0;
+    const pushUpFactor = Math.max(0.84, Math.min(1.22, pushUpBase * freeAttackFactor));
 
     return {
       is5Back,
@@ -1569,7 +1672,8 @@ export function simulateFullMatch(
       fwCount,
       mfCount,
       pushUpFactor,
-      isWingOriented: f === '4-3-3' || f === '4-2-4' || f === '3-4-3' || wingCount >= 4,
+      freeDefenseFactor,
+      isWingOriented: f === '4-3-3' || f === '4-2-4' || f === '3-4-3' || wingCount >= 4 || widthSpread >= 0.26,
       isCamDominant: f === '4-2-3-1' || f === '4-3-1-2' || f === '5-2-2-1',
       isMidfieldDominant: f === '3-5-2' || f === '4-5-1' || f === '4-1-4-1' || mfCount >= 5,
       isSolidDefense: is5Back || f === '5-3-2' || f === '5-4-1'
@@ -1583,7 +1687,8 @@ export function simulateFullMatch(
     freshBoostCount: number,
     minute: number = 45,
     subbedInIds?: Set<string>,
-    goalDiff: number = 0
+    goalDiff: number = 0,
+    clubObj?: Club
   ) => {
     const pitchList = pitchIds.map(id => tempPlayers[id]).filter(Boolean);
     const getSkillWeightedSubRating = (positions: string[], role: 'fw' | 'mf' | 'df', fallback: number): number => {
@@ -1606,12 +1711,16 @@ export function simulateFullMatch(
       }, 0) / filtered.length;
     };
 
-    const fwPower = getSkillWeightedSubRating(['ST', 'CF', 'RW', 'LW'], 'fw', 72);
-    const mfPower = getSkillWeightedSubRating(['CAM', 'CM', 'CDM', 'RM', 'LM'], 'mf', 72);
-    const dfPower = getSkillWeightedSubRating(['CB', 'RB', 'LB', 'LWB', 'RWB'], 'df', 72);
+    const isGroupB = Boolean(clubObj?.isTournamentOnly && clubObj?.tournamentRatings);
+    const tr = clubObj?.tournamentRatings;
+    const fwPower = isGroupB && tr ? tr.attack : getSkillWeightedSubRating(['ST', 'CF', 'RW', 'LW'], 'fw', 72);
+    const mfPower = isGroupB && tr ? tr.midfield : getSkillWeightedSubRating(['CAM', 'CM', 'CDM', 'RM', 'LM'], 'mf', 72);
+    const dfPower = isGroupB && tr ? tr.defense : getSkillWeightedSubRating(['CB', 'RB', 'LB', 'LWB', 'RWB'], 'df', 72);
     const gkPlayer = pitchList.find(p => p.position === 'GK');
     const gkMods = gkPlayer ? getPlayerSkillMatchModifiers(gkPlayer, { minute, isHome: isHomeTeam, goalDiff }) : null;
-    const gkPower = (gkPlayer?.ovr || 72) * (gkMods ? (gkMods.gkSaveMult * 0.65 + gkMods.gk1v1Mult * 0.2 + gkMods.gkCrossMult * 0.15) : 1.0);
+    const gkPower = isGroupB && tr
+      ? tr.gk
+      : (gkPlayer?.ovr || 72) * (gkMods ? (gkMods.gkSaveMult * 0.65 + gkMods.gk1v1Mult * 0.2 + gkMods.gkCrossMult * 0.15) : 1.0);
     const profile = getFormationProfile(tactics, pitchList);
     const freshMult = 1 + Math.min(0.06, freshBoostCount * 0.015);
 
@@ -1619,7 +1728,7 @@ export function simulateFullMatch(
     if (profile.isWingOriented || profile.fwCount >= 3) attack *= 1.05;
     if (profile.isMidfieldDominant) attack *= 1.03;
 
-    let defense = (dfPower * 0.65 + gkPower * 0.35) * (isHomeTeam ? 1.03 : 1.0) * freshMult;
+    let defense = (dfPower * 0.65 + gkPower * 0.35) * (isHomeTeam ? 1.03 : 1.0) * profile.freeDefenseFactor * freshMult;
     if (profile.isSolidDefense) defense *= 1.14;
 
     return { fwPower, mfPower, dfPower, gkPower, attack, defense };
@@ -1681,7 +1790,7 @@ export function simulateFullMatch(
     }
   });
 
-  const subCheckpoints = (options?.forcedSubMinutes || [60, 68, 75, 82]).slice().sort((a, b) => a - b);
+  const subCheckpoints = (options?.forcedSubMinutes || [52, 58, 65, 71, 77, 83, 87]).slice().sort((a, b) => a - b);
   let homeSubCount = events.filter(e => e.type === 'sub' && e.clubId === homeClub.id).length;
   let awaySubCount = events.filter(e => e.type === 'sub' && e.clubId === awayClub.id).length;
   const triggeredHomeSubWindows = new Set<number>();
@@ -1701,8 +1810,9 @@ export function simulateFullMatch(
     tactics: TeamTactics,
     usedBenchSet: Set<string>,
     subbedInSet: Set<string>,
-    minute: number
-  ): { didSub: boolean; newPitchIds: string[] } => {
+    minute: number,
+    scoreDiff: number
+  ): { didSub: boolean; newPitchIds: string[]; urgentRemaining: boolean } => {
     const benchIds = tactics.lineup?.bench || [];
     const availableBench = benchIds
       .map(id => tempPlayers[id])
@@ -1717,30 +1827,91 @@ export function simulateFullMatch(
           !pitchIds.includes(p.id)
       );
 
-    if (availableBench.length === 0) return { didSub: false, newPitchIds: pitchIds };
+    if (availableBench.length === 0) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
 
     const candidates = pitchIds
       .map(id => tempPlayers[id])
       .filter(p => p && p.position !== 'GK' && !subbedInSet.has(p.id));
 
-    if (candidates.length === 0) return { didSub: false, newPitchIds: pitchIds };
+    if (candidates.length === 0) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
 
-    candidates.sort((a, b) => {
-      const aYellow = yellowCardCounts[a.id] ? 1 : 0;
-      const bYellow = yellowCardCounts[b.id] ? 1 : 0;
-      if (aYellow !== bYellow) return bYellow - aYellow;
-      const aFatigue = (a.fatigue || 0) + Math.round(minute * 0.25);
-      const bFatigue = (b.fatigue || 0) + Math.round(minute * 0.25);
-      return bFatigue - aFatigue;
+    const pressStr = tactics.instructions?.pressIntensity || '標準的';
+    const pressMult = pressStr.includes('非常') || pressStr.includes('猛') ? 1.18 : pressStr.includes('自陣') ? 0.85 : 1.0;
+
+    const evaluateCandidate = (p: Player) => {
+      const baseFatigue = p.fatigue || 0;
+      const staminaBase = p.stamina || p.physical || 75;
+      const staminaPenaltyMult = Math.max(0.7, 1.0 - (staminaBase - 75) * 0.012);
+      const liveDrain = (minute / 90) * 38 * staminaPenaltyMult * pressMult;
+      const liveFatigue = Math.min(100, baseFatigue + liveDrain);
+
+      // 4-tier priority scoring
+      let score = liveFatigue;
+      if (liveFatigue >= 80 || (baseFatigue >= 68 && minute >= 48)) {
+        score += 55; // Priority 1: Extremely fatigued / red zone
+      } else if (liveFatigue >= 65 || (minute >= 58 && liveFatigue >= 58 && staminaBase < 74)) {
+        score += 34; // Priority 2: Fatigue noticeably hurting performance
+      } else if (baseFatigue >= 42) {
+        score += 14; // Priority 4: Accumulated congestion fatigue from pre-match
+      }
+
+      if (staminaBase < 70 && minute >= 55) {
+        score += 12; // Priority 3: Low stamina attribute
+      }
+      if (yellowCardCounts[p.id]) {
+        score += 26; // Card sending-off protection
+      }
+
+      // Tactical context nudges
+      const isAttOrMid = ['ST', 'CF', 'LW', 'RW', 'CAM', 'CM', 'LM', 'RM'].includes(p.position);
+      const isDefOrMid = ['CB', 'LB', 'RB', 'LWB', 'RWB', 'CDM', 'CM'].includes(p.position);
+      if (scoreDiff < 0 && minute >= 64 && isAttOrMid) score += 8;
+      if (scoreDiff === 1 && minute >= 75 && isDefOrMid) score += 8;
+
+      return { player: p, score, liveFatigue };
+    };
+
+    const evaluated = candidates.map(evaluateCandidate).sort((a, b) => b.score - a.score);
+    const topPick = evaluated[0];
+    if (!topPick) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
+
+    const outPlayer = topPick.player;
+
+    // Require genuine reason to sub unless late-game fresh-legs window with tired starters
+    const isUrgentFatigueOrCard =
+      topPick.liveFatigue >= 62 ||
+      Boolean(yellowCardCounts[outPlayer.id] && minute >= 55) ||
+      (minute >= 68 && topPick.liveFatigue >= 52) ||
+      (minute >= 76 && topPick.liveFatigue >= 44);
+
+    if (!isUrgentFatigueOrCard) {
+      return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
+    }
+
+    const outEffectiveOvr = getPositionFitOvr(outPlayer, outPlayer.position).effectiveOvr;
+
+    const rankedBench = [...availableBench].sort((a, b) => {
+      const scoreBench = (bp: Player) => {
+        const fit = getPositionFitOvr(bp, outPlayer.position).effectiveOvr;
+        const compatBonus = isPositionGroupCompatible(outPlayer.position, bp.position) ? 16 : 0;
+        const fatiguePenalty = (bp.fatigue || 0) * 0.6;
+        let contextBonus = 0;
+        if (scoreDiff < 0 && ['ST', 'CF', 'LW', 'RW', 'CAM'].includes(bp.position)) contextBonus += 6;
+        if (scoreDiff >= 1 && minute >= 74 && ['CB', 'CDM', 'LB', 'RB'].includes(bp.position)) contextBonus += 5;
+        return fit + compatBonus + contextBonus - fatiguePenalty;
+      };
+      return scoreBench(b) - scoreBench(a);
     });
 
-    const outPlayer = candidates[0];
-    if (!outPlayer) return { didSub: false, newPitchIds: pitchIds };
+    const inPlayer = rankedBench[0];
+    if (!inPlayer) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
 
-    const inPlayer =
-      availableBench.find(bp => isPositionGroupCompatible(outPlayer.position, bp.position)) || availableBench[0];
-
-    if (!inPlayer) return { didSub: false, newPitchIds: pitchIds };
+    const inFitOvr = getPositionFitOvr(inPlayer, outPlayer.position).effectiveOvr;
+    const isBenchCompatible = isPositionGroupCompatible(outPlayer.position, inPlayer.position);
+    // Avoid making a drastic downgrade unless starter is critically exhausted or booked
+    if (!isBenchCompatible && inFitOvr < outEffectiveOvr - 12 && topPick.liveFatigue < 76 && !yellowCardCounts[outPlayer.id]) {
+      return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
+    }
 
     usedBenchSet.add(inPlayer.id);
     subbedInSet.add(inPlayer.id);
@@ -1765,7 +1936,10 @@ export function simulateFullMatch(
       description: `【選手交代】${teamClub.name}: IN ${inPlayer.name} (${inPlayer.position}) ⇄ OUT ${outPlayer.name} (${outPlayer.position})`
     });
 
-    return { didSub: true, newPitchIds: updatedPitchIds };
+    const secondCandidate = evaluated[1];
+    const urgentRemaining = Boolean(secondCandidate && secondCandidate.liveFatigue >= 72);
+
+    return { didSub: true, newPitchIds: updatedPitchIds, urgentRemaining };
   };
 
   // Dynamic Simulation across 20 paced match phases (every 4-5 mins)
@@ -1792,8 +1966,8 @@ export function simulateFullMatch(
     { min: 92, phase: 'stoppage' }
   ];
 
-  let homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
-  let awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
+  let homeRatings = computeTeamRatings(homePitchPlayers, effectiveHomeTactics, true, homeSubCount, 15, homeSubbedInIds, 0, homeClub);
+  let awayRatings = computeTeamRatings(awayPitchPlayers, effectiveAwayTactics, false, awaySubCount, 15, awaySubbedInIds, 0, awayClub);
 
   timePhases.forEach(({ min, phase }) => {
     if (min <= startMinute) return;
@@ -1810,18 +1984,36 @@ export function simulateFullMatch(
           homeSubCount < 5
         ) {
           triggeredHomeSubWindows.add(subCheckpoint);
+          const subMinute = Math.max(startMinute + 1, Math.min(89, subCheckpoint + (Math.floor(rng() * 3) - 1)));
           const subRes = executeSingleAiSubAtMinute(
             homeClub,
             homePitchPlayers,
-            homeTactics,
+            effectiveHomeTactics,
             usedHomeBenchIds,
             homeSubbedInIds,
-            Math.max(startMinute + 1, Math.min(88, subCheckpoint + (Math.floor(rng() * 3) - 1)))
+            subMinute,
+            homeScore - awayScore
           );
           if (subRes.didSub) {
             homePitchPlayers = subRes.newPitchIds;
             homeSubCount++;
-            homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
+            // Allow immediate second sub in the same window if critical multiple fatigue cluster exists
+            if (subRes.urgentRemaining && homeSubCount < 5) {
+              const extraRes = executeSingleAiSubAtMinute(
+                homeClub,
+                homePitchPlayers,
+                effectiveHomeTactics,
+                usedHomeBenchIds,
+                homeSubbedInIds,
+                subMinute,
+                homeScore - awayScore
+              );
+              if (extraRes.didSub) {
+                homePitchPlayers = extraRes.newPitchIds;
+                homeSubCount++;
+              }
+            }
+            homeRatings = computeTeamRatings(homePitchPlayers, effectiveHomeTactics, true, homeSubCount, eventMin, homeSubbedInIds, homeScore - awayScore, homeClub);
           }
         }
 
@@ -1831,18 +2023,35 @@ export function simulateFullMatch(
           awaySubCount < 5
         ) {
           triggeredAwaySubWindows.add(subCheckpoint);
+          const subMinute = Math.max(startMinute + 1, Math.min(89, subCheckpoint + (Math.floor(rng() * 3) - 1)));
           const subRes = executeSingleAiSubAtMinute(
             awayClub,
             awayPitchPlayers,
-            awayTactics,
+            effectiveAwayTactics,
             usedAwayBenchIds,
             awaySubbedInIds,
-            Math.max(startMinute + 1, Math.min(88, subCheckpoint + (Math.floor(rng() * 3) - 1)))
+            subMinute,
+            awayScore - homeScore
           );
           if (subRes.didSub) {
             awayPitchPlayers = subRes.newPitchIds;
             awaySubCount++;
-            awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);
+            if (subRes.urgentRemaining && awaySubCount < 5) {
+              const extraRes = executeSingleAiSubAtMinute(
+                awayClub,
+                awayPitchPlayers,
+                effectiveAwayTactics,
+                usedAwayBenchIds,
+                awaySubbedInIds,
+                subMinute,
+                awayScore - homeScore
+              );
+              if (extraRes.didSub) {
+                awayPitchPlayers = extraRes.newPitchIds;
+                awaySubCount++;
+              }
+            }
+            awayRatings = computeTeamRatings(awayPitchPlayers, effectiveAwayTactics, false, awaySubCount, eventMin, awaySubbedInIds, awayScore - homeScore, awayClub);
           }
         }
       }
@@ -2338,14 +2547,14 @@ export function simulateFullMatch(
     awayClub,
     initialHomeStarterIds,
     initialAwayStarterIds,
-    homeTactics,
-    awayTactics,
+    homeTactics: effectiveHomeTactics,
+    awayTactics: effectiveAwayTactics,
     events,
     homeScore,
     awayScore,
     extraTimePlayed,
     penaltyShootout,
-    playersRegistry,
+    playersRegistry: tempPlayers,
     rng,
     homePossession,
     homeShots,
@@ -2494,10 +2703,51 @@ export function generateAssistantCoachAdvice(
   }
 }
 
+export function calculateMatchFatigueDelta(
+  player: Player,
+  minutesPlayed: number,
+  pressIntensity: string = '標準的',
+  isSubbedIn: boolean = false
+): number {
+  const playerStamina = player.stamina || player.physical || 75;
+  const staminaFactor = Math.max(0.65, Math.min(1.35, 1.0 - (playerStamina - 75) * 0.012));
+
+  let positionWorkrate = 1.0;
+  if (['LWB', 'RWB', 'LM', 'RM'].includes(player.position)) {
+    positionWorkrate = 1.22;
+  } else if (['CM', 'CDM', 'CAM'].includes(player.position)) {
+    positionWorkrate = 1.12;
+  } else if (['ST', 'CF', 'LW', 'RW'].includes(player.position)) {
+    positionWorkrate = 1.05;
+  } else if (['CB', 'LB', 'RB'].includes(player.position)) {
+    positionWorkrate = 0.90;
+  } else if (player.position === 'GK') {
+    positionWorkrate = 0.35;
+  }
+
+  const timeFactor = Math.max(0, minutesPlayed) / 90;
+  const pressMultiplier =
+    pressIntensity === '非常に激しい' || pressIntensity === '相手CB・GK限定猛プレス'
+      ? 1.2
+      : pressIntensity === '自陣引き気味'
+        ? 0.85
+        : 1.0;
+
+  const skillMods = getPlayerSkillMatchModifiers(player, {
+    minute: minutesPlayed,
+    isSubbedIn
+  });
+  return Math.round(
+    (30 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier) /
+    Math.max(1.0, skillMods.staminaRetentionMult)
+  );
+}
+
 /**
  * Requirement 7: 「試合中の結果」と「即時スキップ」を完全同期
  * - 前半2-0で即時スキップした場合、前半の2-0を絶対に消さず、残り時間だけを追加計算
  * - AI交代出場選手の記録・ゴール・アシスト・シュート・セーブ・出場時間・疲労・評価点も完全反映
+ * - forceResimulateRemaining: true 時（即時スキップ）は現在分から残りをAI自動交代込みで再計算
  */
 export function fastForwardRemainingMatch(
   currentMinute: number,
@@ -2515,6 +2765,7 @@ export function fastForwardRemainingMatch(
     initialAwayStarterIds?: string[];
     skipAutoSubsForClubId?: string;
     subbedOutPlayerIds?: string[];
+    forceResimulateRemaining?: boolean;
   }
 ): {
   fixture: MatchFixture;
@@ -2527,14 +2778,27 @@ export function fastForwardRemainingMatch(
     options?.initialAwayStarterIds ||
     (awayTactics.lineup?.starters || []).map(s => s.playerId).filter(Boolean);
 
-  const fullResult =
-    simulatedResult ||
-    simulateFullMatch(fixture, homeClub, awayClub, homeTactics, awayTactics, playersRegistry, undefined, {
-      skipAutoSubsForClubId: options?.skipAutoSubsForClubId,
-      initialHomeStarterIds,
-      initialAwayStarterIds,
-      subbedOutPlayerIds: options?.subbedOutPlayerIds
-    });
+  if (options?.forceResimulateRemaining || !simulatedResult) {
+    return resimulateRemainingMatchFromMinute(
+      currentMinute,
+      currentEvents,
+      currentScore,
+      fixture,
+      homeClub,
+      awayClub,
+      homeTactics,
+      awayTactics,
+      playersRegistry,
+      {
+        skipAutoSubsForClubId: options?.skipAutoSubsForClubId,
+        initialHomeStarterIds,
+        initialAwayStarterIds,
+        subbedOutPlayerIds: options?.subbedOutPlayerIds
+      }
+    );
+  }
+
+  const fullResult = simulatedResult;
 
   const lockedEvents = [...currentEvents];
   const remainingEvents = (fullResult.fixture.events || []).filter(e => e.minute > currentMinute);

@@ -1,5 +1,6 @@
 import { MatchFixture, Club, LeagueKey, ManagerProfile, CupKey } from '../types/game';
 import { generatePreSeasonFixtures } from './preSeasonEngine';
+import { resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
 
 /**
  * Mathematically sound Berger round-robin schedule generator.
@@ -219,40 +220,20 @@ export function generateLevainCupFixtures(
 export function generateEuropeanCompetitionsFixtures(
   clubs: Record<string, Club>,
   userClubId: string | null = null,
-  seasonYear: number = 2026
+  seasonYear: number = 2026,
+  europeanQualifications?: {
+    uclClubIds?: string[];
+    uelClubIds?: string[];
+    ueclClubIds?: string[];
+  }
 ): MatchFixture[] {
   const euroFixtures: MatchFixture[] = [];
   const seasonString = `${seasonYear}/${String(seasonYear + 1).slice(2)}`;
 
-  const eligibleClubs = Object.values(clubs).filter(c =>
-    c.id !== 'free_agent' &&
-    ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1', 'super-lig', 'primeira-liga', 'eredivisie', 'pro-league'].includes(c.league)
-  );
-  eligibleClubs.sort((a, b) => (b.reputation || 50) - (a.reputation || 50));
-
-  // STRICT RULE: ZERO duplicate participation between UCL, UEL, and UECL!
-  // In Year 1 (2026/27): 36 clubs for UCL, 36 distinct clubs for UEL, and remaining distinct clubs for UECL.
-  const uclClubs = eligibleClubs.slice(0, 36);
-  const uelClubs = eligibleClubs.slice(36, 72);
-  const ueclClubs = eligibleClubs.slice(72);
-
-  // Fallback rollover safety: ensure Set intersection across all 3 is strictly empty
-  const uclIds = new Set(uclClubs.map(c => c.id));
-  const uelIds = new Set<string>();
-  const filteredUelClubs: Club[] = [];
-  uelClubs.forEach(c => {
-    if (!uclIds.has(c.id)) {
-      uelIds.add(c.id);
-      filteredUelClubs.push(c);
-    }
-  });
-
-  const filteredUeclClubs: Club[] = [];
-  ueclClubs.forEach(c => {
-    if (!uclIds.has(c.id) && !uelIds.has(c.id)) {
-      filteredUeclClubs.push(c);
-    }
-  });
+  const resolvedIds = resolveEuropeanParticipantIds(clubs, europeanQualifications);
+  const uclClubs = resolvedIds.uclClubIds.map(id => clubs[id]).filter(Boolean);
+  const uelClubs = resolvedIds.uelClubIds.map(id => clubs[id]).filter(Boolean);
+  const ueclClubs = resolvedIds.ueclClubIds.map(id => clubs[id]).filter(Boolean);
 
   // UCL 8 Matchdays
   const uclDates = [
@@ -633,7 +614,12 @@ export function generateSeasonFixtures(
   userClubId: string | null,
   seasonYear: number = 2026,
   manager?: ManagerProfile,
-  selectedTourId?: string
+  selectedTourId?: string,
+  europeanQualifications?: {
+    uclClubIds?: string[];
+    uelClubIds?: string[];
+    ueclClubIds?: string[];
+  }
 ): MatchFixture[] {
   const fixtures: MatchFixture[] = [];
   const seasonString = `${seasonYear}/${String(seasonYear + 1).slice(2)}`;
@@ -645,9 +631,10 @@ export function generateSeasonFixtures(
     fixtures.push(...psFixtures);
   }
 
-  // 2. Group clubs by league
+  // 2. Group domestic clubs by league (exclude free_agent and UEFA tournament-only Group B clubs)
   const leagues: Record<string, Club[]> = {};
   Object.values(clubs).forEach(c => {
+    if (!c || c.id === 'free_agent' || c.isTournamentOnly || (c.league as string) === 'uefa-tournament') return;
     if (!leagues[c.league]) leagues[c.league] = [];
     leagues[c.league].push(c);
   });
@@ -701,7 +688,7 @@ export function generateSeasonFixtures(
   fixtures.push(...levainFixtures);
 
   // 5. European Competitions: UCL, UEL, UECL (STRICTLY NO ACL!)
-  const euroFixtures = generateEuropeanCompetitionsFixtures(clubs, userClubId, seasonYear);
+  const euroFixtures = generateEuropeanCompetitionsFixtures(clubs, userClubId, seasonYear, europeanQualifications);
   fixtures.push(...euroFixtures);
 
   // 6. European Domestic Cups: FA Cup, Carabao, Copa, Pokal, Coppa, Coupe

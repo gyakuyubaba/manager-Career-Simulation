@@ -1101,9 +1101,9 @@ export function REPAIR_SAVE_DATA_INTEGRITY(
     }
   });
 
-  // Check all European clubs:
+  // Check all European domestic clubs (exclude tournament-only Group B & free_agent):
   Object.values(repairedClubs).forEach(club => {
-    if (club.country !== '日本') {
+    if (club.country !== '日本' && !club.isTournamentOnly && (club.league as string) !== 'uefa-tournament' && club.id !== 'free_agent') {
       const playersToEvict: string[] = [];
       club.playerIds.forEach(pId => {
         const p = repairedPlayers[pId];

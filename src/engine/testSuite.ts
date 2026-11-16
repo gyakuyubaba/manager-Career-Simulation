@@ -1,5 +1,5 @@
 import { GameWorldState, Player, Club, MatchFixture, LeagueKey, MatchEvent, MatchIncidentNotice, TransferNegotiation, StandingsRow } from '../types/game';
-import { createNewGameWorld, appointUserToClub } from './gameState';
+import { createNewGameWorld, appointUserToClub, getInitialClubOffers } from './gameState';
 import { 
   finalMatchEligibilityCheck, 
   fastForwardRemainingMatch,
@@ -10,7 +10,8 @@ import {
   removePlayerFromTacticsPitch,
   applyMatchEventToTactics,
   finalizeMatchResultAndPlayerStats,
-  resimulateRemainingMatchFromMinute
+  resimulateRemainingMatchFromMinute,
+  calculateMatchFatigueDelta
 } from './matchEngine';
 import { 
   advanceOneDay, 
@@ -74,6 +75,14 @@ import {
 } from './smartphoneEngine';
 import { calculatePlayerValuation } from './transferEngine';
 import { calculatePlayerPositionProficiency } from '../data/playerPositionsHelper';
+import { resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
+import { getAllCalibratedSelectableClubs } from './clubBudgetEngine';
+import {
+  applyFreePlacementMove,
+  resolveFreePlacementCollisions,
+  resetFreePlacementToFormation,
+  syncCustomPositionsFromStarters
+} from './tacticsEngine';
 
 export interface TestResult {
   id: string;
@@ -1190,8 +1199,10 @@ export function runAll27Tests(): TestResult[] {
   // TEST 31: 全12リーグ・全238クラブの登録人数および最低2人以上のGK配置
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
-    const clubsList = Object.values(baseState.clubs).filter(c => c.id !== 'free_agent');
-    const totalClubs = clubsList.length; // 238 clubs
+    const clubsList = Object.values(baseState.clubs).filter(
+      c => c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament'
+    );
+    const totalClubs = clubsList.length; // 329 domestic clubs
     const totalPlayers = Object.keys(baseState.players).length; // 5900+ players
 
     let clubsWithFewerThan23Players = 0;
@@ -4490,7 +4501,9 @@ export function runAll27Tests(): TestResult[] {
   // TEST 131 (検証5): 全17リーグ・全329クラブ 未確認ゼロ＆重複ゼロ＆最低スカッド網羅監査
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
-    const clubs = Object.values(baseState.clubs).filter(c => c.id !== 'free_agent');
+    const clubs = Object.values(baseState.clubs).filter(
+      c => c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament'
+    );
     const players = Object.values(baseState.players);
     const distinctLeagues = new Set(clubs.map(c => c.league));
     const unconfirmedPlayers = players.filter(p => p.name.includes('[未確認') || !p.isVerified);
@@ -4799,12 +4812,12 @@ export function runAll27Tests(): TestResult[] {
   // TEST 136: フリーエージェント英語表記クリーン化＆メッシ/ネイマールST適正S検証
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
-    const messi = baseState.players['fa_messi_10'];
-    const ronaldo = baseState.players['fa_ronaldo_7'];
-    const neymar = baseState.players['fa_neymar_10'];
-    const james = baseState.players['fa_james_10'];
-    const carvajal = baseState.players['fa_carvajal_2'];
-    const ramos = baseState.players['fa_ramos_4'];
+    const messi = baseState.players['fa_lionel_messi'];
+    const ronaldo = baseState.players['fa_cristiano_ronaldo'];
+    const neymar = baseState.players['fa_neymar_jr'];
+    const james = baseState.players['fa_james_rodriguez'];
+    const carvajal = baseState.players['fa_dani_carvajal'];
+    const ramos = baseState.players['fa_sergio_ramos'];
 
     const noJapaneseParens = FREE_AGENT_SUPERSTARS.every(fa => !/[（()）\u3040-\u30ff\u4e00-\u9faf]/.test(fa.name));
     const messiStOk = Boolean(messi && (messi.positionProficiency?.['ST'] ?? 0) >= 0.98);
@@ -5279,7 +5292,9 @@ export function runAll27Tests(): TestResult[] {
   // TEST 144: 全329クラブ初期移籍予算の大幅増額＆クラブ格差反映検証
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   try {
-    const clubs = Object.values(baseState.clubs).filter(c => c.id !== 'free_agent');
+    const clubs = Object.values(baseState.clubs).filter(
+      c => c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament'
+    );
     const realMadrid = baseState.clubs['real_madrid'];
     const manCity = baseState.clubs['man_city'];
     const arsenal = baseState.clubs['arsenal'];
@@ -5345,6 +5360,277 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 145', name: 'V8→V9移行正規化検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 146: UEFA欧州3大会(CL/EL/ECL 各36クラブ・計108クラブ重複ゼロ)＆2年目以降動的再計算検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const resolved = resolveEuropeanParticipantIds(baseState.clubs, baseState.europeanQualifications);
+    const uclIds = resolved.uclClubIds;
+    const elIds = resolved.uelClubIds;
+    const eclIds = resolved.ueclClubIds;
+    const combined = new Set([...uclIds, ...elIds, ...eclIds]);
+
+    const tUcl = baseState.tournaments?.['ucl']?.participantClubIds || [];
+    const tUel = baseState.tournaments?.['uel']?.participantClubIds || [];
+    const tUecl = baseState.tournaments?.['uecl']?.participantClubIds || [];
+
+    const groupBClubs = Object.values(baseState.clubs).filter(c => c.isTournamentOnly);
+    const hiddenFromStandings = groupBClubs.every(c => !baseState.standings[c.league as LeagueKey]?.some(r => r.clubId === c.id));
+    const initialOffers = getInitialClubOffers(baseState.clubs, baseState.manager, baseState.isMidSeasonAppointment, baseState.standings);
+    const hiddenFromOffers = initialOffers.every(c => !c.isTournamentOnly);
+
+    const dynQuals = calculateEuropeanQualifications(baseState);
+    const dynSet = new Set([...dynQuals.uclClubs, ...dynQuals.uelClubs, ...dynQuals.ueclClubs]);
+    const dynNoOverlap = dynSet.size === dynQuals.uclClubs.length + dynQuals.uelClubs.length + dynQuals.ueclClubs.length;
+    const dynSeason2 = resolveEuropeanParticipantIds(baseState.clubs, {
+      uclClubIds: dynQuals.uclClubs,
+      uelClubIds: dynQuals.uelClubs,
+      ueclClubIds: dynQuals.ueclClubs
+    });
+    const dynCombined = new Set([...dynSeason2.uclClubIds, ...dynSeason2.uelClubIds, ...dynSeason2.ueclClubIds]);
+
+    const passed =
+      uclIds.length === 36 &&
+      elIds.length === 36 &&
+      eclIds.length === 36 &&
+      combined.size === 108 &&
+      tUcl.length === 36 &&
+      tUel.length === 36 &&
+      tUecl.length === 36 &&
+      groupBClubs.length === 51 &&
+      hiddenFromStandings &&
+      hiddenFromOffers &&
+      dynNoOverlap &&
+      dynSeason2.uclClubIds.length === 36 &&
+      dynSeason2.uelClubIds.length === 36 &&
+      dynSeason2.ueclClubIds.length === 36 &&
+      dynCombined.size === 108;
+
+    results.push({
+      id: 'TEST 146',
+      name: 'UEFA欧州3大会(CL36/EL36/ECL36・計108クラブ重複ゼロ・GroupB隔離・2年目動的再計算)検証',
+      passed,
+      details: passed
+        ? `成功: CL(${uclIds.length})/EL(${elIds.length})/ECL(${eclIds.length})=合計${combined.size}クラブ重複ゼロ、大会専用51クラブ隔離、2年目動的枠再計算(計${dynCombined.size}クラブ)を確認。`
+        : `失敗: ucl=${uclIds.length}, el=${elIds.length}, ecl=${eclIds.length}, total=${combined.size}, groupB=${groupBClubs.length}, standHide=${hiddenFromStandings}, offerHide=${hiddenFromOffers}, dyn=${dynCombined.size}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 146', name: 'UEFA 108クラブ拡張検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 147: 初期移籍予算の選択画面・おすすめ・世界DB間の一貫性検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const selectable = getAllCalibratedSelectableClubs();
+    const freshWorld = createNewGameWorld(baseState.manager);
+    const allMatchWorld = selectable.length === 329 && selectable.every(sc => {
+      const worldClub = freshWorld.clubs[sc.id];
+      return Boolean(worldClub && !sc.isTournamentOnly && sc.transferBudget === worldClub.transferBudget);
+    });
+    const initialOffers = getInitialClubOffers(freshWorld.clubs, freshWorld.manager, freshWorld.isMidSeasonAppointment, freshWorld.standings);
+    const recommendedOk = initialOffers.length > 0 && initialOffers.every(c => {
+      const worldClub = freshWorld.clubs[c.id];
+      const sc = selectable.find(item => item.id === c.id);
+      return Boolean(worldClub && sc && sc.transferBudget === worldClub.transferBudget);
+    });
+
+    const passed = allMatchWorld && recommendedOk;
+    results.push({
+      id: 'TEST 147',
+      name: 'クラブ選択・おすすめオファー・世界DB間の初期移籍予算完全一致検証',
+      passed,
+      details: passed
+        ? `成功: 全${selectable.length}クラブで選択UI用較正済み予算とキャリア開始後予算が100%一致しました。`
+        : `失敗: selectable=${selectable.length}, allMatchWorld=${allMatchWorld}, recommendedOk=${recommendedOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 147', name: '初期移籍予算一貫性検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 148: 即時スキップ時のユーザークラブ疲労選手AI自動交代＆イベント/スタッツ連動検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const ffState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClub = ffState.clubs['arsenal'];
+    const oppClub = ffState.clubs['chelsea'];
+    const userTactics = getDefaultTacticsForClub(userClub, ffState.players);
+    const oppTactics = getDefaultTacticsForClub(oppClub, ffState.players);
+
+    // Exhaust 3 outfield starters so AI auto-sub must replace them during skip from 55' to 90'
+    const tiredIds = [
+      userTactics.lineup.starters[4].playerId,
+      userTactics.lineup.starters[7].playerId,
+      userTactics.lineup.starters[9].playerId
+    ];
+    tiredIds.forEach(pid => {
+      if (ffState.players[pid]) {
+        ffState.players[pid] = { ...ffState.players[pid], fatigue: 86 };
+      }
+    });
+    userTactics.lineup.bench.forEach(bid => {
+      if (ffState.players[bid]) {
+        ffState.players[bid] = { ...ffState.players[bid], fatigue: 0 };
+      }
+    });
+
+    const ffFix: MatchFixture = {
+      id: 'fix_test_148_skip_subs',
+      date: '2026-10-18',
+      competition: 'premier-league',
+      competitionName: 'Premier League',
+      homeClubId: userClub.id,
+      awayClubId: oppClub.id,
+      status: 'playing',
+      isUserMatch: true
+    };
+
+    const ffOut = fastForwardRemainingMatch(
+      55,
+      [],
+      [1, 0],
+      ffFix,
+      userClub,
+      oppClub,
+      userTactics,
+      oppTactics,
+      ffState.players,
+      undefined,
+      {
+        initialHomeStarterIds: userTactics.lineup.starters.map(s => s.playerId),
+        initialAwayStarterIds: oppTactics.lineup.starters.map(s => s.playerId),
+        forceResimulateRemaining: true
+      }
+    );
+
+    const userSubEvents = (ffOut.fixture.events || []).filter(e => e.type === 'sub' && e.clubId === userClub.id);
+    const validSubStats = userSubEvents.every(e => {
+      const pStat = ffOut.fixture.stats?.playerMatchStats?.[e.subInPlayerId || ''];
+      return Boolean(pStat && pStat.minutesPlayed > 0 && pStat.isStarter === false);
+    });
+    const passed = userSubEvents.length >= 1 && userSubEvents.length <= 5 && validSubStats;
+
+    results.push({
+      id: 'TEST 148',
+      name: '即時スキップ時の自チーム疲労選手AI自動交代(最大5名・途中出場時間記録)検証',
+      passed,
+      details: passed
+        ? `成功: 55分からの即時スキップ中に疲労選手への自動交代が${userSubEvents.length}件実行され、出場時間と交代イベントが正確に記録されました。`
+        : `失敗: userSubEvents=${userSubEvents.length}, validSubStats=${validSubStats}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 148', name: '即時スキップ自動交代検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 149: 疲労システム抜本調整（試合疲労30基準＆休養・トレーニング回復量検証）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const sampleMf = Object.values(baseState.players).find(p => p.position === 'CM' && (p.stamina || 75) >= 74 && (p.stamina || 75) <= 80) || playerA;
+    const full90Delta = calculateMatchFatigueDelta({ ...sampleMf, fatigue: 0 }, 90, '標準的', false);
+    const sub20Delta = calculateMatchFatigueDelta({ ...sampleMf, fatigue: 0 }, 20, '標準的', true);
+
+    let restState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const tiredStarterId = restState.tactics.lineup.starters[5].playerId;
+    restState.players[tiredStarterId] = { ...restState.players[tiredStarterId], fatigue: 42 };
+    restState.fixtures = [];
+    // Simulate 3 recovery-training rest days (コンディション回復 -> -12/day)
+    restState.trainingFocus = 'コンディション回復';
+    for (let d = 0; d < 3; d++) {
+      restState = advanceOneDay(restState).updatedState;
+    }
+    const recoveredFatigue = restState.players[tiredStarterId].fatigue;
+
+    const passed =
+      full90Delta >= 20 && full90Delta <= 42 &&
+      sub20Delta >= 2 && sub20Delta <= 12 &&
+      recoveredFatigue < 25;
+
+    results.push({
+      id: 'TEST 149',
+      name: '疲労蓄積(90分=20〜42/途中20分<=12)＆休養日/回復セッション複合回復検証',
+      passed,
+      details: passed
+        ? `成功: 90分疲労=${full90Delta}, 途中20分疲労=${sub20Delta}, 疲労42から3日間回復後=${recoveredFatigue}を確認しました。`
+        : `失敗: full90=${full90Delta}, sub20=${sub20Delta}, recovered=${recoveredFatigue}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 149', name: '疲労蓄積＆回復バランス検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 150: 自由配置（ドラッグ座標・重なり防止・GK制限・リセット）＆V10移行保護検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const tacBase = getDefaultTacticsForClub(baseState.clubs['arsenal'], baseState.players);
+    const gkStarter = tacBase.lineup.starters[0];
+    const stStarter = tacBase.lineup.starters[10];
+    const partnerStarter = tacBase.lineup.starters[9];
+
+    // 1. Move GK far forward -> must clamp into GK box (>= 0.85 Y)
+    const gkMoved = applyFreePlacementMove(tacBase, gkStarter.playerId, 0.2, 0.3, true, baseState.players);
+    const gkCoord = gkMoved.customPositions?.[gkStarter.playerId];
+    const gkClamped = Boolean(gkCoord && gkCoord.y >= 0.85 && gkCoord.x >= 0.35 && gkCoord.x <= 0.65);
+
+    // 2. Move striker onto exact partner coordinates -> collision resolver must separate pairwise >= 0.074
+    const baseSynced = syncCustomPositionsFromStarters(gkMoved, baseState.players);
+    const partnerPos = baseSynced[partnerStarter.playerId];
+    const movedIntoPartner = applyFreePlacementMove(
+      gkMoved,
+      stStarter.playerId,
+      partnerPos.x,
+      partnerPos.y,
+      false,
+      baseState.players
+    );
+    const postSt = movedIntoPartner.customPositions![stStarter.playerId];
+    const postPartner = movedIntoPartner.customPositions![partnerStarter.playerId];
+    const sepDist = Math.hypot(postSt.x - postPartner.x, postSt.y - postPartner.y);
+    const directResolved = resolveFreePlacementCollisions({
+      [stStarter.playerId]: { x: 0.5, y: 0.5, position: 'ST' },
+      [partnerStarter.playerId]: { x: 0.5, y: 0.5, position: 'ST' }
+    }, stStarter.playerId, gkStarter.playerId);
+    const directSep = Math.hypot(
+      directResolved[stStarter.playerId].x - directResolved[partnerStarter.playerId].x,
+      directResolved[stStarter.playerId].y - directResolved[partnerStarter.playerId].y
+    );
+    const separatedOk = movedIntoPartner.placementMode === 'free' && sepDist >= 0.072 && directSep >= 0.072;
+
+    // 3. Reset back to formation template
+    const resetTac = resetFreePlacementToFormation({ ...movedIntoPartner, placementMode: 'formation' }, baseState.players);
+    const resetOk = resetTac.placementMode === 'formation' && resetTac.lineup.starters.length === 11;
+
+    // 4. Schema V9 -> V10 migration preserving trophies & adding Group B / placementMode
+    const legacyV9: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    legacyV9.schemaVersion = 9;
+    legacyV9.manager.careerTrophies = 7;
+    delete legacyV9.tactics.placementMode;
+    Object.keys(legacyV9.clubs).forEach(cid => {
+      if (legacyV9.clubs[cid].isTournamentOnly) delete legacyV9.clubs[cid];
+    });
+    const migratedV10 = migrateGameState(legacyV9, 9);
+    const migratedGroupB = Object.values(migratedV10.clubs).filter(c => c.isTournamentOnly).length;
+    const migrationOk =
+      migratedV10.schemaVersion === CURRENT_SCHEMA_VERSION &&
+      migratedV10.manager.careerTrophies === 7 &&
+      migratedV10.tactics.placementMode === 'formation' &&
+      migratedGroupB === 51 &&
+      (migratedV10.tournaments?.ucl?.participantClubIds?.length || 0) === 36;
+
+    const passed = gkClamped && separatedOk && resetOk && migrationOk;
+    results.push({
+      id: 'TEST 150',
+      name: '選手自由配置(GK制限・重なり自動分離・リセット)＆V9→V10移行保護検証',
+      passed,
+      details: passed
+        ? `成功: GK制限(${gkCoord?.y.toFixed(2)})、重複分離距離(${sepDist.toFixed(3)})、リセット復元、V10移行(トロフィー7保持/大会専用51補完/CL36枠)を確認しました。`
+        : `失敗: gkClamped=${gkClamped}(${gkCoord?.x},${gkCoord?.y}), sepDist=${sepDist.toFixed(3)}, resetOk=${resetOk}, migrationOk=${migrationOk}(groupB=${migratedGroupB})`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 150', name: '自由配置＆V10移行保護検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -5365,6 +5651,7 @@ export const runAll126Tests = runAll27Tests;
 export const runAll133Tests = runAll27Tests;
 export const runAll140Tests = runAll27Tests;
 export const runAll145Tests = runAll27Tests;
+export const runAll150Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

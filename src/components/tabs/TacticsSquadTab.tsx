@@ -1,9 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { GameWorldState, TeamTactics, FormationName, Player, Position, NewsItem } from '../../types/game';
-import { Shield, Users, Activity, Shuffle, Sliders, AlertCircle, AlertTriangle, ArrowLeftRight, CheckCircle2, Move, ZoomIn, ZoomOut, RotateCcw, Sparkles } from 'lucide-react';
+import { Shield, Users, Activity, Shuffle, Sliders, AlertCircle, AlertTriangle, ArrowLeftRight, CheckCircle2, Move, ZoomIn, ZoomOut, RotateCcw, Sparkles, Save, X } from 'lucide-react';
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
 import { executePlayerReplacement, updatePlayerShirtNumber } from '../../engine/dataValidator';
-import { getPositionFitOvr, FORMATION_TEMPLATES, updateTacticsFormation } from '../../engine/tacticsEngine';
+import {
+  getPositionFitOvr,
+  FORMATION_TEMPLATES,
+  updateTacticsFormation,
+  syncCustomPositionsFromStarters,
+  applyFreePlacementMove,
+  resetFreePlacementToFormation
+} from '../../engine/tacticsEngine';
 import { FatigueGauge } from '../common/FatigueGauge';
 
 interface Props {
@@ -67,6 +74,19 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
   const [activeSubTab, setActiveSubTab] = useState<'lineup' | 'instructions' | 'roles'>('lineup');
   const [benchLimitError, setBenchLimitError] = useState<string | null>(null);
 
+  // Free Placement Mode & Cross-Device Pointer Drag State
+  const pitchRef = useRef<HTMLDivElement | null>(null);
+  const [freeDraftTactics, setFreeDraftTactics] = useState<TeamTactics | null>(null);
+  const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
+  const dragMovedRef = useRef<boolean>(false);
+
+  const placementMode: 'formation' | 'free' = (freeDraftTactics?.placementMode || state.tactics.placementMode || 'formation');
+
+  useEffect(() => {
+    setFreeDraftTactics(null);
+    setDraggingPlayerId(null);
+  }, [state.userClubId]);
+
   // Shirt number editing state
   const [editingShirtPlayer, setEditingShirtPlayer] = useState<Player | null>(null);
   const [shirtInputNumber, setShirtInputNumber] = useState<number>(1);
@@ -101,6 +121,8 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
 
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
   const tactics = state.tactics;
+  const boardTactics = freeDraftTactics || tactics;
+  const isFreeDirty = Boolean(freeDraftTactics);
 
   const handleReplacementComplete = (newTactics: TeamTactics, updatedPlayers: Record<string, Player>, message: string) => {
     onUpdateTactics(newTactics);
@@ -279,6 +301,7 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
 
   const handleFormationChange = (formation: FormationName) => {
     const updated = updateTacticsFormation(tactics, formation, state.players);
+    setFreeDraftTactics(null);
     onUpdateTactics(updated);
     if (onUpdateState) {
       onUpdateState({
@@ -297,84 +320,84 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Free Drag Deformation (ピッチ上の任意位置への自由ドラッグ変形)
-  const handleMovePlayerToPitchPosition = (playerId: string, pitchX: number, pitchY: number) => {
-    const currentStarters = [...(tactics.lineup?.starters || [])];
-    const starterIdx = currentStarters.findIndex(s => s.playerId === playerId);
-    if (starterIdx !== -1) {
-      const p = state.players[playerId];
-      const isGk = p?.position === 'GK' || currentStarters[starterIdx].position === 'GK';
-
-      let inferredPos: Position;
-      let finalX = pitchX;
-      let finalY = pitchY;
-
-      if (isGk) {
-        // CRITICAL BUG FIX: GKはゴールマウス領域に固定し、CB等フィールドへの誤変形を完全防止
-        inferredPos = 'GK';
-        finalX = Math.max(38, Math.min(62, pitchX));
-        finalY = Math.max(86, Math.min(95, pitchY));
-      } else {
-        // フィールドプレイヤーはゴールマウスエリアに入らないよう制限
-        finalY = Math.min(80, pitchY);
-        if (finalY >= 65) {
-          if (finalX <= 25) inferredPos = 'LB';
-          else if (finalX >= 75) inferredPos = 'RB';
-          else inferredPos = 'CB';
-        } else if (finalY >= 48) {
-          if (finalX <= 22) inferredPos = 'LWB';
-          else if (finalX >= 78) inferredPos = 'RWB';
-          else inferredPos = 'CDM';
-        } else if (finalY >= 32) {
-          if (finalX <= 24) inferredPos = 'LM';
-          else if (finalX >= 76) inferredPos = 'RM';
-          else if (finalY <= 40) inferredPos = 'CAM';
-          else inferredPos = 'CM';
-        } else {
-          if (finalX <= 30) inferredPos = 'LW';
-          else if (finalX >= 70) inferredPos = 'RW';
-          else if (finalY <= 20) inferredPos = 'ST';
-          else inferredPos = 'CF';
-        }
-      }
-
-      currentStarters[starterIdx] = {
-        ...currentStarters[starterIdx],
-        pitchX: finalX,
-        pitchY: finalY,
-        position: inferredPos
-      };
-
-      onUpdateTactics({
+  // Switch between Formation mode and Free Placement mode
+  const handleSwitchPlacementMode = (mode: 'formation' | 'free') => {
+    if (mode === placementMode && !freeDraftTactics) return;
+    if (mode === 'free') {
+      const customPositions = syncCustomPositionsFromStarters(tactics, state.players);
+      const nextTac: TeamTactics = {
         ...tactics,
-        lineup: {
-          ...tactics.lineup,
-          starters: currentStarters
-        }
-      });
-      setToastMessage(`選手の配置を更新しました (${inferredPos})`);
-      setTimeout(() => setToastMessage(null), 2500);
+        placementMode: 'free',
+        customPositions
+      };
+      setFreeDraftTactics(null);
+      onUpdateTactics(nextTac);
+      setToastMessage('「自由配置」モードに切り替えました。選手をドラッグして任意の位置へ配置できます。');
+      setTimeout(() => setToastMessage(null), 3500);
+    } else {
+      setFreeDraftTactics(null);
+      const nextTac: TeamTactics = {
+        ...tactics,
+        placementMode: 'formation'
+      };
+      onUpdateTactics(nextTac);
+      setToastMessage('「フォーメーション配置」モードに切り替えました。');
+      setTimeout(() => setToastMessage(null), 3000);
     }
+  };
+
+  const handleSaveFreePlacement = () => {
+    const targetToSave: TeamTactics = freeDraftTactics
+      ? { ...freeDraftTactics, placementMode: 'free' }
+      : {
+          ...tactics,
+          placementMode: 'free',
+          customPositions: syncCustomPositionsFromStarters(tactics, state.players)
+        };
+    onUpdateTactics(targetToSave);
+    if (onUpdateState) {
+      onUpdateState({
+        ...state,
+        tactics: targetToSave
+      });
+    }
+    setFreeDraftTactics(null);
+    setToastMessage('自由配置のポジション座標を戦術データへ保存しました！');
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleDiscardFreePlacement = () => {
+    setFreeDraftTactics(null);
+    setDraggingPlayerId(null);
+    setToastMessage('未保存の自由配置変更を破棄しました');
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Free Drag Deformation (ピッチ上の任意位置への自由ドラッグ変形 - fallback for drag/drop)
+  const handleMovePlayerToPitchPosition = (playerId: string, pitchX: number, pitchY: number) => {
+    const p = state.players[playerId];
+    const starter = boardTactics.lineup?.starters.find(s => s.playerId === playerId);
+    if (!starter) return;
+    const isGk = p?.position === 'GK' || starter.position === 'GK';
+    const updated = applyFreePlacementMove(boardTactics, playerId, pitchX / 100, pitchY / 100, isGk, state.players);
+    setFreeDraftTactics(updated);
+    const movedSlot = updated.lineup.starters.find(s => s.playerId === playerId);
+    setToastMessage(`仮配置を更新しました (${movedSlot?.position || starter.position}) — 「保存」で確定`);
+    setTimeout(() => setToastMessage(null), 2500);
   };
 
   // Reset to default template coordinates
   const handleResetToTemplatePositions = () => {
-    const template = FORMATION_TEMPLATES[tactics.formation];
-    if (!template) return;
-    const resetStarters = tactics.lineup.starters.map((s, idx) => ({
-      ...s,
-      pitchX: template[idx]?.pitchX ?? s.pitchX,
-      pitchY: template[idx]?.pitchY ?? s.pitchY,
-      position: template[idx]?.position ?? s.position
-    }));
-    onUpdateTactics({
-      ...tactics,
-      lineup: {
-        ...tactics.lineup,
-        starters: resetStarters
-      }
-    });
-    setToastMessage(`フォーメーション【${tactics.formation}】の標準初期配置に復帰しました`);
+    const resetTac = resetFreePlacementToFormation(boardTactics, state.players);
+    setFreeDraftTactics(null);
+    onUpdateTactics(resetTac);
+    if (onUpdateState) {
+      onUpdateState({
+        ...state,
+        tactics: resetTac
+      });
+    }
+    setToastMessage(`フォーメーション【${tactics.formation}】の標準初期配置にリセットしました`);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
@@ -535,7 +558,7 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
     }
   };
 
-  const starters = tactics.lineup.starters.map(s => {
+  const starters = boardTactics.lineup.starters.map(s => {
     const player = state.players[s.playerId];
     return { ...s, player };
   });
@@ -740,38 +763,101 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
               </div>
             </div>
 
-            {/* Pitch Action Controls (適性自動最適化 & 整列リセット) */}
-            <div className="flex items-center justify-between gap-2 bg-slate-950/80 border border-slate-800 rounded-2xl p-2.5 mb-3">
-              <span className="text-xs text-slate-400 font-medium">スタメン編成・配置調整:</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleAutoFitStartingXI}
-                  className="px-3 py-1 rounded-lg bg-blue-600/90 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                  title="全所属選手からポジション適性・総合値最高の11名を自動選出します"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
-                  <span>適性自動最適化</span>
-                </button>
+            {/* Placement Mode Switcher + Action Controls (フォーメーション配置 / 自由配置 + 保存・破棄・リセット) */}
+            <div className="space-y-2 mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950/80 border border-slate-800 rounded-2xl p-2.5">
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchPlacementMode('formation')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      placementMode === 'formation'
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    フォーメーション配置
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchPlacementMode('free')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                      placementMode === 'free'
+                        ? 'bg-indigo-500 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Move className="w-3.5 h-3.5" />
+                    <span>自由配置</span>
+                  </button>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={handleResetToTemplatePositions}
-                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-                  title="フォーメーション初期標準位置に整列リセット"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>整列リセット</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAutoFitStartingXI}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600/90 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    title="全所属選手からポジション適性・能力値最高の11名を自動選出します"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
+                    <span>適性自動最適化</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetToTemplatePositions}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    title="フォーメーション初期標準位置に整列リセット"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>リセット</span>
+                  </button>
+                </div>
               </div>
+
+              {placementMode === 'free' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-950/40 border border-indigo-500/40 rounded-2xl px-3 py-2">
+                  <div className="text-[11px] text-indigo-200 flex items-center gap-1.5">
+                    <Move className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>
+                      {isFreeDirty
+                        ? '未保存の自由配置変更があります。試合エンジンへ反映するには保存してください。'
+                        : '選手ピンをマウス・指で直接ドラッグしてピッチ上の自由な座標へ配置できます（GKは自陣ゴール枠内）。'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleSaveFreePlacement}
+                      disabled={!isFreeDirty && tactics.placementMode === 'free'}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 text-xs font-black flex items-center gap-1 cursor-pointer shadow-sm"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>配置を保存</span>
+                    </button>
+                    {isFreeDirty && (
+                      <button
+                        type="button"
+                        onClick={handleDiscardFreePlacement}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>破棄</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Instruction tooltip */}
             <div className="mb-2 px-1 text-[11px] text-slate-400 flex items-center justify-between">
               <span>
-                {selectedPlayerId 
-                  ? '🔄 移動先のスタメンまたはベンチ選手をタップして配置入替してください' 
-                  : '💡 選手をタップまたはドラッグして別の選手の位置へ移動させると配置入替・交代ができます'}
+                {placementMode === 'free'
+                  ? '✋ 自由配置モード中: ピッチ上の選手をドラッグして好きな座標へ移動（重なり自動回避）'
+                  : selectedPlayerId 
+                    ? '🔄 移動先のスタメンまたはベンチ選手をタップして配置入替してください' 
+                    : '💡 選手をタップまたはドラッグして別の選手の位置へ移動させると配置入替ができます'}
               </span>
               {selectedPlayerId && (
                 <button
@@ -787,21 +873,23 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
             {/* Pitch Container with Grass Pattern (Scalable Zoom Wrapper & Drop Zone) */}
             <div className="relative w-full overflow-hidden rounded-2xl border-2 border-emerald-600/40 shadow-2xl bg-emerald-950/20">
               <div 
-                className="relative w-full aspect-[3/4] pitch-pattern p-3 transition-transform duration-200 origin-top"
-                style={{ transform: `scale(${pitchZoom / 100})` }}
+                ref={pitchRef}
+                className="relative w-full aspect-[3/4] pitch-pattern p-3 transition-transform duration-200 origin-top select-none"
+                style={{ transform: `scale(${pitchZoom / 100})`, touchAction: placementMode === 'free' ? 'none' : 'auto' }}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
                 }}
                 onDrop={(e) => {
+                  if (placementMode !== 'free') return;
                   e.preventDefault();
                   const draggedId = e.dataTransfer.getData('text/plain') || selectedPlayerId;
                   if (!draggedId) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const rawX = ((e.clientX - rect.left) / rect.width) * 100;
                   const rawY = ((e.clientY - rect.top) / rect.height) * 100;
-                  const pitchX = Math.max(8, Math.min(92, Math.round(rawX)));
-                  const pitchY = Math.max(10, Math.min(92, Math.round(rawY)));
+                  const pitchX = Math.max(6, Math.min(94, Math.round(rawX)));
+                  const pitchY = Math.max(6, Math.min(95, Math.round(rawY)));
                   handleMovePlayerToPitchPosition(draggedId, pitchX, pitchY);
                 }}
               >
@@ -820,10 +908,11 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                 </div>
 
                 {/* Starter Player Pins (Enlarged & Re-evaluated: Requirement 1 & 5) */}
-                {starters.map((item, idx) => {
+                {starters.map((item) => {
                   const p = item.player;
                   if (!p) return null;
                   const isSelected = selectedPlayerId === p.id;
+                  const isDraggingThis = draggingPlayerId === p.id;
                   const isUnavailable = p.injury.isInjured || p.suspension.isSuspended;
                   const fit = getPositionFitOvr(p, item.position);
 
@@ -834,8 +923,12 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                   return (
                     <div
                       key={p.id}
-                      draggable={!isUnavailable}
+                      draggable={placementMode === 'formation' && !isUnavailable}
                       onDragStart={(e) => {
+                        if (placementMode === 'free') {
+                          e.preventDefault();
+                          return;
+                        }
                         e.dataTransfer.setData('text/plain', p.id);
                         setSelectedPlayerId(p.id);
                       }}
@@ -844,6 +937,7 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                         e.dataTransfer.dropEffect = 'move';
                       }}
                       onDrop={(e) => {
+                        if (placementMode === 'free') return;
                         e.stopPropagation();
                         e.preventDefault();
                         const draggedId = e.dataTransfer.getData('text/plain') || selectedPlayerId;
@@ -851,7 +945,49 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                           handleSwapBetween(draggedId, p.id);
                         }
                       }}
+                      onPointerDown={(e) => {
+                        if (placementMode !== 'free') return;
+                        e.stopPropagation();
+                        try {
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                        } catch {
+                          // ignore if unsupported
+                        }
+                        dragMovedRef.current = false;
+                        setDraggingPlayerId(p.id);
+                      }}
+                      onPointerMove={(e) => {
+                        if (placementMode !== 'free' || draggingPlayerId !== p.id || !pitchRef.current) return;
+                        e.stopPropagation();
+                        const rect = pitchRef.current.getBoundingClientRect();
+                        if (rect.width <= 0 || rect.height <= 0) return;
+                        const normX = (e.clientX - rect.left) / rect.width;
+                        const normY = (e.clientY - rect.top) / rect.height;
+                        dragMovedRef.current = true;
+                        const baseTac = freeDraftTactics || tactics;
+                        const updated = applyFreePlacementMove(baseTac, p.id, normX, normY, p.position === 'GK', state.players);
+                        setFreeDraftTactics(updated);
+                      }}
+                      onPointerUp={(e) => {
+                        if (draggingPlayerId === p.id) {
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                          } catch {
+                            // ignore
+                          }
+                          setDraggingPlayerId(null);
+                        }
+                      }}
+                      onPointerCancel={() => {
+                        if (draggingPlayerId === p.id) {
+                          setDraggingPlayerId(null);
+                        }
+                      }}
                       onClick={() => {
+                        if (placementMode === 'free' && dragMovedRef.current) {
+                          dragMovedRef.current = false;
+                          return;
+                        }
                         if (selectedPlayerId) {
                           if (selectedPlayerId === p.id) {
                             setSelectedPlayerId(null);
@@ -867,13 +1003,19 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                         left: `${item.pitchX}%`,
                         top: `${item.pitchY}%`,
                         transform: 'translate(-50%, -50%)',
-                        touchAction: 'manipulation',
-                        transition: 'left 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), top 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                        touchAction: placementMode === 'free' ? 'none' : 'manipulation',
+                        transition: isDraggingThis
+                          ? 'none'
+                          : 'left 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), top 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)'
                       }}
-                      className={`group z-10 flex flex-col items-center cursor-pointer transition-all select-none ${
-                        isSelected 
-                          ? 'scale-115 z-30' 
-                          : 'hover:scale-105 hover:z-20'
+                      className={`group z-10 flex flex-col items-center transition-all select-none ${
+                        placementMode === 'free' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+                      } ${
+                        isDraggingThis
+                          ? 'scale-115 z-40 drop-shadow-2xl'
+                          : isSelected 
+                            ? 'scale-115 z-30' 
+                            : 'hover:scale-105 hover:z-20'
                       }`}
                     >
                       {/* Position Tag + Fit Grade Badge + Growth Indicator */}

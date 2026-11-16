@@ -428,12 +428,49 @@ export interface FrontOfficeProposedAction {
   applied?: boolean;
 }
 
+export interface FrontOfficeRecommendation {
+  category?: string;
+  title?: string;
+  detail?: string;
+  targetPlayerId?: string;
+  targetPlayerName?: string;
+  playerId?: string;
+  playerName?: string;
+  clubName?: string;
+  age?: number;
+  position?: string;
+  ovr?: number;
+  marketValue?: number;
+  estimatedFee?: number;
+  merit?: string;
+  reason?: string;
+  fitRating?: string;
+  difficulty?: string;
+}
+
+export type AiProviderType = 'gemini' | 'openai';
+
+export type AiConnectionStatus =
+  | 'connected'
+  | 'connection_failed'
+  | 'api_key_missing'
+  | 'network_error'
+  | 'generation_error'
+  | 'unknown';
+
 export interface FrontOfficeMessageRecord {
   id: string;
   date: string;
   sender: 'manager' | 'front_office';
   text: string;
+  analysisSummary?: string;
+  recommendations?: FrontOfficeRecommendation[];
   proposedAction?: FrontOfficeProposedAction;
+  modelUsed?: string;
+  providerUsed?: AiProviderType;
+  isAiGenerated?: boolean;
+  connectionStatus?: AiConnectionStatus;
+  errorDetail?: string;
 }
 
 export interface SmartphoneState {
@@ -509,6 +546,15 @@ export interface Club {
   playerIds: string[];
   rivalClubIds?: string[];
   isUserClub?: boolean;
+  isTournamentOnly?: boolean;
+  europeanFixedComp?: 'ucl' | 'uel' | 'uecl';
+  tournamentRatings?: {
+    overall: number;
+    attack: number;
+    midfield: number;
+    defense: number;
+    gk: number;
+  };
   tactics?: TeamTactics;
   youthFacility?: number;
   trophies?: number;
@@ -578,8 +624,16 @@ export interface PeriodSummary {
   }[];
 }
 
+export interface FreeCustomPositionCoord {
+  x: number; // 0..1 normalized pitch width (0 = left touchline, 1 = right touchline)
+  y: number; // 0..1 normalized pitch length (0 = opponent goal line, 1 = own goal line)
+  position?: Position;
+}
+
 export interface TeamTactics {
   formation: FormationName;
+  placementMode?: 'formation' | 'free';
+  customPositions?: Record<string, FreeCustomPositionCoord>;
   lineup: {
     starters: { playerId: string; position: Position; pitchX: number; pitchY: number }[];
     bench: string[];
@@ -743,6 +797,14 @@ export interface MatchFixture {
   winnerClubId?: string;
   resultType?: 'home_win' | 'away_win' | 'draw' | 'pk_home_win' | 'pk_away_win';
   aggregateScore?: { homeScore: number; awayScore: number; homeTotal?: number; awayTotal?: number };
+  preSeasonMeta?: {
+    tournamentId?: string;
+    seasonYear?: number;
+    groupId?: 'A' | 'B';
+    matchday?: number;
+    isGroupStage?: boolean;
+    isFinal?: boolean;
+  };
 }
 
 export type TournamentStatus = 'not_started' | 'in_progress' | 'completed';
@@ -770,6 +832,7 @@ export interface TournamentCompetition {
   currentRoundId?: string;
   currentRoundName?: string;
   rounds: TournamentRound[];
+  participantClubIds?: string[];
   championClubId?: string;
   runnerUpClubId?: string;
   leaguePhaseTable?: StandingsRow[];
@@ -933,6 +996,78 @@ export interface PreSeasonTournament {
   participants: string[];
   matchesCount: number;
   deadline: string;
+  hostCountry?: string;
+  startDate?: string;
+  endDate?: string;
+  finalDate?: string;
+  invitationReason?: string;
+  eligibilityCondition?: string;
+  participationReward?: number;
+  runnerUpPrize?: number;
+  championPrize?: number;
+  seasonYear?: number;
+  invitationKey?: string;
+}
+
+export interface PreSeasonGroupStanding {
+  clubId: string;
+  clubName: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDiff: number;
+  points: number;
+}
+
+export interface PreSeasonGroup {
+  groupId: 'A' | 'B';
+  groupName: string;
+  clubIds: string[];
+  standings: PreSeasonGroupStanding[];
+}
+
+export interface PreSeasonTournamentState {
+  seasonYear: number;
+  tournamentId: string;
+  invitationKey: string;
+  name: string;
+  hostCountry: string;
+  startDate: string;
+  endDate: string;
+  stage: 'group_stage' | 'final' | 'completed';
+  groups: PreSeasonGroup[];
+  groupFixtureIds: string[];
+  finalFixtureId?: string;
+  championPrize: number;
+  runnerUpPrize: number;
+  participationReward: number;
+  championClubId?: string;
+  runnerUpClubId?: string;
+  userFinalPlacement?: '優勝' | '準優勝' | 'グループ敗退';
+  userGroupRank?: number;
+  rewardProcessed: boolean;
+  prizeAwarded: number;
+  budgetBefore: number;
+  budgetAfter: number;
+}
+
+export interface PreSeasonHistoryRecord {
+  seasonYear: number;
+  tournamentId: string;
+  name: string;
+  hostCountry: string;
+  championClubId: string;
+  championClubName: string;
+  runnerUpClubId?: string;
+  runnerUpClubName?: string;
+  userPlacement: '優勝' | '準優勝' | 'グループ敗退';
+  prizeAwarded: number;
+  budgetBefore: number;
+  budgetAfter: number;
+  completedDate: string;
 }
 
 export interface ClubRoadmapGoal {
@@ -1028,11 +1163,19 @@ export interface GameWorldState {
 
   clubVision?: ClubVisionRoadmap; // 未来予想図・クラブ成長計画
   selectedPreSeason?: string;
+  preSeasonInvitations?: PreSeasonTournament[];
+  preSeasonTournament?: PreSeasonTournamentState;
+  preSeasonHistory?: PreSeasonHistoryRecord[];
   trainingFocus: 'バランス総合' | '攻撃・連係強化' | '守備戦術・プレス' | 'コンディション回復' | '若手重点育成';
   incomingOffers?: IncomingAIOffer[];
   transferHistory?: CompletedTransferRecord[];
   showDeadlineSummary?: boolean;
   year2UCLQualifiedClubIds?: string[];
+  europeanQualifications?: {
+    uclClubIds: string[];
+    uelClubIds: string[];
+    ueclClubIds: string[];
+  };
   lastSquadAutoChangeNotice?: {
     transferredPlayerName: string;
     replacedPlayerName: string | null;

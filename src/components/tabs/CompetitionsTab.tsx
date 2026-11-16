@@ -52,7 +52,12 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
   const currentCupMeta = SUPPORTED_CUPS.find(c => c.id === selectedCup) || SUPPORTED_CUPS[0];
   const isEuroCup = currentCupMeta.format === 'european-league-phase';
   const cupStatusInfo = getTournamentStatus(selectedCup, state.currentDate);
-  const euroStandings = isEuroCup ? getEuropeanLeaguePhaseStandings(selectedCup as 'ucl' | 'uel' | 'uecl', state.clubs, state.fixtures) : [];
+  const euroStandings = isEuroCup
+    ? getEuropeanLeaguePhaseStandings(selectedCup as 'ucl' | 'uel' | 'uecl', state.clubs, state.fixtures, {
+        participantClubIds: state.tournaments?.[selectedCup]?.participantClubIds,
+        europeanQualifications: state.europeanQualifications
+      })
+    : [];
   const bracketRounds = getTournamentBracket(selectedCup, state);
   const cupFixtures = state.fixtures.filter(f => f.competition === selectedCup);
 

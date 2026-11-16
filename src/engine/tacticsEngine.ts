@@ -1,4 +1,4 @@
-import { Position, FormationName, TeamTactics, Player } from '../types/game';
+import { Position, FormationName, TeamTactics, Player, FreeCustomPositionCoord } from '../types/game';
 
 export interface FormationSlot {
   position: Position;
@@ -923,13 +923,231 @@ export function updateTacticsFormation(
     }
   }
 
+  const syncedCustomPositions: Record<string, FreeCustomPositionCoord> = {};
+  newStarters.forEach(s => {
+    if (s.playerId) {
+      syncedCustomPositions[s.playerId] = {
+        x: Math.round((s.pitchX / 100) * 1000) / 1000,
+        y: Math.round((s.pitchY / 100) * 1000) / 1000,
+        position: s.position
+      };
+    }
+  });
+
   return {
     ...currentTactics,
     formation: newFormation,
+    placementMode: 'formation',
+    customPositions: syncedCustomPositions,
     lineup: {
       ...currentTactics.lineup,
       starters: newStarters,
       bench: newBench
     }
+  };
+}
+
+export function clampFreePitchCoord(
+  x: number,
+  y: number,
+  isGk: boolean = false
+): { x: number; y: number } {
+  const safeX = Number.isFinite(x) ? x : 0.5;
+  const safeY = Number.isFinite(y) ? y : isGk ? 0.92 : 0.5;
+  if (isGk) {
+    return {
+      x: Math.round(Math.max(0.35, Math.min(0.65, safeX)) * 1000) / 1000,
+      y: Math.round(Math.max(0.85, Math.min(0.96, safeY)) * 1000) / 1000
+    };
+  }
+  return {
+    x: Math.round(Math.max(0.06, Math.min(0.94, safeX)) * 1000) / 1000,
+    y: Math.round(Math.max(0.06, Math.min(0.87, safeY)) * 1000) / 1000
+  };
+}
+
+export function inferPositionFromNormalizedCoords(
+  x: number,
+  y: number,
+  currentPos: Position,
+  isGk: boolean = false
+): Position {
+  if (isGk || currentPos === 'GK') return 'GK';
+
+  if (y <= 0.27) {
+    if (x < 0.30) return 'LW';
+    if (x > 0.70) return 'RW';
+    return currentPos === 'CF' ? 'CF' : 'ST';
+  }
+  if (y <= 0.43) {
+    if (x < 0.25) return 'LW';
+    if (x > 0.75) return 'RW';
+    return 'CAM';
+  }
+  if (y <= 0.58) {
+    if (x < 0.24) return 'LM';
+    if (x > 0.76) return 'RM';
+    return 'CM';
+  }
+  if (y <= 0.70) {
+    if (x < 0.24) return 'LWB';
+    if (x > 0.76) return 'RWB';
+    return 'CDM';
+  }
+  if (x < 0.27) return 'LB';
+  if (x > 0.73) return 'RB';
+  return 'CB';
+}
+
+export function resolveFreePlacementCollisions(
+  positions: Record<string, FreeCustomPositionCoord>,
+  anchorPlayerId?: string,
+  gkPlayerId?: string
+): Record<string, FreeCustomPositionCoord> {
+  const ids = Object.keys(positions);
+  if (ids.length <= 1) return positions;
+
+  const working: Record<string, FreeCustomPositionCoord> = {};
+  ids.forEach(id => {
+    working[id] = { ...positions[id] };
+  });
+
+  const minDist = 0.078;
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const idA = ids[i];
+        const idB = ids[j];
+        const a = working[idA];
+        const b = working[idB];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < minDist) {
+          const overlap = (minDist - dist) + 0.004;
+          const angle = dist > 0.0001 ? Math.atan2(dy, dx) : ((i + j) % 2 === 0 ? 0 : Math.PI / 2);
+          const ux = Math.cos(angle);
+          const uy = Math.sin(angle);
+
+          const aFixed = idA === anchorPlayerId || idA === gkPlayerId;
+          const bFixed = idB === anchorPlayerId || idB === gkPlayerId;
+
+          let pushA = 0.5;
+          let pushB = 0.5;
+          if (aFixed && !bFixed) {
+            pushA = 0.1;
+            pushB = 0.9;
+          } else if (bFixed && !aFixed) {
+            pushA = 0.9;
+            pushB = 0.1;
+          }
+
+          const clampedA = clampFreePitchCoord(a.x - ux * overlap * pushA, a.y - uy * overlap * pushA, idA === gkPlayerId || a.position === 'GK');
+          const clampedB = clampFreePitchCoord(b.x + ux * overlap * pushB, b.y + uy * overlap * pushB, idB === gkPlayerId || b.position === 'GK');
+
+          working[idA] = { ...a, x: clampedA.x, y: clampedA.y };
+          working[idB] = { ...b, x: clampedB.x, y: clampedB.y };
+        }
+      }
+    }
+  }
+
+  return working;
+}
+
+export function syncCustomPositionsFromStarters(
+  tactics: TeamTactics,
+  playersMap?: Record<string, Player>
+): Record<string, FreeCustomPositionCoord> {
+  const existing = tactics.customPositions || {};
+  const result: Record<string, FreeCustomPositionCoord> = {};
+
+  (tactics.lineup?.starters || []).forEach(s => {
+    if (!s.playerId) return;
+    const isGk = playersMap?.[s.playerId]?.position === 'GK' || s.position === 'GK';
+    const prev = existing[s.playerId];
+    if (prev && Number.isFinite(prev.x) && Number.isFinite(prev.y)) {
+      const clamped = clampFreePitchCoord(prev.x, prev.y, isGk);
+      result[s.playerId] = {
+        x: clamped.x,
+        y: clamped.y,
+        position: prev.position || s.position
+      };
+    } else {
+      const clamped = clampFreePitchCoord((s.pitchX || 50) / 100, (s.pitchY || 50) / 100, isGk);
+      result[s.playerId] = {
+        x: clamped.x,
+        y: clamped.y,
+        position: s.position
+      };
+    }
+  });
+
+  return result;
+}
+
+export function applyFreePlacementMove(
+  tactics: TeamTactics,
+  playerId: string,
+  normX: number,
+  normY: number,
+  isGk: boolean,
+  playersMap?: Record<string, Player>
+): TeamTactics {
+  const baseCustom = syncCustomPositionsFromStarters(tactics, playersMap);
+  const starter = (tactics.lineup?.starters || []).find(s => s.playerId === playerId);
+  const clamped = clampFreePitchCoord(normX, normY, isGk);
+  const inferredPos = inferPositionFromNormalizedCoords(clamped.x, clamped.y, starter?.position || (isGk ? 'GK' : 'CM'), isGk);
+
+  baseCustom[playerId] = {
+    x: clamped.x,
+    y: clamped.y,
+    position: inferredPos
+  };
+
+  const gkStarter = (tactics.lineup?.starters || []).find(s =>
+    playersMap?.[s.playerId]?.position === 'GK' || s.position === 'GK'
+  );
+  const resolved = resolveFreePlacementCollisions(baseCustom, playerId, gkStarter?.playerId);
+
+  const nextStarters = (tactics.lineup?.starters || []).map(s => {
+    const coord = resolved[s.playerId];
+    if (!coord) return s;
+    const sIsGk = playersMap?.[s.playerId]?.position === 'GK' || s.position === 'GK';
+    return {
+      ...s,
+      pitchX: Math.round(coord.x * 1000) / 10,
+      pitchY: Math.round(coord.y * 1000) / 10,
+      position: s.playerId === playerId ? (coord.position || s.position) : (sIsGk ? 'GK' : s.position)
+    };
+  });
+
+  return {
+    ...tactics,
+    placementMode: 'free',
+    customPositions: resolved,
+    lineup: {
+      ...tactics.lineup,
+      starters: nextStarters
+    }
+  };
+}
+
+export function resetFreePlacementToFormation(
+  tactics: TeamTactics,
+  playersMap?: Record<string, Player>
+): TeamTactics {
+  const template = FORMATION_TEMPLATES[tactics.formation];
+  if (!template || template.length !== 11) return tactics;
+
+  const synced = updateTacticsFormation(
+    { ...tactics, placementMode: 'formation', customPositions: undefined },
+    tactics.formation,
+    playersMap
+  );
+  return {
+    ...synced,
+    placementMode: tactics.placementMode || 'formation'
   };
 }

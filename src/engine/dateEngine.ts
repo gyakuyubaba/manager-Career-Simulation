@@ -14,6 +14,7 @@ import { evaluateDailyUnexpectedEvent } from './unexpectedEventsEngine';
 import { processSkillDeclineCheck } from './skillEngine';
 import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
 import { processDailySmartphoneEvents, recordMatchSmartphoneUpdate } from './smartphoneEngine';
+import { EUROPEAN_GROUP_A_SLOT_COUNTS } from '../data/europeanCompetitionClubs2026';
 
 // Get competition category for isolated disciplinary suspensions
 export function getCompetitionCategory(competition: string): CompetitionCategory {
@@ -602,9 +603,14 @@ export function advanceOneDay(
       p.age = calculateAge(p.birthDate, nextDate);
     }
 
-    // Natural fatigue recovery (+8 to +16% per rest day)
+    // Balanced multi-day fatigue recovery: slower on rest days (6 base / 12 recovery training), minimal pre-match recovery (2) on matchdays
     if (p.fatigue > 0) {
-      const restFactor = state.trainingFocus === 'コンディション回復' ? 18 : 11;
+      const hasMatchToday = todayFixtures.some(f => f.homeClubId === p.clubId || f.awayClubId === p.clubId);
+      const restFactor = hasMatchToday
+        ? 2
+        : state.trainingFocus === 'コンディション回復'
+          ? 12
+          : 6;
       p.fatigue = Math.max(0, p.fatigue - restFactor);
     }
 
@@ -1009,9 +1015,15 @@ export function advanceOneDay(
       }
     });
 
-    const promRel = processSeasonEndPromotionsAndRelegations(state, currentSeasonYear + 1);
-    state = promRel.state;
     const euroQual = calculateEuropeanQualifications(state);
+    const nextEuroQual: GameWorldState['europeanQualifications'] = {
+      uclClubIds: euroQual.uclClubs,
+      uelClubIds: euroQual.uelClubs,
+      ueclClubIds: euroQual.ueclClubs
+    };
+    const promRel = processSeasonEndPromotionsAndRelegations(state, currentSeasonYear + 1, nextEuroQual);
+    state = promRel.state;
+    state.europeanQualifications = nextEuroQual;
     state.news = [promRel.news, ...euroQual.news, ...state.news];
     if (!autoSimulateUserMatch) {
       stoppedReason = `【${state.season}新シーズン開幕】昇降格および欧州大会出場枠が確定し、新シーズンのプレシーズンツアーが開幕しました！`;
@@ -1471,7 +1483,8 @@ export function scheduleSecondDivisionPlayoffs(state: GameWorldState): boolean {
 
 export function processSeasonEndPromotionsAndRelegations(
   state: GameWorldState,
-  targetSeasonYear?: number | string
+  targetSeasonYear?: number | string,
+  europeanQualifications?: GameWorldState['europeanQualifications']
 ): { state: GameWorldState; news: NewsItem } {
   const clubs = { ...state.clubs };
   const standings = state.standings;
@@ -1938,10 +1951,10 @@ export function processSeasonEndPromotionsAndRelegations(
     importance: 'high'
   };
 
-  // Reset standings for all 12 leagues for the next season
+  // Reset standings for all domestic leagues for the next season (exclude tournament-only Group B clubs)
   const updatedStandings = { ...standings };
   (Object.keys(updatedStandings) as LeagueKey[]).forEach(k => {
-    const lgClubs = Object.values(clubs).filter(c => c.league === k);
+    const lgClubs = Object.values(clubs).filter(c => c.league === k && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament');
     updatedStandings[k] = lgClubs.map(c => ({
       clubId: c.id,
       clubName: c.name,
@@ -2026,10 +2039,11 @@ export function processSeasonEndPromotionsAndRelegations(
   });
 
   // Regenerate season fixtures for the next season with updated league memberships and fresh randomized pre-season
-  const nextFixtures = generateSeasonFixtures(clubs, state.userClubId, nextYear, state.manager);
+  const resolvedEuroQual = europeanQualifications ?? state.europeanQualifications;
+  const nextFixtures = generateSeasonFixtures(clubs, state.userClubId, nextYear, state.manager, undefined, resolvedEuroQual);
 
   // Initialize tournaments for the new season in 'not_started' state
-  const updatedTournaments = initializeTournamentCompetitions(nextYear, clubs, nextDate);
+  const updatedTournaments = initializeTournamentCompetitions(nextYear, clubs, nextDate, resolvedEuroQual);
 
   // Update Club Vision Roadmap for the new season
   let updatedVision = state.clubVision;
@@ -2048,6 +2062,7 @@ export function processSeasonEndPromotionsAndRelegations(
       clubs,
       players: updatedPlayers,
       standings: updatedStandings,
+      europeanQualifications: resolvedEuroQual,
       fixtures: [...playoffFixtures, ...nextFixtures],
       tournaments: updatedTournaments,
       selectedPreSeason: undefined, // Clears selection so pre-season invitations show in July!
@@ -2374,66 +2389,112 @@ export function calculateEuropeanQualifications(state: GameWorldState): {
   const uelSet = new Set<string>();
   const ueclSet = new Set<string>();
 
+  const isEligibleDomesticClub = (cId?: string) => {
+    if (!cId) return false;
+    const c = clubs[cId];
+    return Boolean(c && c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament' && c.league !== 'j1-league' && c.league !== 'j2-league' && c.league !== 'j3-league');
+  };
+  const alreadyQualified = (cId: string) => uclSet.has(cId) || uelSet.has(cId) || ueclSet.has(cId);
+  const tryAddUcl = (cId?: string) => {
+    if (uclSet.size >= EUROPEAN_GROUP_A_SLOT_COUNTS.ucl) return false;
+    if (cId && isEligibleDomesticClub(cId) && !alreadyQualified(cId)) {
+      uclSet.add(cId);
+      return true;
+    }
+    return false;
+  };
+  const tryAddUel = (cId?: string) => {
+    if (uelSet.size >= EUROPEAN_GROUP_A_SLOT_COUNTS.uel) return false;
+    if (cId && isEligibleDomesticClub(cId) && !alreadyQualified(cId)) {
+      uelSet.add(cId);
+      return true;
+    }
+    return false;
+  };
+  const tryAddUecl = (cId?: string) => {
+    if (ueclSet.size >= EUROPEAN_GROUP_A_SLOT_COUNTS.uecl) return false;
+    if (cId && isEligibleDomesticClub(cId) && !alreadyQualified(cId)) {
+      ueclSet.add(cId);
+      return true;
+    }
+    return false;
+  };
+
   const getStandings = (k: LeagueKey) => standings[k] || [];
 
-  // 1. Premier League (Top 4 UCL, 5th UEL, FA Cup winner UEL, Carabao Cup winner UECL)
+  // Top 5 Leagues + Cup winners -> primary Group A UCL / UEL / UECL allocation
   const pl = getStandings('premier-league');
+  pl.slice(0, 4).forEach(r => tryAddUcl(r.clubId));
   const faCupChamp = tournaments['fa-cup']?.championClubId;
   const carabaoChamp = tournaments['carabao-cup']?.championClubId;
 
-  pl.slice(0, 4).forEach(r => uclSet.add(r.clubId));
-  if (faCupChamp && !uclSet.has(faCupChamp)) {
-    uelSet.add(faCupChamp);
-  }
-  if (pl[4] && !uclSet.has(pl[4].clubId)) uelSet.add(pl[4].clubId);
-  if (uelSet.size < 2 && pl[5] && !uclSet.has(pl[5].clubId)) uelSet.add(pl[5].clubId);
-
-  if (carabaoChamp && !uclSet.has(carabaoChamp) && !uelSet.has(carabaoChamp)) {
-    ueclSet.add(carabaoChamp);
-  } else {
-    const nextForEcl = pl.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
-    if (nextForEcl) ueclSet.add(nextForEcl.clubId);
-  }
-
-  // 2. La Liga (Top 4 UCL, 5th UEL, Copa del Rey UEL, 6th UECL)
   const ll = getStandings('laliga');
+  ll.slice(0, 4).forEach(r => tryAddUcl(r.clubId));
   const copaChamp = tournaments['copa-del-rey']?.championClubId;
-  ll.slice(0, 4).forEach(r => uclSet.add(r.clubId));
-  if (copaChamp && !uclSet.has(copaChamp)) uelSet.add(copaChamp);
-  if (ll[4] && !uclSet.has(ll[4].clubId)) uelSet.add(ll[4].clubId);
-  if (uelSet.size < 2 && ll[5] && !uclSet.has(ll[5].clubId)) uelSet.add(ll[5].clubId);
-  const nextForEclLL = ll.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
-  if (nextForEclLL) ueclSet.add(nextForEclLL.clubId);
 
-  // 3. Serie A (Top 4 UCL, 5th UEL, Coppa Italia UEL, 6th UECL)
   const sa = getStandings('serie-a');
+  sa.slice(0, 4).forEach(r => tryAddUcl(r.clubId));
   const coppaChamp = tournaments['coppa-italia']?.championClubId;
-  sa.slice(0, 4).forEach(r => uclSet.add(r.clubId));
-  if (coppaChamp && !uclSet.has(coppaChamp)) uelSet.add(coppaChamp);
-  if (sa[4] && !uclSet.has(sa[4].clubId)) uelSet.add(sa[4].clubId);
-  if (uelSet.size < 2 && sa[5] && !uclSet.has(sa[5].clubId)) uelSet.add(sa[5].clubId);
-  const nextForEclSA = sa.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
-  if (nextForEclSA) ueclSet.add(nextForEclSA.clubId);
 
-  // 4. Bundesliga (Top 4 UCL, 5th UEL, DFB-Pokal UEL, 6th UECL)
   const bl = getStandings('bundesliga');
+  bl.slice(0, 4).forEach(r => tryAddUcl(r.clubId));
   const dfbChamp = tournaments['dfb-pokal']?.championClubId;
-  bl.slice(0, 4).forEach(r => uclSet.add(r.clubId));
-  if (dfbChamp && !uclSet.has(dfbChamp)) uelSet.add(dfbChamp);
-  if (bl[4] && !uclSet.has(bl[4].clubId)) uelSet.add(bl[4].clubId);
-  if (uelSet.size < 2 && bl[5] && !uclSet.has(bl[5].clubId)) uelSet.add(bl[5].clubId);
-  const nextForEclBL = bl.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
-  if (nextForEclBL) ueclSet.add(nextForEclBL.clubId);
 
-  // 5. Ligue 1 (Top 3 UCL, 4th UEL, Coupe de France UEL, 5th/6th UECL)
   const l1 = getStandings('ligue-1');
+  l1.slice(0, 3).forEach(r => tryAddUcl(r.clubId));
   const coupeChamp = tournaments['coupe-de-france']?.championClubId;
-  l1.slice(0, 3).forEach(r => uclSet.add(r.clubId));
-  if (coupeChamp && !uclSet.has(coupeChamp)) uelSet.add(coupeChamp);
-  if (l1[3] && !uclSet.has(l1[3].clubId)) uelSet.add(l1[3].clubId);
-  if (uelSet.size < 2 && l1[4] && !uclSet.has(l1[4].clubId)) uelSet.add(l1[4].clubId);
-  const nextForEclL1 = l1.find(r => !uclSet.has(r.clubId) && !uelSet.has(r.clubId));
-  if (nextForEclL1) ueclSet.add(nextForEclL1.clubId);
+
+  // Portugal, Netherlands, Turkey, Belgium 1st-div champions & runners-up -> remaining Group A UCL slots (up to 28)
+  const pt = getStandings('primeira-liga');
+  const nl = getStandings('eredivisie');
+  const tr = getStandings('super-lig');
+  const be = getStandings('pro-league');
+
+  [pt.slice(0, 2), nl.slice(0, 2), tr.slice(0, 2), be.slice(0, 2)].forEach(rows => {
+    rows.forEach(r => tryAddUcl(r.clubId));
+  });
+  // Fill any remaining UCL Group A slot up to 28 from 5th-place Top 4 coefficient leagues
+  [pl[4], sa[4], ll[4], bl[4], l1[3]].forEach(r => tryAddUcl(r?.clubId));
+
+  // UEL Group A (up to 18): Cup winners + next league finishes across 9 domestic Euro 1st divisions
+  [faCupChamp, copaChamp, coppaChamp, dfbChamp, coupeChamp,
+   tournaments['taca-de-portugal']?.championClubId,
+   tournaments['knvb-beker']?.championClubId,
+   tournaments['turkey-cup']?.championClubId,
+   tournaments['belgian-cup']?.championClubId
+  ].forEach(cId => tryAddUel(cId));
+
+  [pl, ll, sa, bl, l1, nl, pt, tr, be].forEach(rows => {
+    for (const r of rows) {
+      if (uelSet.size >= EUROPEAN_GROUP_A_SLOT_COUNTS.uel) break;
+      if (tryAddUel(r.clubId)) break;
+    }
+  });
+  // Second pass across Top 5 + NL/PT/TR/BE to reach 18 Group A UEL clubs
+  [pl, ll, sa, bl, l1, nl, pt, be, tr].forEach(rows => {
+    for (const r of rows) {
+      if (uelSet.size >= EUROPEAN_GROUP_A_SLOT_COUNTS.uel) break;
+      if (tryAddUel(r.clubId)) break;
+    }
+  });
+
+  // UECL Group A (up to 11): Carabao Cup winner + next highest league finishes across the 9 Euro 1st divisions
+  tryAddUecl(carabaoChamp);
+  [be, pl, l1, bl, sa, nl, pt, ll, tr].forEach(rows => {
+    for (const r of rows) {
+      if (ueclSet.size >= EUROPEAN_GROUP_A_SLOT_COUNTS.uecl) break;
+      if (tryAddUecl(r.clubId)) break;
+    }
+  });
+  // Rollover safeguard across all 9 Euro 1st divisions if any league lacked entries
+  const euroTopLeagues: LeagueKey[] = ['premier-league', 'laliga', 'serie-a', 'bundesliga', 'ligue-1', 'eredivisie', 'primeira-liga', 'pro-league', 'super-lig'];
+  for (const lk of euroTopLeagues) {
+    for (const r of getStandings(lk)) {
+      if (uclSet.size < EUROPEAN_GROUP_A_SLOT_COUNTS.ucl) tryAddUcl(r.clubId);
+      else if (uelSet.size < EUROPEAN_GROUP_A_SLOT_COUNTS.uel) tryAddUel(r.clubId);
+      else if (ueclSet.size < EUROPEAN_GROUP_A_SLOT_COUNTS.uecl) tryAddUecl(r.clubId);
+    }
+  }
 
   const uclClubs = Array.from(uclSet);
   const uelClubs = Array.from(uelSet);
@@ -2601,6 +2662,7 @@ export function generateAIClubsYouthPromotions(currentState: GameWorldState): Ga
   const lastNames = ['Silva', 'Santos', 'Garcia', 'Fernandez', 'Muller', 'Schmidt', 'Dubois', 'Laurent', 'Rossi', 'Bianchi', 'Tanaka', 'Sato', 'Suzuki', 'Smith', 'Jones', 'Davies', 'Moreno', 'Alvarez', 'Costa', 'Pereira'];
 
   Object.values(clubs).forEach(club => {
+    if (club.id === 'free_agent' || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return;
     // 1-2 youth players per club
     const count = 1 + (Math.random() < 0.4 ? 1 : 0);
     for (let i = 0; i < count; i++) {

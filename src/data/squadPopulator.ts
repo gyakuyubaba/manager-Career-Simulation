@@ -945,9 +945,10 @@ export function populateClubsWithDefaultSquads(
     }
   });
 
-  // CRITICAL REQUIREMENT: Ensure every club across all 12 leagues strictly has at least 25 players and at least 2 GKs
+  // CRITICAL REQUIREMENT: Ensure every domestic club across all 17 leagues strictly has at least 25 players and at least 2 GKs
+  // Tournament-only Group B clubs (isTournamentOnly) use buildEphemeralTournamentSquad during UEFA fixtures and stay out of player registry
   Object.values(cleanClubs).forEach((club, clubIdx) => {
-    if (club.id === 'free_agent') return;
+    if (club.id === 'free_agent' || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return;
     let clubPlayers = club.playerIds.map(id => cleanPlayers[id]).filter(Boolean);
     const existingGks = clubPlayers.filter(p => p.position === 'GK');
     const neededGks = Math.max(0, 2 - existingGks.length);
@@ -1025,7 +1026,7 @@ export function populateClubsWithDefaultSquads(
   // Update squad status defaults for each club
   // CRITICAL: Ensure 1 GK in STARTING, 1 GK on BENCH, and reserve GKs in OUT_OF_SQUAD (スタメン・ベンチ・ベンチ外)
   Object.values(cleanClubs).forEach(club => {
-    if (club.id === 'free_agent') return;
+    if (club.id === 'free_agent' || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return;
     const clubPlayers = club.playerIds.map(id => cleanPlayers[id]).filter(Boolean);
     const clubGks = clubPlayers.filter(p => p.position === 'GK').sort((a, b) => b.ovr - a.ovr);
     const clubOutfield = clubPlayers.filter(p => p.position !== 'GK').sort((a, b) => b.ovr - a.ovr);

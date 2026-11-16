@@ -344,9 +344,9 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
   const filteredPlayers = useMemo(() => {
     return Object.values(state.players)
       .filter(p => {
-        if (p.clubId === 'free_agent') return false;
+        if (p.clubId === 'free_agent' || p.id.startsWith('euro_synth_')) return false;
         const club = state.clubs[p.clubId];
-        if (!club) return false;
+        if (!club || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return false;
 
         // League filter
         if (selectedLeague !== 'all' && club.league !== selectedLeague) {

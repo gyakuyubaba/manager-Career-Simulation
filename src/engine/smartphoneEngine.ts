@@ -354,7 +354,7 @@ export function evaluateManagerJobOffers(
   // Filter realistic destination clubs matching manager reputation
   const effectiveScore = rep + (winRate - 0.4) * 25 + trophies * 5 + (overperforming ? 8 : 0);
   const candidateClubs = Object.values(withSp.clubs).filter(c => {
-    if (c.id === 'free_agent' || c.id === userClub.id) return false;
+    if (c.id === 'free_agent' || c.id === userClub.id || c.isTournamentOnly || (c.league as string) === 'uefa-tournament') return false;
     if (existingOffers.some(o => o.clubId === c.id && o.status === 'pending')) return false;
     if (c.tier === 'Elite' && effectiveScore < 88) return false;
     if (c.tier === 'Upper' && effectiveScore < 75) return false;
@@ -1155,32 +1155,181 @@ export function applyFrontOfficeProposedAction(
 
 /**
  * Local deterministic fallback generator for Front Office reply if backend API is unavailable.
+export function analyzeFrontOfficeSquadContext(state: GameWorldState): {
+  formation: string;
+  weaknessesSummary: string;
+  squadSummary: Array<{
+    id: string;
+    name: string;
+    position: string;
+    ovr: number;
+    age: number;
+    fatigue: number;
+    marketValue: number;
+    wage: number;
+    contractYears: number;
+    squadStatus?: string;
+  }>;
+  marketTargets: Array<{
+    id: string;
+    name: string;
+    position: string;
+    ovr: number;
+    age: number;
+    potential: number;
+    marketValue: number;
+    clubName: string;
+  }>;
+} {
+  const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
+  const squadPlayers = (userClub?.playerIds || [])
+    .map(id => state.players[id])
+    .filter(Boolean)
+    .sort((a, b) => b.ovr - a.ovr);
+
+  const squadSummary = squadPlayers.slice(0, 35).map(p => ({
+    id: p.id,
+    name: p.name,
+    position: p.position,
+    ovr: p.ovr,
+    age: p.age,
+    fatigue: p.fatigue ?? 0,
+    marketValue: p.marketValue,
+    wage: p.wage,
+    contractYears: p.contractYearsRemaining ?? p.contractYears ?? 2,
+    squadStatus: p.squadStatus
+  }));
+
+  const formation = state.tactics?.formation || userClub?.currentFormation || '4-3-3';
+  const starterIds = new Set((state.tactics?.lineup?.starters || []).map(s => s.playerId));
+  const starters = squadPlayers.filter(p => starterIds.has(p.id));
+  const cbCount = squadPlayers.filter(p => p.position === 'CB').length;
+  const stCount = squadPlayers.filter(p => ['ST', 'CF'].includes(p.position)).length;
+  const gkCount = squadPlayers.filter(p => p.position === 'GK').length;
+  const midAvg = (() => {
+    const m = squadPlayers.filter(p => ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(p.position));
+    return m.length > 0 ? Math.round(m.reduce((s, p) => s + p.ovr, 0) / m.length) : 0;
+  })();
+  const defAvg = (() => {
+    const d = squadPlayers.filter(p => ['CB', 'RB', 'LB', 'LWB', 'RWB'].includes(p.position));
+    return d.length > 0 ? Math.round(d.reduce((s, p) => s + p.ovr, 0) / d.length) : 0;
+  })();
+  const attAvg = (() => {
+    const a = squadPlayers.filter(p => ['ST', 'CF', 'LW', 'RW'].includes(p.position));
+    return a.length > 0 ? Math.round(a.reduce((s, p) => s + p.ovr, 0) / a.length) : 0;
+  })();
+  const highFatigue = starters.filter(p => (p.fatigue ?? 0) >= 60).length;
+  const agingStarters = starters.filter(p => p.age >= 32).length;
+  const expiringCount = squadPlayers.filter(p => (p.contractYearsRemaining ?? p.contractYears ?? 2) <= 1).length;
+
+  const weaknessNotes: string[] = [];
+  if (gkCount < 2) weaknessNotes.push('GK層が薄い');
+  if (cbCount < 3) weaknessNotes.push(`CBが${cbCount}名と薄く枚数補強推奨`);
+  if (stCount < 2) weaknessNotes.push(`生粋のST/CFが${stCount}名のみ`);
+  if (defAvg > 0 && defAvg <= Math.min(midAvg || 99, attAvg || 99) - 2) weaknessNotes.push(`守備陣平均OVR(${defAvg})が他セクションより低め`);
+  if (attAvg > 0 && attAvg <= Math.min(midAvg || 99, defAvg || 99) - 2) weaknessNotes.push(`攻撃陣平均OVR(${attAvg})の底上げ余地あり`);
+  if (agingStarters >= 3) weaknessNotes.push(`主力に32歳以上が${agingStarters}名おり世代交代検討`);
+  if (highFatigue >= 2) weaknessNotes.push(`スタメン${highFatigue}名が高疲労`);
+  if (expiringCount >= 3) weaknessNotes.push(`残契約1年以下が${expiringCount}名`);
+
+  const weaknessesSummary = weaknessNotes.length > 0
+    ? weaknessNotes.join(' / ')
+    : `GK:${gkCount}・DF平均${defAvg}・MF平均${midAvg}・FW平均${attAvg}（全体バランス良好）`;
+
+  const maxAffordable = Math.max(5000000, (userClub?.transferBudget || 0) * 1.15);
+  const eligibleMarket = Object.values(state.players).filter(p => {
+    if (!p || p.id.startsWith('euro_synth_')) return false;
+    if (p.clubId === state.userClubId) return false;
+    const c = state.clubs[p.clubId];
+    if (c && (c.isTournamentOnly || (c.league as string) === 'uefa-tournament')) return false;
+    return p.marketValue <= maxAffordable;
+  });
+
+  const pickedMap = new Map<string, Player>();
+  const addTop = (list: Player[], limit: number) => {
+    for (const p of list) {
+      if (pickedMap.size >= 40) break;
+      if (!pickedMap.has(p.id)) {
+        pickedMap.set(p.id, p);
+        limit--;
+        if (limit <= 0) break;
+      }
+    }
+  };
+
+  // Top overall affordable
+  addTop([...eligibleMarket].sort((a, b) => b.ovr - a.ovr), 12);
+  // Young U23 CB/DF/MF/FW prospects
+  addTop(eligibleMarket.filter(p => p.age <= 23 && p.position === 'CB').sort((a, b) => b.potential - a.potential || b.ovr - a.ovr), 6);
+  addTop(eligibleMarket.filter(p => p.age <= 23 && ['ST', 'CF', 'LW', 'RW'].includes(p.position)).sort((a, b) => b.potential - a.potential || b.ovr - a.ovr), 6);
+  addTop(eligibleMarket.filter(p => p.age <= 23 && ['CDM', 'CM', 'CAM', 'RB', 'LB', 'GK'].includes(p.position)).sort((a, b) => b.potential - a.potential || b.ovr - a.ovr), 6);
+  // <= 50M value ST/CB bargains
+  addTop(eligibleMarket.filter(p => p.marketValue <= 50000000 && ['ST', 'CF'].includes(p.position)).sort((a, b) => b.ovr - a.ovr), 5);
+  addTop(eligibleMarket.filter(p => p.marketValue <= 50000000 && ['CB', 'CDM', 'CM'].includes(p.position)).sort((a, b) => b.ovr - a.ovr), 5);
+
+  const marketTargets = Array.from(pickedMap.values()).map(p => ({
+    id: p.id,
+    name: p.name,
+    position: p.position,
+    ovr: p.ovr,
+    age: p.age,
+    potential: p.potential,
+    marketValue: p.marketValue,
+    clubName: state.clubs[p.clubId]?.name || '無所属'
+  }));
+
+  return {
+    formation,
+    weaknessesSummary,
+    squadSummary,
+    marketTargets
+  };
+}
+
+/**
+ * Local deterministic fallback generator for Front Office reply if backend API is unavailable.
  */
 export function buildDeterministicFrontOfficeReply(
   state: GameWorldState,
   userMessage: string
-): { reply: string; proposedAction?: FrontOfficeProposedAction } {
+): {
+  reply: string;
+  analysisSummary?: string;
+  recommendations?: FrontOfficeMessageRecord['recommendations'];
+  proposedAction?: FrontOfficeProposedAction;
+} {
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
   const squad = userClub ? userClub.playerIds.map(id => state.players[id]).filter(Boolean) : [];
+  const ctx = analyzeFrontOfficeSquadContext(state);
   const lower = userMessage.toLowerCase();
 
-  // Check if user mentioned a specific squad player by name
   const mentionedPlayer = squad.find(p =>
     userMessage.includes(p.name) ||
     p.name.split(/\s+/).some(part => part.length >= 2 && userMessage.includes(part))
   );
 
-  if (mentionedPlayer && (lower.includes('売') || lower.includes('放出') || lower.includes('移籍リスト') || lower.includes('sell'))) {
-    return {
-      reply: `承知いたしました。${mentionedPlayer.name}（OVR ${mentionedPlayer.ovr} / 推定市場価値 €${(mentionedPlayer.marketValue / 1000000).toFixed(1)}M）の移籍リスト登録について、オファー獲得に動きます。以下のボタンで最終実行をご承認ください。`,
-      proposedAction: {
-        type: 'transfer_list',
-        targetPlayerId: mentionedPlayer.id,
-        targetPlayerName: mentionedPlayer.name,
-        summary: `${mentionedPlayer.name} を移籍リストに登録する`,
-        requiresConfirmation: true
-      }
-    };
+  if (lower.includes('売') || lower.includes('放出') || lower.includes('移籍リスト') || lower.includes('sell') || lower.includes('整理')) {
+    const targetP = mentionedPlayer || [...squad].sort((a, b) => a.ovr - b.ovr)[0];
+    if (targetP) {
+      return {
+        reply: `承知いたしました。${targetP.name}（${targetP.position} / OVR ${targetP.ovr} / 推定価値 €${(targetP.marketValue / 1000000).toFixed(1)}M）の移籍リスト登録について、オファー獲得に動きます。下の承認ボタンで確定してください（自動実行はしません）。`,
+        analysisSummary: `${userClub?.name || 'クラブ'}の枠確保と給与圧縮のための現実的な売却候補です。`,
+        recommendations: [{
+          category: 'squad',
+          title: `売却検討: ${targetP.name}`,
+          detail: `${targetP.position} · OVR ${targetP.ovr} · 推定価値 €${(targetP.marketValue / 1000000).toFixed(1)}M`,
+          targetPlayerId: targetP.id,
+          targetPlayerName: targetP.name
+        }],
+        proposedAction: {
+          type: 'transfer_list',
+          targetPlayerId: targetP.id,
+          targetPlayerName: targetP.name,
+          summary: `${targetP.name} を移籍リストに登録する`,
+          requiresConfirmation: true
+        }
+      };
+    }
   }
 
   if (mentionedPlayer && (lower.includes('レンタル') || lower.includes('loan') || lower.includes('武者修行'))) {
@@ -1210,16 +1359,34 @@ export function buildDeterministicFrontOfficeReply(
     };
   }
 
-  if (lower.includes('補強') || lower.includes('ポジション') || lower.includes('スカウト') || lower.includes('弱い')) {
-    const gks = squad.filter(p => p.position === 'GK').length;
-    const fws = squad.filter(p => ['ST', 'CF', 'LW', 'RW'].includes(p.position)).length;
-    const avgOvr = squad.length > 0 ? Math.round(squad.reduce((a, p) => a + p.ovr, 0) / squad.length) : 70;
+  const wantsYoung = lower.includes('若手') || lower.includes('young');
+  const capMatch = userMessage.match(/(\d+)\s*[mM]/);
+  const cap = capMatch ? Number(capMatch[1]) * 1000000 : null;
+  let candidates = [...ctx.marketTargets];
+  if (userMessage.includes('CB')) candidates = candidates.filter(c => c.position === 'CB');
+  else if (userMessage.includes('ST') || userMessage.includes('CF')) candidates = candidates.filter(c => ['ST', 'CF'].includes(c.position));
+  else if (userMessage.includes('GK')) candidates = candidates.filter(c => c.position === 'GK');
+  if (wantsYoung) candidates = candidates.filter(c => c.age <= 23);
+  if (cap) candidates = candidates.filter(c => c.marketValue <= cap);
+
+  const picks = candidates.sort((a, b) => b.ovr - a.ovr).slice(0, 3);
+  if (picks.length > 0 && (lower.includes('補強') || lower.includes('探') || lower.includes('弱点') || lower.includes('弱い') || lower.includes('ポジション'))) {
+    const names = picks.map(p => `${p.name}(${p.position}/OVR${p.ovr}/€${(p.marketValue / 1000000).toFixed(1)}M)`).join('、');
     return {
-      reply: `スカッド分析（平均OVR ${avgOvr} / GK ${gks}名 / FW ${fws}名）をご報告します。現在の予算（€${((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M）を踏まえると、移籍市場タブから即戦力または若手ポテンシャル株へのオファーが有効です。希望のポジションをお知らせいただければさらに精査します。`
+      reply: `現在の編成（${ctx.formation}）と課題（${ctx.weaknessesSummary}）に基づき、実在の獲得候補を抽出しました：${names}。移籍市場タブから詳細交渉をご検討ください。`,
+      analysisSummary: `${userClub?.name || 'クラブ'}（移籍予算 €${((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M）の補強分析結果です。`,
+      recommendations: picks.map(p => ({
+        category: 'reinforce',
+        title: `${p.name} (${p.clubName})`,
+        detail: `${p.position} · ${p.age}歳 · OVR ${p.ovr} (POT ${p.potential}) · €${(p.marketValue / 1000000).toFixed(1)}M`,
+        targetPlayerId: p.id,
+        targetPlayerName: p.name
+      }))
     };
   }
 
   return {
-    reply: `${userClub?.name || 'クラブ'}強化部です。監督のご意向（${userMessage.slice(0, 30)}${userMessage.length > 30 ? '...' : ''}）を確認いたしました。目標「${userClub?.target || '上位進出'}」に向けて全面的にバックアップいたします。特定の選手の放出・レンタルや予算調整が必要な場合はその旨お申し付けください。`
+    reply: `${userClub?.name || 'クラブ'}強化部です。現状の編成分析（${ctx.weaknessesSummary}）と予算 €${((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M を踏まえ、補強・放出・予算相談にお応えします。ご希望の条件をお知らせください。`,
+    analysisSummary: `フォーメーション ${ctx.formation} / ${ctx.weaknessesSummary}`
   };
 }

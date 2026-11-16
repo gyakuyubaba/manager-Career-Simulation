@@ -478,7 +478,9 @@ export const ManagerCareerTab: React.FC<Props> = ({
                 onClick={() => {
                   if (confirm(`${userClub?.name || '現在のクラブ'}の監督を辞任してフリーエージェントになりますか？`)) {
                     // Generate realistic offers from other clubs
-                    const otherClubs = Object.values(state.clubs).filter(c => c.id !== state.userClubId && c.id !== 'free_agent');
+                    const otherClubs = Object.values(state.clubs).filter(
+                      c => c.id !== state.userClubId && c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament'
+                    );
                     const shuffled = [...otherClubs].sort(() => 0.5 - Math.random()).slice(0, 3);
                     const generatedOffers = shuffled.map(c => ({
                       id: `job_offer_${c.id}_${Date.now()}`,

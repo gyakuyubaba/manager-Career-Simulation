@@ -410,6 +410,23 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
   'palermo': [
     { name: 'Francesco Di Mariano', position: 'RW', age: 30, nationality: 'イタリア', ovr: 71, shirtNumber: 7, preferredFoot: '右', playstyle: 'インサイドフォワード' }
   ],
+  'napoli': [
+    { name: 'Benoît Badiashile', position: 'CB', age: 25, nationality: 'フランス', ovr: 79, shirtNumber: 5, preferredFoot: '左', playstyle: 'ボール運べるCB' }
+  ],
+  'bologna': [
+    { name: 'Martin Vitík', position: 'CB', age: 23, nationality: 'チェコ', ovr: 77, shirtNumber: 41, preferredFoot: '右', playstyle: 'ハードタックラー' },
+    { name: 'Federico Bernardeschi', position: 'RW', age: 32, nationality: 'イタリア', ovr: 76, shirtNumber: 10, preferredFoot: '左', playstyle: 'インサイドフォワード' },
+    { name: 'Massimo Pessina', position: 'GK', age: 18, nationality: 'イタリア', ovr: 65, shirtNumber: 25, preferredFoot: '右', playstyle: 'ショットストッパー' }
+  ],
+  'west_brom': [
+    { name: 'Tammer Bany', position: 'CAM', age: 23, nationality: 'デンマーク', ovr: 71, shirtNumber: 14, preferredFoot: '右', playstyle: 'チャンスメイカー' }
+  ],
+  'fiorentina': [
+    { name: 'Beto', position: 'ST', age: 28, nationality: 'ギニアビサウ', ovr: 76, shirtNumber: 23, preferredFoot: '右', playstyle: 'ターゲットマン' }
+  ],
+  'como': [
+    { name: 'Trevoh Chalobah', position: 'CB', age: 27, nationality: 'イングランド', ovr: 78, shirtNumber: 99, preferredFoot: '右', playstyle: 'ハードタックラー' }
+  ],
   'catanzaro': [
     { name: 'Simone Pafundi', position: 'CAM', age: 20, nationality: 'イタリア', ovr: 72, shirtNumber: 20, preferredFoot: '左', playstyle: 'チャンスメイカー' },
     { name: 'Christian Marietta', position: 'GK', age: 24, nationality: 'イタリア', ovr: 66, shirtNumber: 1, preferredFoot: '右', playstyle: '守備的GK' }
@@ -701,6 +718,8 @@ export function applyVerified2026_27RosterUpdates(
   removePlayer('atletico_madrid_9_antoinegri'); // Antoine Griezmann -> MLS Orlando
   removePlayer('slb_dimaria'); // Ángel Di María -> Rosario Central
   removePlayer('clu_mignolet'); // Simon Mignolet -> retired
+  removePlayer('bar_lewandowski'); // Robert Lewandowski -> Chicago Fire (MLS)
+  removePlayer('napoli_ita26_1_juanjesus'); // Juan Jesus -> departed Napoli ahead of 2026/27
 
   // ============================================================================
   // STEP 3: Verified 2026/27 Summer & Nov 2026 Transfers Across All 17 Leagues
@@ -831,6 +850,17 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('psg_fra26_10_randalkolo', 'juventus', { shirtNumber: 19, ovr: 81 });
   movePlayer('stuttgart_ger26_7_nickwoltem', 'juventus', { shirtNumber: 11, ovr: 76, isLoaned: true });
   movePlayer('tottenham_1_guglielmov', 'juventus', { shirtNumber: 1, ovr: 83, isLoaned: true });
+  movePlayer('west_brom_eng26_7_torbjrnheg', 'bologna', { shirtNumber: 14, ovr: 76 });
+  movePlayer('bologna_eur26_5_jhonlucum', 'juventus', { shirtNumber: 26, ovr: 80 });
+  movePlayer('bologna_eur26_12_santiagoca', 'roma', { shirtNumber: 19, ovr: 79 });
+  movePlayer('bologna_eur26_4_sambeukema', 'napoli', { shirtNumber: 31, ovr: 81 });
+  movePlayer('bari_ita26_18_costantino', 'napoli', { shirtNumber: 2, ovr: 71, isLoaned: true });
+  movePlayer('man_united_10_rasmushjlu', 'napoli', { shirtNumber: 19, ovr: 82 });
+  movePlayer('psv_eindhoven_new26_20_noalang', 'napoli', { shirtNumber: 70, ovr: 79 });
+  movePlayer('napoli_ita26_3_pasqualema', 'venezia', { shirtNumber: 17, ovr: 74 });
+  movePlayer('liv_jones', 'inter', { shirtNumber: 17, ovr: 81 });
+  movePlayer('strasbourg_fra26_10_diegomorei', 'milan', { shirtNumber: 27, ovr: 76 });
+  movePlayer('fiorentina_eur26_13_moisekean', 'como', { shirtNumber: 90, ovr: 82 });
 
   movePlayer('lille_eur26_1_lucascheva', 'psg', { shirtNumber: 30, ovr: 84 });
   movePlayer('che_gusto', 'psg', { shirtNumber: 27, ovr: 82 });
@@ -1048,7 +1078,7 @@ export function applyVerified2026_27RosterUpdates(
     seeds
       .filter(s => s.position !== 'GK')
       .forEach((seed, idx) => {
-        if (currentTotal < 25 || ['sanfrecce-hiroshima', 'vissel-kobe', 'avispa-fukuoka', 'kashima-antlers', 'tokyo-verdy', 'inter', 'real_madrid'].includes(clubId)) {
+        if (currentTotal < 25 || ['sanfrecce-hiroshima', 'vissel-kobe', 'avispa-fukuoka', 'kashima-antlers', 'tokyo-verdy', 'inter', 'real_madrid', 'napoli', 'bologna', 'fiorentina', 'como'].includes(clubId)) {
           const before = Object.keys(registry).length;
           addVerifiedIfAbsent(clubId, seed, `r${idx + 1}`);
           if (Object.keys(registry).length > before) {

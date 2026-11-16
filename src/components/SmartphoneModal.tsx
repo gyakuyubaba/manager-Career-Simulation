@@ -1,11 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
+  AiConnectionStatus,
+  AiProviderType,
   FrontOfficeMessageRecord,
   GameWorldState,
   ManagerJobOffer,
   SmartphoneEmail
 } from '../types/game';
 import {
+  analyzeFrontOfficeSquadContext,
   applyFrontOfficeProposedAction,
   buildDeterministicFrontOfficeReply,
   ensureSmartphoneState,
@@ -70,6 +73,90 @@ export const SmartphoneModal: React.FC<Props> = ({
   const [foInput, setFoInput] = useState<string>('');
   const [isSendingFo, setIsSendingFo] = useState<boolean>(false);
   const [actionBanner, setActionBanner] = useState<string | null>(null);
+  const [aiStatusState, setAiStatusState] = useState<{
+    activeProvider: AiProviderType;
+    providers: Record<
+      AiProviderType,
+      {
+        configured: boolean;
+        model: string;
+        status: AiConnectionStatus;
+        statusLabel: string;
+        lastError?: string;
+      }
+    >;
+    logs: Array<{
+      id: string;
+      timestamp: string;
+      provider: AiProviderType;
+      endpoint: string;
+      status: AiConnectionStatus;
+      statusLabel: string;
+      message: string;
+    }>;
+  } | null>(null);
+  const [isTestingAi, setIsTestingAi] = useState<boolean>(false);
+  const [showAiDiagnostics, setShowAiDiagnostics] = useState<boolean>(false);
+  const [aiTestFeedback, setAiTestFeedback] = useState<string | null>(null);
+
+  const refreshAiStatus = async () => {
+    try {
+      const res = await fetch('/api/ai-status');
+      if (res.ok) {
+        const data = await res.json();
+        setAiStatusState(data);
+      }
+    } catch {
+      // ignore initial status fetch failures silently
+    }
+  };
+
+  useEffect(() => {
+    if (activeApp === 'front_office') {
+      refreshAiStatus();
+    }
+  }, [activeApp]);
+
+  const handleSwitchAiProvider = async (provider: AiProviderType) => {
+    try {
+      const res = await fetch('/api/ai-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiStatusState(data);
+        setAiTestFeedback(`AIプロバイダーを ${provider === 'gemini' ? 'Gemini' : 'OpenAI (ChatGPT)'} に切り替えました。`);
+      }
+    } catch {
+      setAiTestFeedback('プロバイダー切替時に通信エラーが発生しました。');
+    }
+  };
+
+  const handleRunAiConnectionTest = async () => {
+    setIsTestingAi(true);
+    setAiTestFeedback(null);
+    try {
+      const provider = aiStatusState?.activeProvider || 'gemini';
+      const res = await fetch('/api/ai-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state) setAiStatusState(data.state);
+        setAiTestFeedback(data.message || data.statusLabel || '接続確認完了');
+      } else {
+        setAiTestFeedback(`接続テスト失敗 (HTTP ${res.status})`);
+      }
+    } catch {
+      setAiTestFeedback('通信エラー: サーバーの /api/ai-test に到達できませんでした。');
+    } finally {
+      setIsTestingAi(false);
+    }
+  };
 
   const unreadTotal = getUnreadSmartphoneCount(safeState);
   const unreadPlayerDms = sp.emails.filter(e => e.senderType === 'player' && !e.isRead).length;
@@ -176,20 +263,60 @@ export const SmartphoneModal: React.FC<Props> = ({
     };
     onUpdateState(withUserMsg);
 
-    const squadSummary = (userClub?.playerIds || [])
-      .map(id => safeState.players[id])
-      .filter(Boolean)
-      .slice(0, 30)
-      .map(p => ({
-        id: p.id,
-        name: p.name,
-        position: p.position,
-        ovr: p.ovr,
-        marketValue: p.marketValue
+    const foContext = analyzeFrontOfficeSquadContext(safeState);
+
+    const recentMatchesSummary = safeState.fixtures
+      .filter(f => f.status === 'finished' && (f.homeClubId === safeState.userClubId || f.awayClubId === safeState.userClubId))
+      .slice(-5)
+      .reverse()
+      .map(f => {
+        const isHome = f.homeClubId === safeState.userClubId;
+        const oppId = isHome ? f.awayClubId : f.homeClubId;
+        const myScore = isHome ? (f.homeScore ?? 0) : (f.awayScore ?? 0);
+        const oppScore = isHome ? (f.awayScore ?? 0) : (f.homeScore ?? 0);
+        return {
+          date: f.date,
+          competition: f.competitionName || f.competition,
+          opponent: safeState.clubs[oppId]?.name || oppId,
+          score: `${myScore}-${oppScore}`,
+          result: myScore > oppScore ? '勝' : myScore < oppScore ? '敗' : '分'
+        };
+      });
+
+    const recentTransfersSummary = (safeState.transferHistory || [])
+      .filter(t => t.buyerClubId === safeState.userClubId || t.sellerClubId === safeState.userClubId)
+      .slice(0, 5)
+      .map(t => ({
+        date: t.date,
+        playerName: t.playerName,
+        fee: t.fee,
+        direction: t.buyerClubId === safeState.userClubId ? '加入' : '放出'
       }));
+
+    const leagueTable = userClub ? (safeState.standings[userClub.league] || []) : [];
+    const tableIdx = userClub ? leagueTable.findIndex(r => r.clubId === userClub.id) : -1;
+    const standingsPosition = tableIdx >= 0
+      ? {
+          rank: tableIdx + 1,
+          played: leagueTable[tableIdx].played,
+          points: leagueTable[tableIdx].points,
+          goalDiff: leagueTable[tableIdx].goalDiff
+        }
+      : null;
+
+    const threadHistorySummary = withUserMsg.smartphone!.frontOfficeThread
+      .slice(-8)
+      .map(m => ({ sender: m.sender, text: m.text }));
 
     let replyText = '';
     let proposedAction = undefined;
+    let analysisSummary: string | undefined = undefined;
+    let recommendations: FrontOfficeMessageRecord['recommendations'] = undefined;
+    let modelUsed: string | undefined = undefined;
+    let providerUsed: AiProviderType | undefined = aiStatusState?.activeProvider || 'gemini';
+    let isAiGenerated: boolean | undefined = undefined;
+    let connectionStatus: AiConnectionStatus | undefined = undefined;
+    let errorDetail: string | undefined = undefined;
 
     try {
       const response = await fetch('/api/front-office-message', {
@@ -197,15 +324,25 @@ export const SmartphoneModal: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userMessage: msgText,
+          provider: aiStatusState?.activeProvider || 'gemini',
           clubContext: {
             clubName: userClub?.name || 'クラブ',
+            currentLeague: userClub?.league || 'league',
+            leagueName: userClub?.league || 'league',
+            formation: foContext.formation,
+            weaknessesSummary: foContext.weaknessesSummary,
+            boardConfidence: safeState.boardConfidence,
             transferBudget: userClub?.transferBudget || 0,
             wageBudget: userClub?.wageBudget || 0,
             currentWageSpend: userClub?.currentWageSpend || 0,
-            target: userClub?.target || '上位進出',
-            leagueName: userClub?.league || 'league'
+            target: userClub?.target || '上位進出'
           },
-          squadSummary
+          squadSummary: foContext.squadSummary,
+          recentMatches: recentMatchesSummary,
+          recentTransfers: recentTransfersSummary,
+          standingsPosition,
+          marketTargets: foContext.marketTargets,
+          threadHistory: threadHistorySummary
         })
       });
 
@@ -213,13 +350,26 @@ export const SmartphoneModal: React.FC<Props> = ({
         const data = await response.json();
         replyText = data.reply;
         proposedAction = data.proposedAction;
+        analysisSummary = data.analysisSummary;
+        recommendations = Array.isArray(data.recommendations) ? data.recommendations : undefined;
+        modelUsed = data.modelUsed;
+        providerUsed = data.providerUsed || aiStatusState?.activeProvider || 'gemini';
+        isAiGenerated = Boolean(data.isAiGenerated);
+        connectionStatus = data.connectionStatus;
+        errorDetail = data.errorDetail;
+        refreshAiStatus();
       } else {
         throw new Error(`HTTP ${response.status}`);
       }
     } catch {
       const fallback = buildDeterministicFrontOfficeReply(withUserMsg, msgText);
       replyText = fallback.reply;
+      analysisSummary = fallback.analysisSummary;
+      recommendations = fallback.recommendations;
       proposedAction = fallback.proposedAction;
+      isAiGenerated = false;
+      connectionStatus = 'network_error';
+      errorDetail = 'サーバーとの通信に失敗したためローカル戦力分析で応答しました。';
     }
 
     const foMsg: FrontOfficeMessageRecord = {
@@ -227,7 +377,14 @@ export const SmartphoneModal: React.FC<Props> = ({
       date: withUserMsg.currentDate,
       sender: 'front_office',
       text: replyText,
-      proposedAction
+      analysisSummary,
+      recommendations,
+      proposedAction,
+      modelUsed,
+      providerUsed,
+      isAiGenerated,
+      connectionStatus,
+      errorDetail
     };
 
     onUpdateState({
@@ -651,20 +808,109 @@ export const SmartphoneModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* APP 3: FRONT OFFICE CHAT (AI + ACTION BUTTONS) */}
+          {/* APP 3: FRONT OFFICE CHAT (AI + ACTION BUTTONS + PROVIDER ADMIN) */}
           {activeApp === 'front_office' && (
-            <div className="flex flex-col h-full space-y-3">
-              <div className="text-xs text-slate-400 bg-slate-900 border border-slate-800 rounded-2xl p-3">
-                <strong className="text-white block mb-1">強化部・フロント直通ホットライン</strong>
-                補強方針・予算再配分・選手の移籍リストやレンタル登録の相談を送信できます。
+            <div className="flex flex-col h-full space-y-2.5">
+              <div className="text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <strong className="text-white">強化部・フロントAIホットライン</strong>
+                  {aiStatusState && (() => {
+                    const ap = aiStatusState.activeProvider;
+                    const pState = aiStatusState.providers[ap];
+                    const isOk = pState?.status === 'connected';
+                    const isMissing = pState?.status === 'api_key_missing';
+                    return (
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                          isOk
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : isMissing
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        {ap === 'gemini' ? 'Gemini' : 'OpenAI'} · {pState?.statusLabel || '確認中'}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Admin AI Provider Toggle & Connection Check */}
+                <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                  <div className="flex items-center gap-1">
+                    {(['gemini', 'openai'] as AiProviderType[]).map(prov => {
+                      const active = (aiStatusState?.activeProvider || 'gemini') === prov;
+                      const configured = aiStatusState?.providers?.[prov]?.configured;
+                      return (
+                        <button
+                          key={prov}
+                          type="button"
+                          onClick={() => handleSwitchAiProvider(prov)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-indigo-500/30 border-indigo-400 text-indigo-200'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {prov === 'gemini' ? 'Gemini' : 'OpenAI'}
+                          {configured ? ' ●' : ' ○'}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={isTestingAi}
+                      onClick={handleRunAiConnectionTest}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-emerald-300 border border-slate-700 cursor-pointer disabled:opacity-50"
+                    >
+                      {isTestingAi ? '確認中...' : '接続テスト'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAiDiagnostics(v => !v)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 border border-slate-700 cursor-pointer"
+                    >
+                      ログ
+                    </button>
+                  </div>
+                </div>
+
+                {aiTestFeedback && (
+                  <div className="text-[10px] text-amber-200 bg-slate-950/90 border border-slate-800 rounded-xl px-2.5 py-1.5">
+                    {aiTestFeedback}
+                  </div>
+                )}
+
+                {showAiDiagnostics && aiStatusState && (
+                  <div className="text-[10px] bg-slate-950 border border-slate-800 rounded-xl p-2 space-y-1 max-h-28 overflow-y-auto">
+                    <div className="text-slate-400 font-bold">
+                      AI接続診断 (Gemini: {aiStatusState.providers.gemini.statusLabel} / OpenAI: {aiStatusState.providers.openai.statusLabel})
+                    </div>
+                    {aiStatusState.logs.length === 0 ? (
+                      <div className="text-slate-500">まだ診断ログはありません。「接続テスト」を実行できます。</div>
+                    ) : (
+                      aiStatusState.logs.slice(0, 6).map(l => (
+                        <div key={l.id} className="text-slate-300 border-t border-slate-900 pt-1">
+                          <span className="font-mono text-indigo-300">[{l.provider}]</span>{' '}
+                          <span className="font-bold">{l.statusLabel}:</span> {l.message}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Quick Suggestions */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
                 {[
-                  '補強ポイントを分析してほしい',
-                  '現在の予算と週給枠を再配分したい',
-                  '放出候補の選手を整理したい'
+                  '今のチームの弱点は？',
+                  '若手のCBを探して',
+                  '50M以内でSTを補強したい',
+                  '誰を放出した方がいい？',
+                  '現在の予算と週給枠を再配分したい'
                 ].map(q => (
                   <button
                     key={q}
@@ -678,22 +924,62 @@ export const SmartphoneModal: React.FC<Props> = ({
               </div>
 
               {/* Chat Thread */}
-              <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5 rounded-2xl bg-slate-900/70 border border-slate-800 min-h-[220px]">
+              <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5 rounded-2xl bg-slate-900/70 border border-slate-800 min-h-[200px]">
                 {sp.frontOfficeThread.map(msg => {
                   const isUser = msg.sender === 'manager';
                   return (
                     <div key={msg.id} className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
                       <div
-                        className={`max-w-[88%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
+                        className={`max-w-[90%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
                           isUser
                             ? 'rounded-tr-sm bg-emerald-600/25 border border-emerald-500/40 text-emerald-100'
                             : 'rounded-tl-sm bg-slate-950 border border-slate-800 text-slate-200'
                         }`}
                       >
-                        <div className="text-[10px] font-bold text-slate-400 mb-0.5">
-                          {isUser ? 'あなた（監督）' : '強化部・フロント'} · {msg.date}
+                        <div className="text-[10px] font-bold text-slate-400 mb-0.5 flex items-center justify-between gap-2">
+                          <span>{isUser ? 'あなた（監督）' : '強化部・フロント'} · {msg.date}</span>
+                          {!isUser && msg.isAiGenerated && (
+                            <span className="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono text-[9px]">
+                              {msg.providerUsed === 'openai' ? 'OpenAI' : 'Gemini'} AI
+                            </span>
+                          )}
+                          {!isUser && msg.isAiGenerated === false && msg.connectionStatus && msg.connectionStatus !== 'connected' && (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono text-[9px]">
+                              {msg.connectionStatus === 'api_key_missing'
+                                ? 'APIキー未設定/ローカル分析'
+                                : msg.connectionStatus === 'network_error'
+                                  ? '通信エラー/ローカル分析'
+                                  : '接続失敗/ローカル分析'}
+                            </span>
+                          )}
                         </div>
                         <p>{msg.text}</p>
+                        {!isUser && msg.errorDetail && (
+                          <div className="mt-1.5 px-2 py-1 rounded-lg bg-amber-950/40 border border-amber-500/30 text-[10px] text-amber-300">
+                            診断情報: {msg.errorDetail}
+                          </div>
+                        )}
+                        {!isUser && msg.analysisSummary && (
+                          <div className="mt-2 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300">
+                            <span className="text-[10px] font-bold text-sky-400 block mb-0.5">現状分析</span>
+                            <span>{msg.analysisSummary}</span>
+                          </div>
+                        )}
+                        {!isUser && msg.recommendations && msg.recommendations.length > 0 && (
+                          <div className="mt-2 space-y-1.5">
+                            {msg.recommendations.map((rec, rIdx) => (
+                              <div key={rIdx} className="p-2 rounded-xl bg-slate-900/80 border border-indigo-500/25 text-[11px]">
+                                <div className="flex items-center gap-1.5 font-bold text-indigo-300">
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 uppercase font-mono">
+                                    {rec.category || rec.position || '提案'}
+                                  </span>
+                                  <span>{rec.title || rec.playerName || 'フロント提案'}</span>
+                                </div>
+                                <p className="text-slate-300 mt-0.5 leading-snug">{rec.detail || rec.reason || rec.merit || ''}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {msg.proposedAction && msg.proposedAction.type !== 'none' && (
                           <div className="mt-2 pt-2 border-t border-slate-800 space-y-1.5">
                             <div className="text-[11px] font-bold text-amber-300">
@@ -732,7 +1018,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                   onKeyDown={e => {
                     if (e.key === 'Enter') handleSendFrontOfficeMessage();
                   }}
-                  placeholder="選手名＋放出/レンタル、予算相談などを入力..."
+                  placeholder="補強条件・選手放出・予算相談などを入力..."
                   className="flex-1 min-h-[44px] bg-slate-900 border border-slate-700 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
                 <button

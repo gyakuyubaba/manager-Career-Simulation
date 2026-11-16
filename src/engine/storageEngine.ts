@@ -25,10 +25,11 @@ import { initializePlayerSkills } from './skillEngine';
 import { normalizeAllPlayerMarketValues, syncPlayerGkAttributes } from './valuationEngine';
 import { rebalanceExistingSaveClubBudgets } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
+import { GROUP_B_TOURNAMENT_CLUBS, resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
 
-export const CURRENT_SCHEMA_VERSION = 9;
-export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V6_2026_11_15_VERIFIED';
-export const APP_CODE_VERSION = '2026.2.4';
+export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V7_2026_11_16_UEFA108';
+export const APP_CODE_VERSION = '2026.2.5';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
 export const STORE_NAME = 'career_saves';
@@ -286,7 +287,7 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
     'eredivisie', 'pro-league'
   ];
 
-  // 2.6 Safely ensure newly added European leagues & J3 clubs exist in migrated.clubs
+  // 2.6 Safely ensure newly added European leagues, J3 clubs, & Group B UEFA clubs exist in migrated.clubs
   if (migrated.clubs) {
     ALL_NEW_4_LEAGUES_CLUBS.forEach(c => {
       if (!migrated.clubs[c.id]) {
@@ -296,6 +297,18 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
     J3_20_CLUBS.forEach(c => {
       if (!migrated.clubs[c.id]) {
         migrated.clubs[c.id] = { ...c, playerIds: [] };
+      }
+    });
+    GROUP_B_TOURNAMENT_CLUBS.forEach(c => {
+      if (!migrated.clubs[c.id]) {
+        migrated.clubs[c.id] = { ...c, playerIds: [] };
+      } else {
+        migrated.clubs[c.id] = {
+          ...migrated.clubs[c.id],
+          isTournamentOnly: true,
+          europeanFixedComp: c.europeanFixedComp,
+          tournamentRatings: c.tournamentRatings
+        };
       }
     });
   }
@@ -318,11 +331,35 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
     }
   });
 
-  // 3. Ensure clubs have default tactics if missing
+  // 3. Ensure domestic clubs have default tactics if missing, and backfill placementMode on user tactics
   if (migrated.clubs && migrated.players) {
     Object.values(migrated.clubs).forEach(club => {
+      if (club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return;
       if (!club.tactics) {
         club.tactics = getDefaultTacticsForClub(club, migrated.players);
+      }
+    });
+  }
+  if (migrated.tactics) {
+    migrated.tactics = {
+      ...migrated.tactics,
+      placementMode: migrated.tactics.placementMode || 'formation'
+    };
+  }
+  if (migrated.tournaments && migrated.clubs) {
+    const resolvedEuro = resolveEuropeanParticipantIds(migrated.clubs, migrated.europeanQualifications);
+    const compMap = {
+      ucl: resolvedEuro.uclClubIds,
+      uel: resolvedEuro.uelClubIds,
+      uecl: resolvedEuro.ueclClubIds
+    } as const;
+    (['ucl', 'uel', 'uecl'] as const).forEach(comp => {
+      const t = migrated.tournaments![comp];
+      if (t && (!t.participantClubIds || t.participantClubIds.length < 36)) {
+        migrated.tournaments![comp] = {
+          ...t,
+          participantClubIds: compMap[comp]
+        };
       }
     });
   }
@@ -516,11 +553,20 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
     ...(ENABLE_J_LEAGUE ? J3_20_CLUBS : []),
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
-    ...ALL_NEW_4_LEAGUES_CLUBS
+    ...ALL_NEW_4_LEAGUES_CLUBS,
+    ...GROUP_B_TOURNAMENT_CLUBS
   ];
   allMasterClubs.forEach(c => {
     if (!nextClubs[c.id]) {
       nextClubs[c.id] = { ...c, playerIds: [] };
+    } else if (c.isTournamentOnly) {
+      nextClubs[c.id] = {
+        ...nextClubs[c.id],
+        isTournamentOnly: true,
+        europeanFixedComp: c.europeanFixedComp,
+        tournamentRatings: c.tournamentRatings,
+        playerIds: []
+      };
     }
   });
 

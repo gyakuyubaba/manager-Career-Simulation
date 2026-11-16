@@ -27,6 +27,8 @@ import { initializePlayerSkills } from './skillEngine';
 import { syncPlayerGkAttributes } from './valuationEngine';
 import { calculateCalibratedClubTransferBudget } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
+import { GROUP_B_TOURNAMENT_CLUBS } from '../data/europeanCompetitionClubs2026';
+import { initializeTournamentCompetitions } from './cupEngine';
 import { 
   saveGameToStorage, 
   loadGameFromStorage, 
@@ -73,7 +75,7 @@ export function createInitialStandings(clubs: Record<string, Club>): Record<Leag
   };
 
   Object.values(clubs).forEach(club => {
-    if (club.id === 'free_agent' || (club.league as string) === 'free-agent') return;
+    if (club.id === 'free_agent' || (club.league as string) === 'free-agent' || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return;
     if (standings[club.league]) {
       standings[club.league].push({
         clubId: club.id,
@@ -281,6 +283,7 @@ export function createNewGameWorld(
     ...(ENABLE_J_LEAGUE ? J3_20_CLUBS : []),
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
     ...ALL_NEW_4_LEAGUES_CLUBS,
+    ...GROUP_B_TOURNAMENT_CLUBS,
     FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {
@@ -293,6 +296,8 @@ export function createNewGameWorld(
 
   const initialTactics: TeamTactics = {
     formation: '4-3-3',
+    placementMode: 'formation',
+    customPositions: {},
     lineup: { starters: [], bench: [], reserves: [] },
     instructions: {
       attackingStyle: 'ポゼッション・パス',
@@ -398,6 +403,7 @@ export function createNewGameWorld(
     tactics: initialTactics,
     fixtures,
     standings: initialStandings,
+    tournaments: initializeTournamentCompetitions(2026, clubs, initialDate),
     negotiations: {},
     news: [welcomeNews],
     youthAcademy: generateRandomYouthAcademy(manager.nationality === '日本' ? '日本' : 'イングランド', 6),
@@ -428,7 +434,9 @@ export function getInitialClubOffers(
   isMidSeason?: boolean,
   standings?: Record<LeagueKey, StandingsRow[]>
 ): Club[] {
-  const clubList = Object.values(allClubs).filter(c => c.id !== 'free_agent');
+  const clubList = Object.values(allClubs).filter(
+    c => c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament'
+  );
   if (clubList.length === 0) return [];
 
   // Helper to shuffle an array randomly
@@ -876,6 +884,7 @@ export function migrateJLeagueIntoExistingState(state: GameWorldState): GameWorl
     ...J3_20_CLUBS,
     ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
     ...ALL_NEW_4_LEAGUES_CLUBS,
+    ...GROUP_B_TOURNAMENT_CLUBS,
     FREE_AGENT_CLUB
   ];
   allClubsList.forEach(c => {

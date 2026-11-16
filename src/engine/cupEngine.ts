@@ -19,6 +19,7 @@
  */
 
 import { Club, MatchFixture, CupKey, GameWorldState, StandingsRow, TournamentCompetition, TournamentRound, TournamentStatus, PenaltyShootoutResult } from '../types/game';
+import { resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
 
 export interface CupTournamentMeta {
   id: CupKey;
@@ -370,24 +371,47 @@ export function getTournamentStatus(
 export function getEuropeanLeaguePhaseStandings(
   cupId: 'ucl' | 'uel' | 'uecl',
   clubs: Record<string, Club>,
-  fixtures: MatchFixture[]
+  fixtures: MatchFixture[],
+  options?: {
+    participantClubIds?: string[];
+    europeanQualifications?: {
+      uclClubIds?: string[];
+      uelClubIds?: string[];
+      ueclClubIds?: string[];
+    };
+  }
 ): StandingsRow[] {
-  // Select top clubs eligible for Europe
-  const eligibleClubs = Object.values(clubs).filter(c => 
-    c.id !== 'free_agent' &&
-    ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1'].includes(c.league)
-  );
-
-  // Sort deterministically by reputation
-  eligibleClubs.sort((a, b) => (b.reputation || 50) - (a.reputation || 50));
-  
-  let sliceClubs: Club[];
-  if (cupId === 'ucl') {
-    sliceClubs = eligibleClubs.slice(0, 36);
-  } else if (cupId === 'uel') {
-    sliceClubs = eligibleClubs.slice(18, 54);
+  let sliceClubs: Club[] = [];
+  if (options?.participantClubIds && options.participantClubIds.length >= 18) {
+    sliceClubs = options.participantClubIds.map(id => clubs[id]).filter(Boolean);
   } else {
-    sliceClubs = eligibleClubs.slice(36, 72);
+    const resolved = resolveEuropeanParticipantIds(clubs, options?.europeanQualifications);
+    const targetIds = cupId === 'ucl'
+      ? resolved.uclClubIds
+      : cupId === 'uel'
+        ? resolved.uelClubIds
+        : resolved.ueclClubIds;
+    sliceClubs = targetIds.map(id => clubs[id]).filter(Boolean);
+  }
+
+  // Fallback for synthetic mini-test worlds with <36 clubs
+  if (sliceClubs.length < 18) {
+    const fallbackPool = Object.values(clubs)
+      .filter(c =>
+        c &&
+        c.id !== 'free_agent' &&
+        !c.isTournamentOnly &&
+        ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1', 'super-lig', 'primeira-liga', 'eredivisie', 'pro-league'].includes(c.league)
+      )
+      .sort((a, b) => (b.reputation || 50) - (a.reputation || 50));
+    const used = new Set(sliceClubs.map(c => c.id));
+    for (const c of fallbackPool) {
+      if (sliceClubs.length >= 36) break;
+      if (!used.has(c.id)) {
+        used.add(c.id);
+        sliceClubs.push(c);
+      }
+    }
   }
 
   // Check actual finished cup matches in fixtures
@@ -469,28 +493,43 @@ export function getTournamentBracket(
   const counts = isEuro ? [8, 8, 4, 2, 1] : [8, 4, 2, 1];
 
   // Pick participating clubs
-  const participatingClubs = Object.values(state.clubs).filter(c => {
-    if (c.id === 'free_agent') return false;
-    if (cupId === 'emperors-cup' || cupId === 'levain-cup') {
-      return c.league === 'j1-league' || c.league === 'j2-league';
-    }
-    if (cupId === 'fa-cup' || cupId === 'carabao-cup') {
-      return c.league === 'premier-league' || c.league === 'championship';
-    }
-    if (cupId === 'copa-del-rey') {
-      return c.league === 'laliga' || c.league === 'segunda-division';
-    }
-    if (cupId === 'dfb-pokal') {
-      return c.league === 'bundesliga' || c.league === '2-bundesliga';
-    }
-    if (cupId === 'coppa-italia') {
-      return c.league === 'serie-a' || c.league === 'serie-b';
-    }
-    if (cupId === 'coupe-de-france') {
-      return c.league === 'ligue-1' || c.league === 'ligue-2';
-    }
-    return ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1'].includes(c.league);
-  });
+  let participatingClubs: Club[] = [];
+  if (cupId === 'ucl' || cupId === 'uel' || cupId === 'uecl') {
+    const storedIds = state.tournaments?.[cupId]?.participantClubIds;
+    const resolvedIds = (storedIds && storedIds.length >= 18)
+      ? storedIds
+      : resolveEuropeanParticipantIds(state.clubs, state.europeanQualifications)[
+          cupId === 'ucl' ? 'uclClubIds' : cupId === 'uel' ? 'uelClubIds' : 'ueclClubIds'
+        ];
+    participatingClubs = resolvedIds.map(id => state.clubs[id]).filter(Boolean);
+  } else {
+    participatingClubs = Object.values(state.clubs).filter(c => {
+      if (c.id === 'free_agent' || c.isTournamentOnly || (c.league as string) === 'uefa-tournament') return false;
+      if (cupId === 'emperors-cup' || cupId === 'levain-cup') {
+        return c.league === 'j1-league' || c.league === 'j2-league';
+      }
+      if (cupId === 'fa-cup' || cupId === 'carabao-cup') {
+        return c.league === 'premier-league' || c.league === 'championship';
+      }
+      if (cupId === 'copa-del-rey') {
+        return c.league === 'laliga' || c.league === 'segunda-division';
+      }
+      if (cupId === 'dfb-pokal') {
+        return c.league === 'bundesliga' || c.league === '2-bundesliga';
+      }
+      if (cupId === 'coppa-italia') {
+        return c.league === 'serie-a' || c.league === 'serie-b';
+      }
+      if (cupId === 'coupe-de-france') {
+        return c.league === 'ligue-1' || c.league === 'ligue-2';
+      }
+      if (cupId === 'turkey-cup') return c.league === 'super-lig';
+      if (cupId === 'taca-de-portugal') return c.league === 'primeira-liga';
+      if (cupId === 'knvb-beker') return c.league === 'eredivisie';
+      if (cupId === 'belgian-cup') return c.league === 'pro-league';
+      return ['premier-league', 'laliga', 'bundesliga', 'serie-a', 'ligue-1'].includes(c.league);
+    });
+  }
   participatingClubs.sort((a, b) => (b.reputation || 50) - (a.reputation || 50));
 
   const resultRounds: { roundName: string; status: TournamentStatus; matches: BracketMatchNode[] }[] = [];
@@ -669,10 +708,16 @@ export function getTournamentBracket(
 export function initializeTournamentCompetitions(
   seasonYear: number,
   clubs: Record<string, Club>,
-  currentDate: string = '2026-07-01'
+  currentDate: string = '2026-07-01',
+  europeanQualifications?: {
+    uclClubIds?: string[];
+    uelClubIds?: string[];
+    ueclClubIds?: string[];
+  }
 ): Record<CupKey, TournamentCompetition> {
   const result: Partial<Record<CupKey, TournamentCompetition>> = {};
   const seasonString = `${seasonYear}/${String(seasonYear + 1).slice(2)}`;
+  const resolvedEuro = resolveEuropeanParticipantIds(clubs, europeanQualifications);
 
   SUPPORTED_CUPS.forEach(meta => {
     const statusInfo = getTournamentStatus(meta.id, currentDate, seasonYear);
@@ -691,6 +736,15 @@ export function initializeTournamentCompetitions(
       };
     });
 
+    const participantClubIds =
+      meta.id === 'ucl'
+        ? resolvedEuro.uclClubIds
+        : meta.id === 'uel'
+          ? resolvedEuro.uelClubIds
+          : meta.id === 'uecl'
+            ? resolvedEuro.ueclClubIds
+            : undefined;
+
     result[meta.id] = {
       id: meta.id,
       name: meta.name,
@@ -703,7 +757,8 @@ export function initializeTournamentCompetitions(
       status: statusInfo.status,
       currentRoundId: rounds[0]?.roundId,
       currentRoundName: rounds[0]?.roundName,
-      rounds
+      rounds,
+      ...(participantClubIds ? { participantClubIds } : {})
     };
   });
 
@@ -745,7 +800,10 @@ export function populateEuropeanKnockoutFixtures(state: GameWorldState): boolean
     );
 
     if (poLeg1Fixtures.length === 8 && (poLeg1Fixtures[0].homeClubId === 'tbd' || !poLeg1Fixtures[0].homeClubId)) {
-      const standings = getEuropeanLeaguePhaseStandings(cupId, state.clubs, state.fixtures);
+      const standings = getEuropeanLeaguePhaseStandings(cupId, state.clubs, state.fixtures, {
+        participantClubIds: state.tournaments?.[cupId]?.participantClubIds,
+        europeanQualifications: state.europeanQualifications
+      });
       if (standings.length >= 24) {
         // Top 8 (0-7): Direct to Round of 16 (March) -> 1-month bye in February
         // 9th to 24th (8-23): Play-off (February)
@@ -836,7 +894,10 @@ export function advanceEuropeanPlayoffWinnersToRoundOf16(state: GameWorldState):
       );
 
       if (r16Leg1Fixtures.length === 8 && (r16Leg1Fixtures[0].homeClubId === 'tbd' || !r16Leg1Fixtures[0].homeClubId)) {
-        const standings = getEuropeanLeaguePhaseStandings(cupId, state.clubs, state.fixtures);
+        const standings = getEuropeanLeaguePhaseStandings(cupId, state.clubs, state.fixtures, {
+          participantClubIds: state.tournaments?.[cupId]?.participantClubIds,
+          europeanQualifications: state.europeanQualifications
+        });
         // Top 8 direct qualifiers (standings[0..7])
         for (let m = 0; m < 8; m++) {
           const top8Club = standings[m];

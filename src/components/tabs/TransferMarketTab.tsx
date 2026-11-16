@@ -135,15 +135,23 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
 
   const availableClubs = useMemo(() => {
     return Object.values(state.clubs)
-      .filter(c => leagueFilter === 'ALL' || c.league === leagueFilter)
+      .filter(c =>
+        c.id !== 'free_agent' &&
+        !c.isTournamentOnly &&
+        (c.league as string) !== 'uefa-tournament' &&
+        (leagueFilter === 'ALL' || c.league === leagueFilter)
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [state.clubs, leagueFilter]);
 
   // Comprehensive 20-Criteria Filter & Sort
   const allTargetPlayers = useMemo(() => {
     const filtered = Object.values(state.players).filter(p => {
-      // 1. Exclude own club
+      // 1. Exclude own club & ephemeral tournament players
       if (p.clubId === state.userClubId) return false;
+      if (p.id.startsWith('euro_synth_')) return false;
+      const pClub = state.clubs[p.clubId];
+      if (pClub && (pClub.isTournamentOnly || (pClub.league as string) === 'uefa-tournament')) return false;
 
       // 2. Search term (name or club name)
       if (searchTerm) {
@@ -1175,8 +1183,13 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                   <option value="serie-b">🇮🇹 セリエB (伊2部)</option>
                   <option value="ligue-1">🇫🇷 リーグ・アン (仏1部)</option>
                   <option value="ligue-2">🇫🇷 リーグ・ドゥ (仏2部)</option>
+                  <option value="primeira-liga">🇵🇹 プリメイラ・リーガ (葡1部)</option>
+                  <option value="eredivisie">🇳🇱 エールディヴィジ (蘭1部)</option>
+                  <option value="super-lig">🇹🇷 スュペル・リグ (土1部)</option>
+                  <option value="pro-league">🇧🇪 ベルギー・プロ・リーグ (白1部)</option>
                   <option value="j1-league">🇯🇵 明治安田J1百年構想リーグ</option>
                   <option value="j2-league">🇯🇵 明治安田J2リーグ</option>
+                  <option value="j3-league">🇯🇵 明治安田J3リーグ</option>
                 </select>
               </div>
 

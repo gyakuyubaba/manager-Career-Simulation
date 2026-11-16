@@ -59,7 +59,7 @@ function roundBudgetStep(eur: number): number {
  * - J-League: Top 5M - 20M / Mid 3M - 15M / Small 1M - 10M
  */
 export function calculateCalibratedClubTransferBudget(club: Club): number {
-  if (club.id === 'free_agent') return 0;
+  if (club.id === 'free_agent' || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') return 0;
 
   const rep = Math.max(55, Math.min(99, club.reputation || 72));
   const cap = Math.max(5000, Math.min(105000, club.stadiumCapacity || 25000));
@@ -221,6 +221,37 @@ export function calculateCalibratedClubTransferBudget(club: Club): number {
 }
 
 /**
+ * Returns a copy of the club with its calibrated initial transfer budget.
+ */
+export function getClubWithCalibratedBudget(club: Club): Club {
+  return {
+    ...club,
+    transferBudget: calculateCalibratedClubTransferBudget(club)
+  };
+}
+
+/**
+ * Returns all selectable domestic clubs (329 clubs across 17 leagues, excluding free_agent & tournament-only clubs)
+ * with calibrated transfer budgets identical to createNewGameWorld().
+ */
+export function getAllCalibratedSelectableClubs(): Club[] {
+  const list: Club[] = [
+    ...ALL_CLUBS,
+    ...(ENABLE_J_LEAGUE ? J2_20_CLUBS : []),
+    ...(ENABLE_J_LEAGUE ? J3_20_CLUBS : []),
+    ...ALL_EUROPEAN_2ND_DIVISION_CLUBS,
+    ...ALL_NEW_4_LEAGUES_CLUBS
+  ];
+  const dedup = new Map<string, Club>();
+  list.forEach(c => {
+    if (c && c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament') {
+      dedup.set(c.id, getClubWithCalibratedBudget(c));
+    }
+  });
+  return Array.from(dedup.values());
+}
+
+/**
  * Returns map of clubId -> legacy default transferBudget for safe existing-save migration.
  */
 export function getLegacyDefaultBudgetMap(): Record<string, number> {
@@ -252,7 +283,7 @@ export function rebalanceExistingSaveClubBudgets(
   let updatedCount = 0;
 
   Object.entries(clubs).forEach(([clubId, club]) => {
-    if (!club || clubId === 'free_agent') {
+    if (!club || clubId === 'free_agent' || club.isTournamentOnly || (club.league as string) === 'uefa-tournament') {
       nextClubs[clubId] = club;
       return;
     }
