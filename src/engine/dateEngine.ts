@@ -4,7 +4,11 @@ import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRand
 import { simulateAITransfers } from './transferEngine';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateSeasonFixtures } from './fixtureGenerator';
-import { processPreSeasonMatchRewards } from './preSeasonEngine';
+import {
+  processPreSeasonMatchRewards,
+  advancePreSeasonTournamentState,
+  generatePreSeasonInvitations
+} from './preSeasonEngine';
 import { evaluateMatchBoardConfidence, getBoardConfidenceStage } from './boardConfidenceEngine';
 import { updateClubVisionAfterSeason } from './clubVisionEngine';
 import { checkAndAdvanceBallonDor } from './ballonDorEngine';
@@ -287,7 +291,7 @@ export function applyMatchResultToWorld(
 
   // 4. Knockout Cup Tournament Advancement & 2-Legged Ties (Requirement 1, 4, 8)
   const isKnockout = finalFixture.competition.includes('cup') ||
-                     ['copa-del-rey', 'coppa-italia', 'dfb-pokal', 'coupe-de-france', 'ucl', 'uel', 'uecl', 'pre-season'].includes(finalFixture.competition);
+                     ['copa-del-rey', 'coppa-italia', 'dfb-pokal', 'coupe-de-france', 'ucl', 'uel', 'uecl'].includes(finalFixture.competition);
 
   let updatedNews = [...state.news];
   let clubTitlesHistory = { ...(state.clubTitlesHistory || {}) };
@@ -551,9 +555,12 @@ export function applyMatchResultToWorld(
     manager: managerStats
   };
 
-  if (finalFixture.competition === 'pre-season' && finalFixture.isUserMatch) {
-    const psRes = processPreSeasonMatchRewards(baseResultState, finalFixture);
-    return psRes.updatedState;
+  if (finalFixture.competition === 'pre-season') {
+    if (finalFixture.isUserMatch) {
+      const psRes = processPreSeasonMatchRewards(baseResultState, finalFixture);
+      return psRes.updatedState;
+    }
+    return advancePreSeasonTournamentState(baseResultState);
   }
 
   return baseResultState;
@@ -939,6 +946,34 @@ export function advanceOneDay(
   populateEuropeanKnockoutFixtures(state);
   advanceEuropeanPlayoffWinnersToRoundOf16(state);
   scheduleSecondDivisionPlayoffs(state);
+
+  // Ensure multi-year Summer Tour invitations are populated every June/July pre-season window without duplicates
+  const nextDateYear = parseInt(nextDate.slice(0, 4), 10) || 2026;
+  const nextMmDd = nextDate.slice(5);
+  if (
+    state.userClubId &&
+    state.clubs[state.userClubId] &&
+    nextMmDd >= '06-25' &&
+    nextMmDd <= '07-16' &&
+    !state.selectedPreSeason &&
+    (!state.preSeasonTournament || state.preSeasonTournament.seasonYear !== nextDateYear)
+  ) {
+    const hasForYear =
+      Array.isArray(state.preSeasonInvitations) &&
+      state.preSeasonInvitations.length > 0 &&
+      state.preSeasonInvitations.every(inv => inv.seasonYear === nextDateYear);
+    if (!hasForYear) {
+      state = {
+        ...state,
+        preSeasonInvitations: generatePreSeasonInvitations(
+          state.clubs[state.userClubId],
+          state.clubs,
+          state.manager,
+          nextDateYear
+        )
+      };
+    }
+  }
 
   // -------------------------------------------------------------
   // 【1 & 3. 試合シミュレーション：ユーザー戦・AI戦の完全処理】
@@ -2054,6 +2089,11 @@ export function processSeasonEndPromotionsAndRelegations(
     }
   }
 
+  const nextYearInvitations =
+    state.userClubId && clubs[state.userClubId]
+      ? generatePreSeasonInvitations(clubs[state.userClubId], clubs, state.manager, nextYear)
+      : undefined;
+
   return {
     state: {
       ...state,
@@ -2065,7 +2105,10 @@ export function processSeasonEndPromotionsAndRelegations(
       europeanQualifications: resolvedEuroQual,
       fixtures: [...playoffFixtures, ...nextFixtures],
       tournaments: updatedTournaments,
-      selectedPreSeason: undefined, // Clears selection so pre-season invitations show in July!
+      selectedPreSeason: undefined, // Clears selection so new pre-season invitations show in July!
+      preSeasonTournament: undefined,
+      preSeasonInvitations: nextYearInvitations,
+      preSeasonHistory: state.preSeasonHistory || [],
       clubVision: updatedVision,
       news: [mainNews, ...transferListingNewsList, ...(state.news || [])]
     },

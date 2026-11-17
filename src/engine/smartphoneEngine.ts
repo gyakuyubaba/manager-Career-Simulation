@@ -1,5 +1,6 @@
 import {
   Club,
+  FrontOfficeMessageRecord,
   FrontOfficeProposedAction,
   GameWorldState,
   ManagerJobOffer,
@@ -1154,7 +1155,8 @@ export function applyFrontOfficeProposedAction(
 }
 
 /**
- * Local deterministic fallback generator for Front Office reply if backend API is unavailable.
+ * Builds rich squad, formation, weakness, and affordable market target context for Front Office AI.
+ */
 export function analyzeFrontOfficeSquadContext(state: GameWorldState): {
   formation: string;
   weaknessesSummary: string;

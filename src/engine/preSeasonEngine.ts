@@ -632,7 +632,7 @@ export function generatePreSeasonFixtures(
   const invitations = generatePreSeasonInvitations(userClub, allClubs, manager, seasonYear);
   const chosen = invitations.find(i => i.id === selectedTourId) || invitations[0];
 
-  if (selectedTourId || getEligibleTourPool(allClubs, userClubId).length >= 7) {
+  if (selectedTourId) {
     return initializePreSeasonTournament(allClubs, userClubId, chosen, seasonYear, manager).fixtures;
   }
 

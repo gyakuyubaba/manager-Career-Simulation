@@ -2,8 +2,7 @@ import stadiumImg from '../../assets/images/stadium_pitch_hero_1790585035252.jpg
 import React from 'react';
 import { GameWorldState, MatchFixture } from '../../types/game';
 import { formatDateJP } from '../../engine/dateEngine';
-import { PRE_SEASON_TOURNAMENTS } from '../../data/initialData';
-import { generatePreSeasonTourOptions } from '../../engine/preSeasonEngine';
+import { generatePreSeasonInvitations } from '../../engine/preSeasonEngine';
 import { 
   Trophy, 
   Calendar, 
@@ -52,8 +51,32 @@ export const HomeDashboardTab: React.FC<Props> = ({
 
   const isHomeMatch = nextFixture?.homeClubId === state.userClubId;
 
-  // Available pre-season tour
-  const isPreSeasonOpen = state.currentDate <= '2026-07-15' && !state.selectedPreSeason;
+  // Dynamic multi-year Pre-Season Summer Tour check (works in 2026, 2027, 2028...)
+  const currentYearNum = parseInt((state.currentDate || '2026-07-01').slice(0, 4), 10) || 2026;
+  const currentMmDd = (state.currentDate || '2026-07-01').slice(5);
+  const isInPreSeasonWindow = currentMmDd >= '06-25' && currentMmDd <= '07-16';
+  const activeTour =
+    state.preSeasonTournament && state.preSeasonTournament.seasonYear === currentYearNum
+      ? state.preSeasonTournament
+      : undefined;
+  const isPreSeasonOpen = isInPreSeasonWindow && !state.selectedPreSeason && !activeTour;
+
+  const tourInvitations = isPreSeasonOpen
+    ? (Array.isArray(state.preSeasonInvitations) &&
+      state.preSeasonInvitations.length > 0 &&
+      state.preSeasonInvitations.every(inv => inv.seasonYear === currentYearNum)
+        ? state.preSeasonInvitations
+        : userClub
+          ? generatePreSeasonInvitations(userClub, state.clubs, state.manager, currentYearNum)
+          : [])
+    : [];
+
+  const finalTourFixture = activeTour?.finalFixtureId
+    ? state.fixtures.find(f => f.id === activeTour.finalFixtureId)
+    : undefined;
+  const shouldShowActiveTourPanel = Boolean(
+    activeTour && (currentMmDd >= '06-25' && currentMmDd <= '08-15')
+  );
 
   return (
     <div className="space-y-5 pb-20">
@@ -72,7 +95,7 @@ export const HomeDashboardTab: React.FC<Props> = ({
           <div>
             <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>2026/27 シーズン（2026/27公式選手名鑑・最新データ基準） 監督キャリア進行中</span>
+              <span>{state.season} シーズン（2026/27公式選手名鑑・最新データ基準） 監督キャリア進行中</span>
             </div>
             <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight font-display">
               {userClub?.name}
@@ -104,31 +127,202 @@ export const HomeDashboardTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Pre-Season Tour Invitation Banner (if July) */}
-      {isPreSeasonOpen && (
-        <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-900 border border-amber-500/30 rounded-2xl p-4 sm:p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Multi-Year Pre-Season Summer Tour Invitations Banner */}
+      {isPreSeasonOpen && tourInvitations.length > 0 && (
+        <div className="bg-gradient-to-br from-amber-950/60 via-slate-900 to-slate-900 border border-amber-500/35 rounded-2xl p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-1">
                 <Trophy className="w-4 h-4" />
-                <span>プレシーズン・サマーツアー招待状（締切: 7月15日）</span>
+                <span>{currentYearNum}年プレシーズン・サマーツアー招待状（申込締切: {currentYearNum}年7月16日）</span>
               </div>
               <p className="text-xs sm:text-sm text-slate-300">
-                新シーズンの開幕前に、賞金獲得と戦術の成熟を目的としたプレシーズン大会への参加を選択してください。
+                8クラブ・2グループ（各3試合）＋各組首位による一発決勝戦のサマーツアー招待状が届いています。参加大会を選択してください。
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {(userClub ? generatePreSeasonTourOptions(userClub, state.manager) : PRE_SEASON_TOURNAMENTS).map(t => (
-                <button
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {tourInvitations.map(t => {
+              const peerNames = (t.participants || [])
+                .filter(id => id !== state.userClubId)
+                .slice(0, 4)
+                .map(id => state.clubs[id]?.shortName || state.clubs[id]?.name || id)
+                .join(' / ');
+              return (
+                <div
                   key={t.id}
-                  type="button"
-                  onClick={() => onSelectPreSeason(t.id)}
-                  className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold transition-colors cursor-pointer"
+                  className="rounded-2xl bg-slate-950/80 border border-slate-800 hover:border-amber-500/50 p-3.5 flex flex-col justify-between gap-3 transition-colors"
                 >
-                  {t.name.split(' (')[0]} (賞金 €{(t.prizeMoney / 1000000).toFixed(1)}M)
-                </button>
-              ))}
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-xs sm:text-sm font-bold text-white leading-snug">{t.name}</h3>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold shrink-0">
+                        {t.hostCountry}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">{t.invitationReason}</p>
+                    <div className="text-[10px] text-slate-400 space-y-0.5 pt-1 border-t border-slate-800/80 font-mono">
+                      <div>開催期間: {t.startDate} 〜 {t.finalDate}</div>
+                      <div>参加形態: {t.eligibilityCondition}</div>
+                      {peerNames && <div className="truncate">主な参加: {peerNames} 他</div>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5 pt-1.5 text-center text-[10px] font-mono">
+                      <div className="bg-slate-900 rounded-lg py-1 px-1.5 border border-slate-800">
+                        <div className="text-slate-500">参加報酬</div>
+                        <div className="text-slate-200 font-bold">€{((t.participationReward ?? 0) / 1000000).toFixed(1)}M</div>
+                      </div>
+                      <div className="bg-slate-900 rounded-lg py-1 px-1.5 border border-slate-800">
+                        <div className="text-slate-500">準優勝</div>
+                        <div className="text-cyan-300 font-bold">€{((t.runnerUpPrize ?? 0) / 1000000).toFixed(1)}M</div>
+                      </div>
+                      <div className="bg-amber-950/40 rounded-lg py-1 px-1.5 border border-amber-500/30">
+                        <div className="text-amber-300">優勝賞金</div>
+                        <div className="text-amber-200 font-black">€{((t.championPrize ?? t.prizeMoney ?? 0) / 1000000).toFixed(1)}M</div>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSelectPreSeason(t.id)}
+                    className="w-full px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition-colors cursor-pointer"
+                  >
+                    このツアーに参戦する
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Active / Completed Summer Tour Group Standings & Reward Summary Panel */}
+      {shouldShowActiveTourPanel && activeTour && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+            <div>
+              <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider">
+                <Trophy className="w-4 h-4" />
+                <span>{activeTour.name} · {activeTour.hostCountry}</span>
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                方式: グループA/B（各3試合）→ 各組1位のみ決勝進出（{activeTour.startDate} 〜 {activeTour.endDate}）
+              </div>
             </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                activeTour.stage === 'completed'
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                  : activeTour.stage === 'final'
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                    : 'bg-sky-500/15 text-sky-300 border-sky-500/40'
+              }`}>
+                {activeTour.stage === 'completed'
+                  ? '大会終了'
+                  : activeTour.stage === 'final'
+                    ? '決勝戦ステージ'
+                    : 'グループリーグ進行中'}
+              </span>
+            </div>
+          </div>
+
+          {activeTour.stage === 'completed' && (
+            <div className="rounded-2xl bg-gradient-to-r from-emerald-950/60 via-slate-950 to-amber-950/40 border border-emerald-500/40 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>
+                    大会閉幕！優勝: {state.clubs[activeTour.championClubId || '']?.name || activeTour.championClubId}
+                    {finalTourFixture && finalTourFixture.homeScore !== undefined
+                      ? `（決勝 ${finalTourFixture.homeScore} - ${finalTourFixture.awayScore}）`
+                      : ''}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-300">
+                  最終順位: <strong className="text-amber-300">{activeTour.userFinalPlacement}</strong>
+                  {' · '}
+                  獲得報酬: <strong className="text-emerald-400 font-mono">€{(activeTour.prizeAwarded / 1000000).toFixed(2)}M</strong>
+                </div>
+              </div>
+              {activeTour.rewardProcessed && (
+                <div className="text-xs font-mono bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 shrink-0">
+                  <div className="text-[10px] text-slate-400">移籍予算反映</div>
+                  <div className="text-white font-bold">
+                    €{(activeTour.budgetBefore / 1000000).toFixed(1)}M → <span className="text-emerald-400">€{(activeTour.budgetAfter / 1000000).toFixed(1)}M</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {finalTourFixture && finalTourFixture.homeClubId !== 'tbd' && (
+            <div className="rounded-2xl bg-amber-950/25 border border-amber-500/35 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-bold text-amber-300">決勝戦（各組首位対決）</span>
+              <span className="font-bold text-white">
+                {state.clubs[finalTourFixture.homeClubId]?.name}
+                <span className="mx-2 font-mono text-amber-300">
+                  {finalTourFixture.status === 'finished'
+                    ? `${finalTourFixture.homeScore} - ${finalTourFixture.awayScore}`
+                    : 'VS'}
+                </span>
+                {state.clubs[finalTourFixture.awayClubId]?.name}
+              </span>
+              <span className="text-[11px] font-mono text-slate-400">{formatDateJP(finalTourFixture.date)}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {activeTour.groups.map(grp => (
+              <div key={grp.groupId} className="rounded-2xl bg-slate-950/70 border border-slate-800 overflow-hidden">
+                <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-200">{grp.groupName}</span>
+                  <span className="text-[10px] text-emerald-400 font-semibold">1位のみ決勝進出</span>
+                </div>
+                <table className="w-full text-[11px] text-left">
+                  <thead className="text-slate-500 font-mono border-b border-slate-800/80">
+                    <tr>
+                      <th className="py-1.5 px-2 text-center w-7">#</th>
+                      <th className="py-1.5 px-2">クラブ</th>
+                      <th className="py-1.5 px-1.5 text-center">試</th>
+                      <th className="py-1.5 px-1.5 text-center">勝</th>
+                      <th className="py-1.5 px-1.5 text-center">分</th>
+                      <th className="py-1.5 px-1.5 text-center">負</th>
+                      <th className="py-1.5 px-1.5 text-center">差</th>
+                      <th className="py-1.5 px-2 text-center font-bold text-slate-300">勝点</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {grp.standings.map((row, idx) => {
+                      const isUser = row.clubId === state.userClubId;
+                      return (
+                        <tr
+                          key={row.clubId}
+                          className={
+                            idx === 0
+                              ? 'bg-emerald-950/25 text-emerald-200'
+                              : isUser
+                                ? 'bg-slate-800/40 text-white'
+                                : 'text-slate-300'
+                          }
+                        >
+                          <td className="py-1.5 px-2 text-center font-mono font-bold">{idx + 1}</td>
+                          <td className="py-1.5 px-2 truncate max-w-[130px] font-semibold">
+                            {row.clubName}
+                            {isUser && <span className="ml-1 text-[9px] text-emerald-400">(自)</span>}
+                          </td>
+                          <td className="py-1.5 px-1.5 text-center font-mono">{row.played}</td>
+                          <td className="py-1.5 px-1.5 text-center font-mono">{row.won}</td>
+                          <td className="py-1.5 px-1.5 text-center font-mono">{row.drawn}</td>
+                          <td className="py-1.5 px-1.5 text-center font-mono">{row.lost}</td>
+                          <td className="py-1.5 px-1.5 text-center font-mono">{row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}</td>
+                          <td className="py-1.5 px-2 text-center font-mono font-black text-white">{row.points}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
         </div>
       )}

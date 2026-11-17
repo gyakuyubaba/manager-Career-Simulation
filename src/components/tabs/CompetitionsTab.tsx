@@ -40,7 +40,7 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
 
   const [selectedLeague, setSelectedLeague] = useState<LeagueKey>(initialLeague);
   const [selectedCup, setSelectedCup] = useState<CupKey>('ucl');
-  const [viewMode, setViewMode] = useState<'standings' | 'player_stats' | 'cups' | 'fixtures'>('standings');
+  const [viewMode, setViewMode] = useState<'standings' | 'player_stats' | 'cups' | 'preseason' | 'fixtures'>('standings');
   const [euroSubMode, setEuroSubMode] = useState<'league_phase' | 'bracket'>('league_phase');
 
   const standings = state.standings[selectedLeague] || [];
@@ -135,6 +135,15 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
             }`}
           >
             カップ戦 (Cups)
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('preseason')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              viewMode === 'preseason' ? 'bg-amber-400 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            サマーツアー
           </button>
           <button
             type="button"
@@ -804,6 +813,113 @@ export const CompetitionsTab: React.FC<Props> = ({ state, onOpenMatch }) => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* VIEW MODE: SUMMER TOUR (プレシーズン・サマーツアー) */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {viewMode === 'preseason' && (
+        <div className="space-y-4">
+          {state.preSeasonTournament ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                    <span>{state.preSeasonTournament.name}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                    開催地: {state.preSeasonTournament.hostCountry} · {state.preSeasonTournament.startDate} 〜 {state.preSeasonTournament.endDate} · 勝点→得失点差→総得点→直接対決
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono">
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                    優勝賞金 €{(state.preSeasonTournament.championPrize / 1000000).toFixed(1)}M
+                  </span>
+                </div>
+              </div>
+
+              {state.preSeasonTournament.stage === 'completed' && (
+                <div className="rounded-2xl bg-emerald-950/30 border border-emerald-500/40 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div>
+                    <div className="font-bold text-emerald-300 text-sm">
+                      🏆 優勝: {state.clubs[state.preSeasonTournament.championClubId || '']?.name} ／ 準優勝: {state.clubs[state.preSeasonTournament.runnerUpClubId || '']?.name}
+                    </div>
+                    <div className="text-slate-300 mt-1">
+                      自クラブ結果: <strong className="text-amber-300">{state.preSeasonTournament.userFinalPlacement}</strong> · 確定報酬 €{(state.preSeasonTournament.prizeAwarded / 1000000).toFixed(2)}M
+                    </div>
+                  </div>
+                  <div className="font-mono text-slate-200">
+                    移籍予算: €{(state.preSeasonTournament.budgetBefore / 1000000).toFixed(1)}M → €{(state.preSeasonTournament.budgetAfter / 1000000).toFixed(1)}M
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {state.preSeasonTournament.groups.map(grp => (
+                  <div key={grp.groupId} className="rounded-2xl bg-slate-950/80 border border-slate-800 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs font-bold">
+                      <span className="text-white">{grp.groupName}（3試合制）</span>
+                      <span className="text-emerald-400">1位 → 決勝進出</span>
+                    </div>
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-slate-500 font-mono border-b border-slate-800">
+                        <tr>
+                          <th className="py-2 px-2 text-center">#</th>
+                          <th className="py-2 px-2">クラブ</th>
+                          <th className="py-2 px-1.5 text-center">試</th>
+                          <th className="py-2 px-1.5 text-center">勝</th>
+                          <th className="py-2 px-1.5 text-center">分</th>
+                          <th className="py-2 px-1.5 text-center">負</th>
+                          <th className="py-2 px-1.5 text-center">差</th>
+                          <th className="py-2 px-2 text-center text-white">勝点</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {grp.standings.map((row, idx) => (
+                          <tr key={row.clubId} className={idx === 0 ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'}>
+                            <td className="py-2 px-2 text-center font-mono font-bold">{idx + 1}</td>
+                            <td className="py-2 px-2 font-semibold truncate max-w-[140px]">
+                              {row.clubName}
+                              {row.clubId === state.userClubId && <span className="ml-1 text-[10px] text-emerald-400">(自)</span>}
+                            </td>
+                            <td className="py-2 px-1.5 text-center font-mono">{row.played}</td>
+                            <td className="py-2 px-1.5 text-center font-mono">{row.won}</td>
+                            <td className="py-2 px-1.5 text-center font-mono">{row.drawn}</td>
+                            <td className="py-2 px-1.5 text-center font-mono">{row.lost}</td>
+                            <td className="py-2 px-1.5 text-center font-mono">{row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}</td>
+                            <td className="py-2 px-2 text-center font-mono font-black text-white">{row.points}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center text-xs text-slate-400">
+              今シーズンのサマーツアーは未参加または開始前です。ホーム画面の招待状（毎年7月）から参戦できます。
+            </div>
+          )}
+
+          {Array.isArray(state.preSeasonHistory) && state.preSeasonHistory.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
+              <h4 className="text-xs font-bold text-slate-200">歴代サマーツアー戦績・獲得賞金履歴</h4>
+              <div className="divide-y divide-slate-800 text-xs">
+                {state.preSeasonHistory.map((h, i) => (
+                  <div key={`${h.seasonYear}_${h.tournamentId}_${i}`} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono text-amber-300 font-bold">{h.seasonYear} · {h.name}</span>
+                    <span className="text-slate-300">優勝: <strong className="text-white">{h.championClubName}</strong></span>
+                    <span className="text-slate-300">
+                      成績: <strong className="text-emerald-400">{h.userPlacement}</strong> (€{(h.prizeAwarded / 1000000).toFixed(2)}M)
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

@@ -25,6 +25,7 @@ import { initializePlayerSkills } from './skillEngine';
 import { normalizeAllPlayerMarketValues, syncPlayerGkAttributes } from './valuationEngine';
 import { rebalanceExistingSaveClubBudgets } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
+import { generatePreSeasonInvitations } from './preSeasonEngine';
 import { GROUP_B_TOURNAMENT_CLUBS, resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
 
 export const CURRENT_SCHEMA_VERSION = 10;
@@ -420,6 +421,35 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
     const reb = rebalanceExistingSaveClubBudgets(migrated.clubs);
     migrated.clubs = reb.clubs;
     migrated.budgetRebalanced2026 = true;
+  }
+
+  // 9. Preserve preSeasonHistory and ensure active June/July Summer Tour invitations exist without wiping progress
+  if (!Array.isArray(migrated.preSeasonHistory)) {
+    migrated.preSeasonHistory = [];
+  }
+  const curDate = migrated.currentDate || '2026-07-01';
+  const curYear = parseInt(curDate.slice(0, 4), 10) || 2026;
+  const curMmDd = curDate.slice(5);
+  if (
+    migrated.userClubId &&
+    migrated.clubs?.[migrated.userClubId] &&
+    curMmDd >= '06-25' &&
+    curMmDd <= '07-16' &&
+    !migrated.selectedPreSeason &&
+    (!migrated.preSeasonTournament || migrated.preSeasonTournament.seasonYear !== curYear)
+  ) {
+    const hasCurrentInv =
+      Array.isArray(migrated.preSeasonInvitations) &&
+      migrated.preSeasonInvitations.length > 0 &&
+      migrated.preSeasonInvitations.every(inv => inv.seasonYear === curYear);
+    if (!hasCurrentInv) {
+      migrated.preSeasonInvitations = generatePreSeasonInvitations(
+        migrated.clubs[migrated.userClubId],
+        migrated.clubs,
+        migrated.manager,
+        curYear
+      );
+    }
   }
 
   migrated.schemaVersion = CURRENT_SCHEMA_VERSION;

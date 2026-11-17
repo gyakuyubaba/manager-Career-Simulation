@@ -69,10 +69,17 @@ import {
   processDailySmartphoneEvents,
   respondToPlayerEmail,
   buildDeterministicFrontOfficeReply,
+  analyzeFrontOfficeSquadContext,
   applyFrontOfficeProposedAction,
   evaluateManagerJobOffers,
   respondToManagerJobOffer
 } from './smartphoneEngine';
+import {
+  generatePreSeasonInvitations,
+  computePreSeasonGroupStandings,
+  initializePreSeasonTournament,
+  advancePreSeasonTournamentState
+} from './preSeasonEngine';
 import { calculatePlayerValuation } from './transferEngine';
 import { calculatePlayerPositionProficiency } from '../data/playerPositionsHelper';
 import { resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
@@ -5631,6 +5638,276 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 150', name: '自由配置＆V10移行保護検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 151: フロント連絡AI 実データコンテキスト生成＆自動移籍防止検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const aiState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClub = aiState.clubs[aiState.userClubId!];
+    userClub.transferBudget = 60000000;
+    const ctx = analyzeFrontOfficeSquadContext(aiState);
+    const cbReply = buildDeterministicFrontOfficeReply(aiState, '若手のCBを探して');
+    const stReply = buildDeterministicFrontOfficeReply(aiState, '50M以内でSTを補強したい');
+    const sellReply = buildDeterministicFrontOfficeReply(aiState, '誰を放出した方がいい？');
+
+    const hasRealSquad = ctx.squadSummary.length >= 15 && Boolean(ctx.formation) && ctx.weaknessesSummary.length > 0;
+    const hasCbTarget = (cbReply.recommendations || []).some((r: { targetPlayerId?: string }) => r.targetPlayerId && Boolean(aiState.players[r.targetPlayerId]) && aiState.players[r.targetPlayerId].position === 'CB');
+    const hasStTarget = (stReply.recommendations || []).some((r: { targetPlayerId?: string }) => r.targetPlayerId && Boolean(aiState.players[r.targetPlayerId]) && ['ST', 'CF'].includes(aiState.players[r.targetPlayerId].position) && aiState.players[r.targetPlayerId].marketValue <= 50000000);
+    const requiresConfirm = sellReply.proposedAction?.requiresConfirmation === true;
+    const budgetUntouched = aiState.clubs[aiState.userClubId!].transferBudget === 60000000;
+
+    const passed = hasRealSquad && hasCbTarget && hasStTarget && requiresConfirm && budgetUntouched;
+    results.push({
+      id: 'TEST 151',
+      name: 'フロント連絡AI 実在選手コンテキスト・予算連動・自動実行防止検証',
+      passed,
+      details: passed
+        ? `成功: 自クラブ${ctx.squadSummary.length}名/市場候補${ctx.marketTargets.length}名抽出、若手CB(${cbReply.recommendations?.[0]?.targetPlayerName})・50M以下ST(${stReply.recommendations?.[0]?.targetPlayerName})・確認必須フラグを確認しました。`
+        : `失敗: hasRealSquad=${hasRealSquad}, hasCbTarget=${hasCbTarget}, hasStTarget=${hasStTarget}, requiresConfirm=${requiresConfirm}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 151', name: 'フロント連絡AI検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 152: 即時スキップ時の自動交代（疲労優先・5人上限・記録整合）検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const skipState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const homeClub = skipState.clubs['arsenal'];
+    const awayClub = skipState.clubs['chelsea'];
+    const homeTac = getDefaultTacticsForClub(homeClub, skipState.players);
+    const awayTac = getDefaultTacticsForClub(awayClub, skipState.players);
+
+    // Exhaust 4 outfield starters on home team while keeping bench fresh
+    const outfieldStarters = homeTac.lineup.starters.slice(1, 5);
+    outfieldStarters.forEach((s, i) => {
+      skipState.players[s.playerId] = { ...skipState.players[s.playerId], fatigue: 62 + i * 3, stamina: 70 };
+    });
+    homeTac.lineup.bench.forEach(bId => {
+      if (skipState.players[bId]) {
+        skipState.players[bId] = { ...skipState.players[bId], fatigue: 2 };
+      }
+    });
+
+    const skipFix: MatchFixture = {
+      id: 'fix_test_instant_skip_subs_152',
+      date: '2026-09-20',
+      competition: 'premier-league',
+      competitionName: 'Premier League',
+      homeClubId: homeClub.id,
+      awayClubId: awayClub.id,
+      status: 'upcoming',
+      isUserMatch: true
+    };
+
+    const resSkip = resimulateRemainingMatchFromMinute(
+      50,
+      [],
+      [1, 0],
+      skipFix,
+      homeClub,
+      awayClub,
+      homeTac,
+      awayTac,
+      skipState.players
+    );
+
+    const homeSubs = (resSkip.fixture.events || []).filter(e => e.type === 'sub' && e.clubId === homeClub.id);
+    const subbedOutIds = new Set(homeSubs.map(s => s.subOutPlayerId || s.playerId));
+    const exhaustedSubbedOutCount = outfieldStarters.filter(s => subbedOutIds.has(s.playerId)).length;
+    const subStatsRecorded = homeSubs.every(s => {
+      const inP = s.subInPlayerId ? resSkip.updatedPlayers[s.subInPlayerId] : undefined;
+      return Boolean(inP && inP.stats.appearances >= 1 && inP.stats.minutes > 0 && inP.stats.minutes < 90);
+    });
+
+    const passed = homeSubs.length >= 2 && homeSubs.length <= 5 && exhaustedSubbedOutCount >= 2 && subStatsRecorded;
+    results.push({
+      id: 'TEST 152',
+      name: '即時スキップ時の疲労優先自動交代・交代上限(<=5)・選手成績記録検証',
+      passed,
+      details: passed
+        ? `成功: ホーム自動交代=${homeSubs.length}回（高疲労スタメン${exhaustedSubbedOutCount}/4名交代）、途中出場時間/出場数を正確に記録しました。`
+        : `失敗: homeSubs=${homeSubs.length}, exhaustedSubbed=${exhaustedSubbedOutCount}, subStatsRecorded=${subStatsRecorded}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 152', name: '即時スキップ自動交代検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 153: 試合中交代・フォーメーション変更による通常編成(state.tactics)非破壊検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const tacState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const club = tacState.clubs[tacState.userClubId!];
+    const originalTac = getDefaultTacticsForClub(club, tacState.players);
+    originalTac.placementMode = 'free';
+    const syncedCustom = syncCustomPositionsFromStarters(originalTac, tacState.players);
+    originalTac.customPositions = syncedCustom;
+    const snapshotJson = JSON.stringify(originalTac);
+
+    // Clone A -> B for live match
+    const liveTac = JSON.parse(JSON.stringify(originalTac));
+    const outId = liveTac.lineup.starters[10].playerId;
+    const inId = liveTac.lineup.bench[1] || liveTac.lineup.bench[0];
+    const afterSubTac = applySubstitutionToTactics(liveTac, outId, inId);
+    afterSubTac.formation = '3-5-2';
+    afterSubTac.placementMode = 'formation';
+    if (afterSubTac.customPositions && afterSubTac.customPositions[outId]) {
+      afterSubTac.customPositions[outId].x = 0.99;
+    }
+
+    const originalUntouched = JSON.stringify(originalTac) === snapshotJson;
+    const liveChanged = afterSubTac.lineup.starters.some(s => s.playerId === inId) && afterSubTac.formation === '3-5-2';
+    const passed = originalUntouched && liveChanged;
+
+    results.push({
+      id: 'TEST 153',
+      name: '通常編成(A)と試合中編成(B)の完全分離・自由配置/交代/フォーメーション非破壊検証',
+      passed,
+      details: passed
+        ? `成功: 試合中交代(IN=${inId})・フォーメーション変更(3-5-2)後も元の通常編成(自由配置座標含む)が100%保持されました。`
+        : `失敗: originalUntouched=${originalUntouched}, liveChanged=${liveChanged}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 153', name: '通常編成vs試合中編成完全分離検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 154: サマーツアー招待状 複数年継続発生（2026〜2029年＆年度切替）検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let yrState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    yrState.selectedPreSeason = 'ps_usa_super';
+    const yrClub = yrState.clubs[yrState.userClubId!];
+    const inv26 = generatePreSeasonInvitations(yrClub, yrState.clubs, yrState.manager, 2026);
+    const inv27 = generatePreSeasonInvitations(yrClub, yrState.clubs, yrState.manager, 2027);
+    const inv28 = generatePreSeasonInvitations(yrClub, yrState.clubs, yrState.manager, 2028);
+
+    const promRes = processSeasonEndPromotionsAndRelegations(yrState, 2027);
+    const seasonResetOk =
+      promRes.state.selectedPreSeason === undefined &&
+      promRes.state.preSeasonTournament === undefined &&
+      Array.isArray(promRes.state.preSeasonInvitations) &&
+      promRes.state.preSeasonInvitations.length >= 3 &&
+      promRes.state.preSeasonInvitations.every(i => i.seasonYear === 2027);
+
+    const uniqueKeysOk =
+      inv26.length >= 3 &&
+      inv27.length >= 3 &&
+      inv28.length >= 3 &&
+      inv26[0].invitationKey !== inv27[0].invitationKey &&
+      inv27[0].invitationKey !== inv28[0].invitationKey &&
+      inv27.every(i => Boolean(i.hostCountry && i.invitationReason && (i.championPrize ?? 0) > 0 && (i.participationReward ?? 0) > 0));
+
+    const passed = seasonResetOk && uniqueKeysOk;
+    results.push({
+      id: 'TEST 154',
+      name: 'サマーツアー招待状 毎年発生（2026〜2028年）・重複防止・年度切替リセット検証',
+      passed,
+      details: passed
+        ? `成功: 2026/2027/2028年の年次招待状生成・固有キー分離・2027年新シーズン切替時の再招待表示を確認しました。`
+        : `失敗: seasonResetOk=${seasonResetOk}, uniqueKeysOk=${uniqueKeysOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 154', name: 'サマーツアー毎年招待検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 155: サマーツアー（8クラブ・グループ3試合制・一発決勝・報酬二重付与防止）検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let psState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClub = psState.clubs[psState.userClubId!];
+    const startBudget = userClub.transferBudget;
+    const inv = generatePreSeasonInvitations(userClub, psState.clubs, psState.manager, 2027)[0];
+    const { tournamentState, fixtures: tourFixtures } = initializePreSeasonTournament(
+      psState.clubs,
+      userClub.id,
+      inv,
+      2027,
+      psState.manager
+    );
+
+    const gAIds = tournamentState.groups[0].clubIds;
+    const gBIds = tournamentState.groups[1].clubIds;
+    const groupMatchCounts = [...gAIds, ...gBIds].every(
+      cId => tourFixtures.filter(f => !f.isFinal && (f.homeClubId === cId || f.awayClubId === cId)).length === 3
+    );
+
+    // Finish all 12 group matches deterministically where Group A[0] (User) & Group B[0] win all 3 matches
+    tourFixtures.forEach(f => {
+      if (!f.isFinal) {
+        f.status = 'finished';
+        if (f.homeClubId === gAIds[0] || f.homeClubId === gBIds[0]) {
+          f.homeScore = 2; f.awayScore = 0;
+        } else if (f.awayClubId === gAIds[0] || f.awayClubId === gBIds[0]) {
+          f.homeScore = 0; f.awayScore = 2;
+        } else {
+          f.homeScore = 1; f.awayScore = 1;
+        }
+      }
+    });
+
+    psState = {
+      ...psState,
+      fixtures: [...tourFixtures, ...psState.fixtures.filter(f => f.competition !== 'pre-season')],
+      preSeasonTournament: tournamentState
+    };
+
+    // Advance after Group Stage -> ONLY Group A #1 (gAIds[0]) vs Group B #1 (gBIds[0]) in Final!
+    psState = advancePreSeasonTournamentState(psState);
+    const finalFix = psState.fixtures.find(f => f.id === tournamentState.finalFixtureId);
+    const finalistCheck = Boolean(
+      psState.preSeasonTournament?.stage === 'final' &&
+      finalFix &&
+      finalFix.homeClubId === gAIds[0] &&
+      finalFix.awayClubId === gBIds[0] &&
+      !gAIds.slice(1).includes(finalFix.homeClubId) &&
+      !gAIds.slice(1).includes(finalFix.awayClubId)
+    );
+
+    // Check head-to-head tiebreaker helper explicitly (equal pts, GD, GF -> H2H winner ranks 1st)
+    const tieFixtures: MatchFixture[] = [
+      { id: 't1', date: '2027-07-08', competition: 'pre-season', competitionName: 'PS', homeClubId: gBIds[1], awayClubId: gBIds[2], status: 'finished', homeScore: 2, awayScore: 1, isUserMatch: false }
+    ];
+    const tieStandings = computePreSeasonGroupStandings([gBIds[2], gBIds[1]], tieFixtures, psState.clubs);
+    const h2hWinnerTop = tieStandings[0]?.clubId === gBIds[1];
+
+    // Finish Final with User (gAIds[0]) winning 3-1
+    if (finalFix) {
+      finalFix.status = 'finished';
+      finalFix.homeScore = 3;
+      finalFix.awayScore = 1;
+    }
+    psState = advancePreSeasonTournamentState(psState);
+    const budgetAfterFirst = psState.clubs[userClub.id].transferBudget;
+    // Call advancePreSeasonTournamentState a second time to verify idempotency (no double prize credit!)
+    psState = advancePreSeasonTournamentState(psState);
+    const budgetAfterSecond = psState.clubs[userClub.id].transferBudget;
+
+    const prizeOk =
+      psState.preSeasonTournament?.stage === 'completed' &&
+      psState.preSeasonTournament.championClubId === userClub.id &&
+      psState.preSeasonTournament.userFinalPlacement === '優勝' &&
+      psState.preSeasonTournament.rewardProcessed === true &&
+      budgetAfterFirst === startBudget + (inv.championPrize ?? inv.prizeMoney ?? 0) &&
+      budgetAfterSecond === budgetAfterFirst &&
+      (psState.preSeasonHistory || []).length >= 1;
+
+    const passed = groupMatchCounts && finalistCheck && h2hWinnerTop && prizeOk;
+    results.push({
+      id: 'TEST 155',
+      name: 'サマーツアー（8クラブ・3試合制・H2Hタイブレーク・1位同士決勝・賞金一度のみ付与）検証',
+      passed,
+      details: passed
+        ? `成功: 8クラブ全3試合・H2H順位決定・組1位同士決勝進出・優勝賞金€${((inv.championPrize ?? inv.prizeMoney ?? 0) / 1000000).toFixed(1)}Mの単一回付与を確認しました。`
+        : `失敗: groupMatchCounts=${groupMatchCounts}, finalistCheck=${finalistCheck}, h2hWinnerTop=${h2hWinnerTop}, prizeOk=${prizeOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 155', name: 'サマーツアー大会形式＆報酬検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -5652,6 +5929,7 @@ export const runAll133Tests = runAll27Tests;
 export const runAll140Tests = runAll27Tests;
 export const runAll145Tests = runAll27Tests;
 export const runAll150Tests = runAll27Tests;
+export const runAll155Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

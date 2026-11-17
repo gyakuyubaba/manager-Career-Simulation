@@ -98,7 +98,7 @@ export function createInitialStandings(clubs: Record<string, Club>): Record<Leag
 
 export { generateSeasonFixtures } from './fixtureGenerator';
 import { generateSeasonFixtures } from './fixtureGenerator';
-import { createPreSeasonScheduleNews } from './preSeasonEngine';
+import { createPreSeasonScheduleNews, generatePreSeasonInvitations } from './preSeasonEngine';
 
 /**
  * Deterministically simulates matches before mid-season takeover date
@@ -668,6 +668,11 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     careerStartDate: state.manager.careerStartDate || (isMidSeason ? state.currentDate : '2026-07-01')
   };
 
+  const seasonStartYear = parseInt(state.currentDate.slice(0, 4), 10) || parseInt(state.season.split('/')[0], 10) || 2026;
+  const initialInvitations = !isMidSeason
+    ? generatePreSeasonInvitations(chosenClub, updatedClubs, updatedManagerProfile, seasonStartYear)
+    : state.preSeasonInvitations;
+
   const baseNextState: GameWorldState = {
     ...state,
     manager: updatedManagerProfile,
@@ -679,6 +684,8 @@ export function appointUserToClub(state: GameWorldState, chosenClubId: string): 
     players: updatedPlayers,
     tactics: userTactics,
     fixtures,
+    preSeasonInvitations: initialInvitations,
+    preSeasonHistory: state.preSeasonHistory || [],
     news: [appointNews, ...(psNews ? [psNews] : []), ...state.news],
     youthAcademy: customYouth,
     boardConfidence: 85,

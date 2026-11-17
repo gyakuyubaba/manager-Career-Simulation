@@ -235,27 +235,45 @@ async function callOpenAIChatCompletion(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
   try {
-    const bodyPayload: Record<string, unknown> = {
-      model: getOpenAIModel(),
-      messages: [
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: userPrompt }
-      ],
-      max_tokens: 1200
+    const makeBody = (useCompletionTokens: boolean): Record<string, unknown> => {
+      const p: Record<string, unknown> = {
+        model: getOpenAIModel(),
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userPrompt }
+        ]
+      };
+      if (useCompletionTokens) {
+        p.max_completion_tokens = 1600;
+      } else {
+        p.max_tokens = 1200;
+      }
+      if (expectJson) {
+        p.response_format = { type: 'json_object' };
+      }
+      return p;
     };
-    if (expectJson) {
-      bodyPayload.response_format = { type: 'json_object' };
-    }
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openAiKey}`
-      },
-      body: JSON.stringify(bodyPayload),
-      signal: controller.signal
-    });
+    const sendReq = (payload: Record<string, unknown>) =>
+      fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openAiKey}`
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+    let res = await sendReq(makeBody(true));
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      if (res.status === 400 && errText.includes('max_completion_tokens')) {
+        res = await sendReq(makeBody(false));
+      } else {
+        throw new Error(`OpenAI API HTTP ${res.status}: ${errText.slice(0, 160)}`);
+      }
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
@@ -296,17 +314,18 @@ app.post('/api/ai-provider', (req: Request, res: Response) => {
   if (requested !== 'gemini' && requested !== 'openai') {
     return res.status(400).json({ error: 'provider must be "gemini" or "openai"' });
   }
-  activeProvider = requested;
+  const providerKey: AiProviderType = requested;
+  activeProvider = providerKey;
   const gKey = resolveServerKey(process.env.GEMINI_API_KEY);
   const oKey = getOpenAIKey();
-  const hasKey = requested === 'gemini' ? Boolean(gKey) : Boolean(oKey);
+  const hasKey = providerKey === 'gemini' ? Boolean(gKey) : Boolean(oKey);
   recordDiagnostic(
-    requested,
+    providerKey,
     '/api/ai-provider',
-    hasKey ? providerRuntimeState[requested].status : 'api_key_missing',
+    hasKey ? providerRuntimeState[providerKey].status : 'api_key_missing',
     hasKey
-      ? `AIプロバイダーを ${requested === 'gemini' ? 'Gemini' : 'OpenAI'} に切り替えました`
-      : `${requested === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY'} が未設定のためフォールバック待機中です`
+      ? `AIプロバイダーを ${providerKey === 'gemini' ? 'Gemini' : 'OpenAI'} に切り替えました`
+      : `${providerKey === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY'} が未設定のためフォールバック待機中です`
   );
   res.json(buildAiStatusPayload());
 });
