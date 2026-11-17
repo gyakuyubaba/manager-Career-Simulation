@@ -919,8 +919,24 @@ export function applySubstitutionToTactics(
     newReserves.push(outPlayerId);
   }
 
+  // Preserve Free Placement customPositions by transferring outgoing player's slot coordinate to incoming sub
+  let nextCustomPositions = tactics.customPositions ? { ...tactics.customPositions } : undefined;
+  if (hasOut && nextCustomPositions) {
+    const outSlot = currentStarters.find(s => s.playerId === outPlayerId);
+    const outCoord = nextCustomPositions[outPlayerId] || (outSlot ? {
+      x: Math.round(((outSlot.pitchX || 50) / 100) * 1000) / 1000,
+      y: Math.round(((outSlot.pitchY || 50) / 100) * 1000) / 1000,
+      position: outSlot.position
+    } : undefined);
+    delete nextCustomPositions[outPlayerId];
+    if (outCoord) {
+      nextCustomPositions[inPlayerId] = { ...outCoord };
+    }
+  }
+
   return {
     ...tactics,
+    customPositions: nextCustomPositions,
     lineup: {
       starters: newStarters,
       bench: newBench,
@@ -934,8 +950,14 @@ export function removePlayerFromTacticsPitch(
   playerId: string
 ): TeamTactics {
   if (!playerId) return tactics;
+  let nextCustomPositions = tactics.customPositions;
+  if (nextCustomPositions && nextCustomPositions[playerId]) {
+    nextCustomPositions = { ...nextCustomPositions };
+    delete nextCustomPositions[playerId];
+  }
   return {
     ...tactics,
+    customPositions: nextCustomPositions,
     lineup: {
       starters: (tactics.lineup?.starters || []).filter(s => s.playerId !== playerId),
       bench: (tactics.lineup?.bench || []).filter(id => id !== playerId),

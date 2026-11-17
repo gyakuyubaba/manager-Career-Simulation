@@ -168,7 +168,7 @@ function recordDiagnostic(
     status,
     statusLabel: label,
     lastCheckedAt: new Date().toISOString(),
-    lastError: status === 'connected' ? undefined : message
+    lastError: status === 'connected' || status === 'unknown' ? undefined : message
   };
   diagnosticLogs.unshift({
     id: `diag_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -437,7 +437,9 @@ app.post('/api/ai-test', async (req: Request, res: Response) => {
 
 // POST /api/press-conference-questions (Dynamic AI press questions grounded in match facts)
 app.post('/api/press-conference-questions', async (req: Request, res: Response) => {
-  const { clubName, opponentName, matchContext, scoreStr, eventsSummary } = req.body || {};
+  const { clubName, opponentName, matchContext, scoreStr, eventsSummary, provider: requestedProvider } = req.body || {};
+  const chosenProvider: AiProviderType =
+    requestedProvider === 'gemini' || requestedProvider === 'openai' ? requestedProvider : activeProvider;
   const { client: geminiClient, key: gKey } = getGeminiClient();
   const oKey = getOpenAIKey();
 
@@ -472,7 +474,7 @@ tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | 
 `;
 
   try {
-    if (activeProvider === 'openai' && oKey) {
+    if (chosenProvider === 'openai' && oKey) {
       const raw = await callOpenAIChatCompletion(
         'あなたは日本語スポーツメディアの記者です。必ず指定JSONオブジェクトのみで回答してください。',
         prompt,
@@ -483,7 +485,7 @@ tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | 
         recordDiagnostic('openai', '/api/press-conference-questions', 'connected', '会見質問生成成功');
         return res.json({ ok: true, questions: parsed.questions.slice(0, 3) });
       }
-    } else if (geminiClient) {
+    } else if (chosenProvider === 'gemini' && geminiClient) {
       const response = await geminiClient.models.generateContent({
         model: GEMINI_MODEL,
         contents: prompt,
@@ -502,7 +504,7 @@ tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | 
     }
   } catch (err) {
     const status = classifyProviderError(err);
-    const provider: AiProviderType = activeProvider === 'openai' && oKey ? 'openai' : 'gemini';
+    const provider: AiProviderType = chosenProvider;
     recordDiagnostic(provider, '/api/press-conference-questions', status, sanitizeErrorMessage(err, [gKey, oKey]));
   }
 
@@ -511,7 +513,9 @@ tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | 
 
 // POST /api/press-conference endpoint
 app.post('/api/press-conference', async (req: Request, res: Response) => {
-  const { question, managerResponse, matchContext, clubName, managerName, qaList } = req.body;
+  const { question, managerResponse, matchContext, clubName, managerName, qaList, provider: requestedProvider } = req.body;
+  const chosenProvider: AiProviderType =
+    requestedProvider === 'gemini' || requestedProvider === 'openai' ? requestedProvider : activeProvider;
 
   const formattedQaList = Array.isArray(qaList) && qaList.length > 0
     ? qaList
@@ -544,7 +548,7 @@ ${formattedQaList ? `【質疑応答ログ】\n${formattedQaList}` : `・記者�
   const { client: geminiClient, key: gKey } = getGeminiClient();
   const oKey = getOpenAIKey();
 
-  if (activeProvider === 'openai' && oKey) {
+  if (chosenProvider === 'openai' && oKey) {
     try {
       const raw = await callOpenAIChatCompletion(
         'あなたは日本語スポーツメディアの記者です。必ず指定されたJSON形式のみで回答してください。',
@@ -558,7 +562,7 @@ ${formattedQaList ? `【質疑応答ログ】\n${formattedQaList}` : `・記者�
       const status = classifyProviderError(err);
       recordDiagnostic('openai', '/api/press-conference', status, sanitizeErrorMessage(err, [gKey, oKey]));
     }
-  } else if (geminiClient) {
+  } else if (chosenProvider === 'gemini' && geminiClient) {
     try {
       const response = await geminiClient.models.generateContent({
         model: GEMINI_MODEL,

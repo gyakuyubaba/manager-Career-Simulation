@@ -64,10 +64,20 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
       .map(e => `${e.minute}分 ${e.type} ${e.playerName || ''}`)
       .join(' / ');
 
+    const storedProvider = (() => {
+      try {
+        const v = window.localStorage.getItem('soccer_mgr_ai_provider_v1');
+        return v === 'gemini' || v === 'openai' ? v : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+
     fetch('/api/press-conference-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        provider: storedProvider,
         clubName: userClub?.name || '自クラブ',
         opponentName: oppClub?.name || '相手クラブ',
         scoreStr: `${userClub?.name} ${userScore} - ${oppScore} ${oppClub?.name}`,
@@ -75,7 +85,10 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
         eventsSummary: keyEvents
       })
     })
-      .then(res => (res.ok ? res.json() : null))
+      .then(res => {
+        const ct = res.headers.get('content-type') || '';
+        return res.ok && ct.toLowerCase().includes('application/json') ? res.json() : null;
+      })
       .then(data => {
         if (!active || !data?.ok || !Array.isArray(data.questions) || data.questions.length === 0) return;
         setQaTranscript(prev => {
@@ -117,11 +130,21 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
     const latestAnswer = finalTranscript[finalTranscript.length - 1]?.answer || '';
     const interviewId = `interview_${fixture.id}_${Date.now()}`;
 
+    const storedProvider = (() => {
+      try {
+        const v = window.localStorage.getItem('soccer_mgr_ai_provider_v1');
+        return v === 'gemini' || v === 'openai' ? v : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+
     try {
       const response = await fetch('/api/press-conference', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          provider: storedProvider,
           question: finalTranscript[0]?.question,
           managerResponse: latestAnswer,
           qaList: finalTranscript.map(x => ({
@@ -135,6 +158,10 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
         })
       });
 
+      const ct = response.headers.get('content-type') || '';
+      if (!response.ok || !ct.toLowerCase().includes('application/json')) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       const totalTrustDelta = Math.max(-5, Math.min(8, Math.round((choiceTrustSum + (data.playerTrustDelta || 0)) / 2)));
       const totalBoardDelta = Math.max(-5, Math.min(8, Math.round((choiceBoardSum + (data.boardConfidenceDelta || 0)) / 2)));

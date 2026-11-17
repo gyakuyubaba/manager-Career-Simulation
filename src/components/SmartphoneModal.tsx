@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   AiConnectionStatus,
   AiProviderType,
@@ -56,6 +56,35 @@ interface Props {
   onClose: () => void;
 }
 
+const AI_PROVIDER_STORAGE_KEY = 'soccer_mgr_ai_provider_v1';
+
+function readStoredAiProvider(): AiProviderType | null {
+  try {
+    const raw = window.localStorage.getItem(AI_PROVIDER_STORAGE_KEY);
+    return raw === 'gemini' || raw === 'openai' ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredAiProvider(provider: AiProviderType): void {
+  try {
+    window.localStorage.setItem(AI_PROVIDER_STORAGE_KEY, provider);
+  } catch {
+    // ignore storage restriction
+  }
+}
+
+async function safeParseJsonResponse(res: Response): Promise<any | null> {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.toLowerCase().includes('application/json')) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export const SmartphoneModal: React.FC<Props> = ({
   state,
   onUpdateState,
@@ -73,6 +102,9 @@ export const SmartphoneModal: React.FC<Props> = ({
   const [foInput, setFoInput] = useState<string>('');
   const [isSendingFo, setIsSendingFo] = useState<boolean>(false);
   const [actionBanner, setActionBanner] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<AiProviderType>(
+    () => readStoredAiProvider() || 'gemini'
+  );
   const [aiStatusState, setAiStatusState] = useState<{
     activeProvider: AiProviderType;
     providers: Record<
@@ -96,18 +128,58 @@ export const SmartphoneModal: React.FC<Props> = ({
     }>;
   } | null>(null);
   const [isTestingAi, setIsTestingAi] = useState<boolean>(false);
+  const [isSwitchingAi, setIsSwitchingAi] = useState<boolean>(false);
   const [showAiDiagnostics, setShowAiDiagnostics] = useState<boolean>(false);
   const [aiTestFeedback, setAiTestFeedback] = useState<string | null>(null);
 
+  const switchSeqRef = useRef<number>(0);
+  const userTouchedProviderRef = useRef<boolean>(false);
+
+  const effectiveActiveProvider: AiProviderType = selectedProvider;
+
   const refreshAiStatus = async () => {
+    const seqAtStart = switchSeqRef.current;
     try {
       const res = await fetch('/api/ai-status');
-      if (res.ok) {
-        const data = await res.json();
-        setAiStatusState(data);
+      if (!res.ok) return;
+      const data = await safeParseJsonResponse(res);
+      if (!data || !data.providers) return;
+      // Ignore stale status fetch if user clicked a provider toggle while in flight
+      if (seqAtStart !== switchSeqRef.current || userTouchedProviderRef.current) {
+        setAiStatusState({ ...data, activeProvider: selectedProvider });
+        return;
       }
+
+      const storedPref = readStoredAiProvider();
+      if (storedPref && data.activeProvider !== storedPref) {
+        // Re-sync server preference with user's saved browser choice
+        try {
+          const syncRes = await fetch('/api/ai-provider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: storedPref })
+          });
+          if (syncRes.ok) {
+            const syncData = await safeParseJsonResponse(syncRes);
+            if (syncData && syncData.providers) {
+              setAiStatusState(syncData);
+              setSelectedProvider(storedPref);
+              return;
+            }
+          }
+        } catch {
+          // keep local selection even if sync fails
+        }
+        setAiStatusState({ ...data, activeProvider: storedPref });
+        setSelectedProvider(storedPref);
+        return;
+      }
+
+      const nextProvider: AiProviderType = storedPref || data.activeProvider || 'gemini';
+      setAiStatusState(data);
+      setSelectedProvider(nextProvider);
     } catch {
-      // ignore initial status fetch failures silently
+      // Static hosting without backend API: keep stored/local provider selectable
     }
   };
 
@@ -118,19 +190,48 @@ export const SmartphoneModal: React.FC<Props> = ({
   }, [activeApp]);
 
   const handleSwitchAiProvider = async (provider: AiProviderType) => {
+    const nextSeq = ++switchSeqRef.current;
+    userTouchedProviderRef.current = true;
+
+    // Immediately apply locally & persist so UI never appears stuck or unresponsive
+    setSelectedProvider(provider);
+    saveStoredAiProvider(provider);
+    setAiStatusState(prev => (prev ? { ...prev, activeProvider: provider } : prev));
+    setIsSwitchingAi(true);
+
+    const providerLabel = provider === 'gemini' ? 'Gemini' : 'OpenAI (ChatGPT)';
+
     try {
       const res = await fetch('/api/ai-provider', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider })
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (nextSeq !== switchSeqRef.current) return;
+
+      const data = res.ok ? await safeParseJsonResponse(res) : null;
+      if (res.ok && data && data.providers) {
         setAiStatusState(data);
-        setAiTestFeedback(`AIプロバイダーを ${provider === 'gemini' ? 'Gemini' : 'OpenAI (ChatGPT)'} に切り替えました。`);
+        const provConfigured = data.providers?.[provider]?.configured;
+        setAiTestFeedback(
+          provConfigured
+            ? `AIプロバイダーを ${providerLabel} に切り替えました。`
+            : `AIプロバイダーを ${providerLabel} に切り替えました（※サーバー側APIキー未設定のためローカル分析フォールバックで動作します）。`
+        );
+      } else {
+        setAiTestFeedback(
+          `${providerLabel} を選択しました（※サーバーAPI未接続環境のためローカル戦力分析で動作します）。`
+        );
       }
     } catch {
-      setAiTestFeedback('プロバイダー切替時に通信エラーが発生しました。');
+      if (nextSeq !== switchSeqRef.current) return;
+      setAiTestFeedback(
+        `${providerLabel} を選択しました（※サーバーAPI未接続のためローカル戦力分析で動作します）。`
+      );
+    } finally {
+      if (nextSeq === switchSeqRef.current) {
+        setIsSwitchingAi(false);
+      }
     }
   };
 
@@ -138,18 +239,18 @@ export const SmartphoneModal: React.FC<Props> = ({
     setIsTestingAi(true);
     setAiTestFeedback(null);
     try {
-      const provider = aiStatusState?.activeProvider || 'gemini';
+      const provider = effectiveActiveProvider;
       const res = await fetch('/api/ai-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider })
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.state) setAiStatusState(data.state);
+      const data = res.ok ? await safeParseJsonResponse(res) : null;
+      if (res.ok && data) {
+        if (data.state) setAiStatusState({ ...data.state, activeProvider: provider });
         setAiTestFeedback(data.message || data.statusLabel || '接続確認完了');
       } else {
-        setAiTestFeedback(`接続テスト失敗 (HTTP ${res.status})`);
+        setAiTestFeedback(`接続テスト不可 (HTTP ${res.status} / バックエンドAPI未応答)`);
       }
     } catch {
       setAiTestFeedback('通信エラー: サーバーの /api/ai-test に到達できませんでした。');
@@ -313,7 +414,7 @@ export const SmartphoneModal: React.FC<Props> = ({
     let analysisSummary: string | undefined = undefined;
     let recommendations: FrontOfficeMessageRecord['recommendations'] = undefined;
     let modelUsed: string | undefined = undefined;
-    let providerUsed: AiProviderType | undefined = aiStatusState?.activeProvider || 'gemini';
+    let providerUsed: AiProviderType | undefined = effectiveActiveProvider;
     let isAiGenerated: boolean | undefined = undefined;
     let connectionStatus: AiConnectionStatus | undefined = undefined;
     let errorDetail: string | undefined = undefined;
@@ -324,7 +425,7 @@ export const SmartphoneModal: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userMessage: msgText,
-          provider: aiStatusState?.activeProvider || 'gemini',
+          provider: effectiveActiveProvider,
           clubContext: {
             clubName: userClub?.name || 'クラブ',
             currentLeague: userClub?.league || 'league',
@@ -346,14 +447,14 @@ export const SmartphoneModal: React.FC<Props> = ({
         })
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      const data = response.ok ? await safeParseJsonResponse(response) : null;
+      if (response.ok && data) {
         replyText = data.reply;
         proposedAction = data.proposedAction;
         analysisSummary = data.analysisSummary;
         recommendations = Array.isArray(data.recommendations) ? data.recommendations : undefined;
         modelUsed = data.modelUsed;
-        providerUsed = data.providerUsed || aiStatusState?.activeProvider || 'gemini';
+        providerUsed = data.providerUsed || effectiveActiveProvider;
         isAiGenerated = Boolean(data.isAiGenerated);
         connectionStatus = data.connectionStatus;
         errorDetail = data.errorDetail;
@@ -814,11 +915,12 @@ export const SmartphoneModal: React.FC<Props> = ({
               <div className="text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <strong className="text-white">強化部・フロントAIホットライン</strong>
-                  {aiStatusState && (() => {
-                    const ap = aiStatusState.activeProvider;
-                    const pState = aiStatusState.providers[ap];
+                  {(() => {
+                    const ap = effectiveActiveProvider;
+                    const pState = aiStatusState?.providers?.[ap];
                     const isOk = pState?.status === 'connected';
                     const isMissing = pState?.status === 'api_key_missing';
+                    const statusLabel = pState?.statusLabel || (aiStatusState ? '未検証' : 'ローカル分析待機');
                     return (
                       <span
                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
@@ -829,7 +931,7 @@ export const SmartphoneModal: React.FC<Props> = ({
                               : 'bg-slate-800 text-slate-300 border-slate-700'
                         }`}
                       >
-                        {ap === 'gemini' ? 'Gemini' : 'OpenAI'} · {pState?.statusLabel || '確認中'}
+                        {ap === 'gemini' ? 'Gemini' : 'OpenAI'} · {statusLabel}
                       </span>
                     );
                   })()}
@@ -837,23 +939,25 @@ export const SmartphoneModal: React.FC<Props> = ({
 
                 {/* Admin AI Provider Toggle & Connection Check */}
                 <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1" role="group" aria-label="AIプロバイダー選択">
                     {(['gemini', 'openai'] as AiProviderType[]).map(prov => {
-                      const active = (aiStatusState?.activeProvider || 'gemini') === prov;
+                      const active = effectiveActiveProvider === prov;
                       const configured = aiStatusState?.providers?.[prov]?.configured;
                       return (
                         <button
                           key={prov}
                           type="button"
+                          aria-pressed={active}
+                          disabled={isSwitchingAi}
                           onClick={() => handleSwitchAiProvider(prov)}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                          className={`min-h-[30px] px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer disabled:opacity-70 ${
                             active
-                              ? 'bg-indigo-500/30 border-indigo-400 text-indigo-200'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                              ? 'bg-indigo-500/30 border-indigo-400 text-indigo-100 shadow-sm'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
                           }`}
                         >
                           {prov === 'gemini' ? 'Gemini' : 'OpenAI'}
-                          {configured ? ' ●' : ' ○'}
+                          {aiStatusState ? (configured ? ' ●' : ' ○') : active ? ' ✓' : ''}
                         </button>
                       );
                     })}

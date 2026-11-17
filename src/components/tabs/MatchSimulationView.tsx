@@ -17,9 +17,17 @@ import {
   createPRNG,
   hashStringToNumber
 } from '../../engine/matchEngine';
-import { autoReplaceIneligiblePlayers } from '../../engine/dataValidator';
+import { autoReplaceIneligiblePlayers, executePlayerReplacement } from '../../engine/dataValidator';
 import { getDefaultTacticsForClub } from '../../data/squadPopulator';
-import { updateTacticsFormation, autoArrangeTacticsLineup, FORMATION_TEMPLATES } from '../../engine/tacticsEngine';
+import {
+  updateTacticsFormation,
+  autoArrangeTacticsLineup,
+  FORMATION_TEMPLATES,
+  applyFreePlacementMove,
+  resetFreePlacementToFormation,
+  syncCustomPositionsFromStarters,
+  getPositionFitOvr
+} from '../../engine/tacticsEngine';
 import { determineMatchOutcome } from '../../engine/dateEngine';
 import { FatigueGauge, ConditionDot } from '../common/FatigueGauge';
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
@@ -42,7 +50,8 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Trophy,
-  Sparkles
+  Sparkles,
+  Move
 } from 'lucide-react';
 
 interface Props {
@@ -91,6 +100,20 @@ export const MatchSimulationView: React.FC<Props> = ({
   const [autoPlacementMode, setAutoPlacementMode] = useState<AutoPlacementMode>('balanced');
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string>('opp_def_weakness');
   const [savedPostMatchFormation, setSavedPostMatchFormation] = useState<boolean>(false);
+
+  // Free Placement & Pitch Interaction State (Pre-Match & In-Match)
+  const preUserPitchRef = useRef<HTMLDivElement | null>(null);
+  const liveUserPitchRef = useRef<HTMLDivElement | null>(null);
+  const [draggingPrePlayerId, setDraggingPrePlayerId] = useState<string | null>(null);
+  const [draggingLivePlayerId, setDraggingLivePlayerId] = useState<string | null>(null);
+  const preDragMovedRef = useRef<boolean>(false);
+  const liveDragMovedRef = useRef<boolean>(false);
+  const latestDragTacticsRef = useRef<TeamTactics | null>(null);
+  const [selectedPrePitchPlayerId, setSelectedPrePitchPlayerId] = useState<string | null>(null);
+  const [selectedLivePitchPlayerId, setSelectedLivePitchPlayerId] = useState<string | null>(null);
+  const [livePitchInteractionMode, setLivePitchInteractionMode] = useState<'sub' | 'swap' | 'free'>(() =>
+    state.tactics.placementMode === 'free' ? 'free' : 'sub'
+  );
 
   // Track players who have already been subbed off to strictly forbid re-entry
   const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
@@ -227,6 +250,23 @@ export const MatchSimulationView: React.FC<Props> = ({
     }
     setPreMatchToast(toastText);
     setTimeout(() => setPreMatchToast(null), 3200);
+  };
+
+  const handlePreMatchPitchSwap = (playerAId: string, playerBId: string) => {
+    if (!state.userClubId || playerAId === playerBId) {
+      setSelectedPrePitchPlayerId(null);
+      return;
+    }
+    const res = executePlayerReplacement(tactics, state.players, state.userClubId, playerAId, playerBId);
+    setSelectedPrePitchPlayerId(null);
+    if (!res.success) {
+      setPreMatchToast(res.message || 'ポジションを入れ替えられませんでした');
+      setTimeout(() => setPreMatchToast(null), 3200);
+      return;
+    }
+    const pA = state.players[playerAId];
+    const pB = state.players[playerBId];
+    applyPreMatchTacticsUpdate(res.newTactics, `ポジション入替: ${pA?.name || '選手'} ⇄ ${pB?.name || '選手'}`);
   };
 
   const applyEventsToLiveTactics = (eventsToApply: MatchEvent[]) => {
@@ -1735,10 +1775,10 @@ export const MatchSimulationView: React.FC<Props> = ({
               );
             })()}
 
-            {/* PRE-MATCH TAB 1: DUAL FORMATIONS + FORMATION/AUTO-PLACEMENT BAR */}
+            {/* PRE-MATCH TAB 1: DUAL FORMATIONS + FORMATION/AUTO-PLACEMENT + FREE PLACEMENT */}
             {preMatchTab === 'formation' && (
               <div className="space-y-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-2.5">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-bold text-slate-300">試合前フォーメーション変更:</span>
@@ -1747,6 +1787,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                         onChange={e => {
                           const newForm = e.target.value as FormationName;
                           const updated = updateTacticsFormation(tactics, newForm, state.players);
+                          setSelectedPrePitchPlayerId(null);
+                          setLivePitchInteractionMode('sub');
                           applyPreMatchTacticsUpdate(updated, `試合前フォーメーションを【${newForm}】に変更しました`);
                         }}
                         className="bg-slate-800 border border-emerald-500/50 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none cursor-pointer"
@@ -1785,6 +1827,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                             condition: 'コンディション重視',
                             balanced: 'バランス重視'
                           };
+                          setSelectedPrePitchPlayerId(null);
                           applyPreMatchTacticsUpdate(arranged, `【${modeNames[autoPlacementMode]}】で自動配置を実行しました`);
                         }}
                         className="px-3 py-1.5 rounded-lg bg-blue-600/90 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
@@ -1794,9 +1837,75 @@ export const MatchSimulationView: React.FC<Props> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Pre-Match Placement Mode Bar (フォーメーション配置 / 自由配置 / リセット) */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPrePitchPlayerId(null);
+                          setLivePitchInteractionMode('sub');
+                          applyPreMatchTacticsUpdate(
+                            { ...tactics, placementMode: 'formation' },
+                            '「フォーメーション配置」モードに切り替えました'
+                          );
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          (tactics.placementMode || 'formation') === 'formation'
+                            ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        フォーメーション配置
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPrePitchPlayerId(null);
+                          setLivePitchInteractionMode('free');
+                          const customPositions = syncCustomPositionsFromStarters(tactics, state.players);
+                          applyPreMatchTacticsUpdate(
+                            { ...tactics, placementMode: 'free', customPositions },
+                            '「自由配置」モードに切り替えました。ピッチ上の選手をドラッグして自由な座標へ配置できます！'
+                          );
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                          tactics.placementMode === 'free'
+                            ? 'bg-indigo-500 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Move className="w-3.5 h-3.5" />
+                        <span>自由配置</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400 hidden sm:inline">
+                        {tactics.placementMode === 'free'
+                          ? '✋ 選手をドラッグで自由移動 / 2名タップで入替'
+                          : '💡 2名タップでスタメン入替 / 「自由配置」で任意座標へ'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPrePitchPlayerId(null);
+                          const resetTac = resetFreePlacementToFormation(tactics, state.players);
+                          applyPreMatchTacticsUpdate(resetTac, `フォーメーション【${tactics.formation}】の標準位置にリセットしました`);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer border border-slate-700"
+                        title="標準フォーメーション座標にリセット"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>標準位置へリセット</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {preMatchToast && (
                     <div className="text-xs font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>{preMatchToast}</span>
                     </div>
                   )}
@@ -1804,90 +1913,382 @@ export const MatchSimulationView: React.FC<Props> = ({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Home Pitch */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
-                        <span className="font-bold text-white text-sm">{homeClub?.name}</span>
-                        {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                  {(() => {
+                    const isEditableHome = isUserHome;
+                    const isFree = isEditableHome && tactics.placementMode === 'free';
+                    return (
+                      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
+                            <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                            {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                            {isFree && (
+                              <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold px-1.5 py-0.5 rounded">
+                                自由配置中
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                            {homeTactics.formation}
+                          </span>
+                        </div>
+                        {isEditableHome && (
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 px-0.5">
+                            <span>
+                              {isFree
+                                ? '✋ ドラッグで自由配置（GK枠制限・重なり自動回避）'
+                                : selectedPrePitchPlayerId
+                                  ? '🔄 入替先の選手をタップしてください'
+                                  : '💡 選手を2名タップでポジション入替'}
+                            </span>
+                            {selectedPrePitchPlayerId && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPrePitchPlayerId(null)}
+                                className="text-amber-400 font-bold hover:underline cursor-pointer"
+                              >
+                                選択解除 ✕
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <div
+                          ref={isEditableHome ? preUserPitchRef : undefined}
+                          style={{ touchAction: isFree ? 'none' : 'auto' }}
+                          className={`relative w-full ${isEditableHome ? 'h-96 sm:h-[410px]' : 'h-80 md:h-[410px]'} bg-emerald-950/80 rounded-2xl border-2 ${
+                            isFree ? 'border-indigo-500/60' : 'border-emerald-600/40'
+                          } overflow-hidden shadow-inner select-none`}
+                        >
+                          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30 pointer-events-none" />
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30 pointer-events-none" />
+                          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30 pointer-events-none" />
+                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30 pointer-events-none" />
+                          {homeStartersList.map((s, idx) => {
+                            const p = s.player;
+                            const isDraggingThis = isEditableHome && draggingPrePlayerId === p.id;
+                            const isSelected = isEditableHome && selectedPrePitchPlayerId === p.id;
+                            const fit = isEditableHome ? getPositionFitOvr(p, s.position) : null;
+                            return (
+                              <div
+                                key={p.id || idx}
+                                style={{
+                                  left: `${s.pitchX}%`,
+                                  top: `${s.pitchY}%`,
+                                  touchAction: isFree ? 'none' : 'manipulation',
+                                  transition: isDraggingThis
+                                    ? 'none'
+                                    : 'left 0.25s ease-out, top 0.25s ease-out'
+                                }}
+                                onPointerDown={(e) => {
+                                  if (!isFree) return;
+                                  e.stopPropagation();
+                                  try {
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                  } catch {
+                                    // ignore
+                                  }
+                                  preDragMovedRef.current = false;
+                                  latestDragTacticsRef.current = tactics;
+                                  setDraggingPrePlayerId(p.id);
+                                }}
+                                onPointerMove={(e) => {
+                                  if (!isFree || draggingPrePlayerId !== p.id || !preUserPitchRef.current) return;
+                                  e.stopPropagation();
+                                  const rect = preUserPitchRef.current.getBoundingClientRect();
+                                  if (rect.width <= 0 || rect.height <= 0) return;
+                                  const normX = (e.clientX - rect.left) / rect.width;
+                                  const normY = (e.clientY - rect.top) / rect.height;
+                                  preDragMovedRef.current = true;
+                                  const baseTac = latestDragTacticsRef.current || tactics;
+                                  const updated = applyFreePlacementMove(
+                                    baseTac,
+                                    p.id,
+                                    normX,
+                                    normY,
+                                    p.position === 'GK' || s.position === 'GK',
+                                    state.players
+                                  );
+                                  latestDragTacticsRef.current = updated;
+                                  syncUserAndLiveTactics(updated, true);
+                                }}
+                                onPointerUp={(e) => {
+                                  if (!isEditableHome || draggingPrePlayerId !== p.id) return;
+                                  try {
+                                    e.currentTarget.releasePointerCapture(e.pointerId);
+                                  } catch {
+                                    // ignore
+                                  }
+                                  setDraggingPrePlayerId(null);
+                                  if (preDragMovedRef.current && latestDragTacticsRef.current) {
+                                    const committed = latestDragTacticsRef.current;
+                                    latestDragTacticsRef.current = null;
+                                    const movedSlot = committed.lineup.starters.find(st => st.playerId === p.id);
+                                    applyPreMatchTacticsUpdate(
+                                      committed,
+                                      `自由配置を更新しました（${p.name.split(' ').pop()}: ${movedSlot?.position || s.position}）`
+                                    );
+                                  }
+                                }}
+                                onPointerCancel={() => {
+                                  if (isEditableHome && draggingPrePlayerId === p.id) {
+                                    setDraggingPrePlayerId(null);
+                                    latestDragTacticsRef.current = null;
+                                  }
+                                }}
+                                onClick={() => {
+                                  if (!isEditableHome) return;
+                                  if (isFree && preDragMovedRef.current) {
+                                    preDragMovedRef.current = false;
+                                    return;
+                                  }
+                                  if (!selectedPrePitchPlayerId) {
+                                    setSelectedPrePitchPlayerId(p.id);
+                                  } else if (selectedPrePitchPlayerId === p.id) {
+                                    setSelectedPrePitchPlayerId(null);
+                                  } else {
+                                    handlePreMatchPitchSwap(selectedPrePitchPlayerId, p.id);
+                                  }
+                                }}
+                                className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center ${
+                                  isDraggingThis ? 'z-40 scale-115 drop-shadow-2xl' : isSelected ? 'z-30 scale-110' : 'z-10'
+                                } ${
+                                  isFree
+                                    ? 'cursor-grab active:cursor-grabbing'
+                                    : isEditableHome
+                                      ? 'cursor-pointer hover:scale-105'
+                                      : ''
+                                }`}
+                              >
+                                {isEditableHome && fit && (
+                                  <div className="flex items-center gap-0.5 mb-0.5 shadow-sm">
+                                    <span className="px-1 rounded-l text-[8px] font-black bg-slate-950/95 text-emerald-400 border-l border-y border-slate-700">
+                                      {s.position}
+                                    </span>
+                                    <span className={`px-1 rounded-r text-[8px] font-black border-r border-y border-slate-700 ${
+                                      fit.fitGrade === 'S' ? 'bg-emerald-600 text-white' :
+                                      fit.fitGrade === 'A' ? 'bg-blue-600 text-white' :
+                                      fit.fitGrade === 'B' ? 'bg-amber-600 text-white' :
+                                      fit.fitGrade === 'C' ? 'bg-orange-600 text-white' : 'bg-red-700 text-white'
+                                    }`}>
+                                      {fit.fitGrade}
+                                    </span>
+                                  </div>
+                                )}
+                                <div
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md ${
+                                    isSelected
+                                      ? 'border-amber-300 ring-2 ring-amber-400'
+                                      : isDraggingThis
+                                        ? 'border-indigo-300 ring-2 ring-indigo-400'
+                                        : 'border-white/80'
+                                  }`}
+                                  style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
+                                >
+                                  {p.shirtNumber || s.position}
+                                </div>
+                                <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[68px] text-center">
+                                  {p.name.split(' ').pop()}
+                                </div>
+                                <div className="w-11 mt-0.5">
+                                  <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
-                      {homeTactics.formation}
-                    </span>
-                  </div>
-                  <div className="relative w-full h-80 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
-                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
-                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
-                    {homeStartersList.map((s, idx) => {
-                      const p = s.player;
-                      return (
-                        <div
-                          key={p.id || idx}
-                          style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
-                          className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
-                        >
-                          <div
-                            className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md"
-                            style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
-                          >
-                            {p.shirtNumber || s.position}
-                          </div>
-                          <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
-                            {p.name.split(' ').pop()}
-                          </div>
-                          <div className="w-11 mt-0.5">
-                            <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                    );
+                  })()}
 
-                {/* Away Pitch */}
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
-                      <span className="font-bold text-white text-sm">{awayClub?.name}</span>
-                      {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
-                    </div>
-                    <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
-                      {awayTactics.formation}
-                    </span>
-                  </div>
-                  <div className="relative w-full h-80 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
-                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
-                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
-                    {awayStartersList.map((s, idx) => {
-                      const p = s.player;
-                      return (
-                        <div
-                          key={p.id || idx}
-                          style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
-                          className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10"
-                        >
-                          <div
-                            className="w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 border-white/80 shadow-md"
-                            style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
-                          >
-                            {p.shirtNumber || s.position}
+                  {/* Away Pitch */}
+                  {(() => {
+                    const isEditableAway = !isUserHome;
+                    const isFree = isEditableAway && tactics.placementMode === 'free';
+                    return (
+                      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
+                            <span className="font-bold text-white text-sm">{awayClub?.name}</span>
+                            {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                            {isFree && (
+                              <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold px-1.5 py-0.5 rounded">
+                                自由配置中
+                              </span>
+                            )}
                           </div>
-                          <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[65px] text-center">
-                            {p.name.split(' ').pop()}
-                          </div>
-                          <div className="w-11 mt-0.5">
-                            <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
-                          </div>
+                          <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
+                            {awayTactics.formation}
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        {isEditableAway && (
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 px-0.5">
+                            <span>
+                              {isFree
+                                ? '✋ ドラッグで自由配置（GK枠制限・重なり自動回避）'
+                                : selectedPrePitchPlayerId
+                                  ? '🔄 入替先の選手をタップしてください'
+                                  : '💡 選手を2名タップでポジション入替'}
+                            </span>
+                            {selectedPrePitchPlayerId && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPrePitchPlayerId(null)}
+                                className="text-amber-400 font-bold hover:underline cursor-pointer"
+                              >
+                                選択解除 ✕
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <div
+                          ref={isEditableAway ? preUserPitchRef : undefined}
+                          style={{ touchAction: isFree ? 'none' : 'auto' }}
+                          className={`relative w-full ${isEditableAway ? 'h-96 sm:h-[410px]' : 'h-80 md:h-[410px]'} bg-emerald-950/80 rounded-2xl border-2 ${
+                            isFree ? 'border-indigo-500/60' : 'border-emerald-600/40'
+                          } overflow-hidden shadow-inner select-none`}
+                        >
+                          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30 pointer-events-none" />
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30 pointer-events-none" />
+                          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30 pointer-events-none" />
+                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30 pointer-events-none" />
+                          {awayStartersList.map((s, idx) => {
+                            const p = s.player;
+                            const isDraggingThis = isEditableAway && draggingPrePlayerId === p.id;
+                            const isSelected = isEditableAway && selectedPrePitchPlayerId === p.id;
+                            const fit = isEditableAway ? getPositionFitOvr(p, s.position) : null;
+                            return (
+                              <div
+                                key={p.id || idx}
+                                style={{
+                                  left: `${s.pitchX}%`,
+                                  top: `${s.pitchY}%`,
+                                  touchAction: isFree ? 'none' : 'manipulation',
+                                  transition: isDraggingThis
+                                    ? 'none'
+                                    : 'left 0.25s ease-out, top 0.25s ease-out'
+                                }}
+                                onPointerDown={(e) => {
+                                  if (!isFree) return;
+                                  e.stopPropagation();
+                                  try {
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                  } catch {
+                                    // ignore
+                                  }
+                                  preDragMovedRef.current = false;
+                                  latestDragTacticsRef.current = tactics;
+                                  setDraggingPrePlayerId(p.id);
+                                }}
+                                onPointerMove={(e) => {
+                                  if (!isFree || draggingPrePlayerId !== p.id || !preUserPitchRef.current) return;
+                                  e.stopPropagation();
+                                  const rect = preUserPitchRef.current.getBoundingClientRect();
+                                  if (rect.width <= 0 || rect.height <= 0) return;
+                                  const normX = (e.clientX - rect.left) / rect.width;
+                                  const normY = (e.clientY - rect.top) / rect.height;
+                                  preDragMovedRef.current = true;
+                                  const baseTac = latestDragTacticsRef.current || tactics;
+                                  const updated = applyFreePlacementMove(
+                                    baseTac,
+                                    p.id,
+                                    normX,
+                                    normY,
+                                    p.position === 'GK' || s.position === 'GK',
+                                    state.players
+                                  );
+                                  latestDragTacticsRef.current = updated;
+                                  syncUserAndLiveTactics(updated, true);
+                                }}
+                                onPointerUp={(e) => {
+                                  if (!isEditableAway || draggingPrePlayerId !== p.id) return;
+                                  try {
+                                    e.currentTarget.releasePointerCapture(e.pointerId);
+                                  } catch {
+                                    // ignore
+                                  }
+                                  setDraggingPrePlayerId(null);
+                                  if (preDragMovedRef.current && latestDragTacticsRef.current) {
+                                    const committed = latestDragTacticsRef.current;
+                                    latestDragTacticsRef.current = null;
+                                    const movedSlot = committed.lineup.starters.find(st => st.playerId === p.id);
+                                    applyPreMatchTacticsUpdate(
+                                      committed,
+                                      `自由配置を更新しました（${p.name.split(' ').pop()}: ${movedSlot?.position || s.position}）`
+                                    );
+                                  }
+                                }}
+                                onPointerCancel={() => {
+                                  if (isEditableAway && draggingPrePlayerId === p.id) {
+                                    setDraggingPrePlayerId(null);
+                                    latestDragTacticsRef.current = null;
+                                  }
+                                }}
+                                onClick={() => {
+                                  if (!isEditableAway) return;
+                                  if (isFree && preDragMovedRef.current) {
+                                    preDragMovedRef.current = false;
+                                    return;
+                                  }
+                                  if (!selectedPrePitchPlayerId) {
+                                    setSelectedPrePitchPlayerId(p.id);
+                                  } else if (selectedPrePitchPlayerId === p.id) {
+                                    setSelectedPrePitchPlayerId(null);
+                                  } else {
+                                    handlePreMatchPitchSwap(selectedPrePitchPlayerId, p.id);
+                                  }
+                                }}
+                                className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center ${
+                                  isDraggingThis ? 'z-40 scale-115 drop-shadow-2xl' : isSelected ? 'z-30 scale-110' : 'z-10'
+                                } ${
+                                  isFree
+                                    ? 'cursor-grab active:cursor-grabbing'
+                                    : isEditableAway
+                                      ? 'cursor-pointer hover:scale-105'
+                                      : ''
+                                }`}
+                              >
+                                {isEditableAway && fit && (
+                                  <div className="flex items-center gap-0.5 mb-0.5 shadow-sm">
+                                    <span className="px-1 rounded-l text-[8px] font-black bg-slate-950/95 text-emerald-400 border-l border-y border-slate-700">
+                                      {s.position}
+                                    </span>
+                                    <span className={`px-1 rounded-r text-[8px] font-black border-r border-y border-slate-700 ${
+                                      fit.fitGrade === 'S' ? 'bg-emerald-600 text-white' :
+                                      fit.fitGrade === 'A' ? 'bg-blue-600 text-white' :
+                                      fit.fitGrade === 'B' ? 'bg-amber-600 text-white' :
+                                      fit.fitGrade === 'C' ? 'bg-orange-600 text-white' : 'bg-red-700 text-white'
+                                    }`}>
+                                      {fit.fitGrade}
+                                    </span>
+                                  </div>
+                                )}
+                                <div
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md ${
+                                    isSelected
+                                      ? 'border-amber-300 ring-2 ring-amber-400'
+                                      : isDraggingThis
+                                        ? 'border-indigo-300 ring-2 ring-indigo-400'
+                                        : 'border-white/80'
+                                  }`}
+                                  style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
+                                >
+                                  {p.shirtNumber || s.position}
+                                </div>
+                                <div className="bg-slate-950/90 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[68px] text-center">
+                                  {p.name.split(' ').pop()}
+                                </div>
+                                <div className="w-11 mt-0.5">
+                                  <FatigueGauge fatigue={p.fatigue ?? 0} size="xs" showLabel={false} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
@@ -2298,175 +2699,586 @@ export const MatchSimulationView: React.FC<Props> = ({
           </div>
         )}
 
-        {/* IN-MATCH TAB 0: REAL-TIME DUAL FORMATIONS (Requirements 1, 2, 3) */}
+        {/* IN-MATCH TAB 0: REAL-TIME DUAL FORMATIONS + LIVE FREE PLACEMENT */}
         {activeTab === 'formation' && matchPhase !== 'pre' && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-2xl p-3">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <span>🏟️ 試合中フォーメーション・配置図</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    {minute}&apos; リアルタイム連動
-                  </span>
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  自クラブの選手をタップするとベンチ選手との即時交代メニューが開きます（交代枠: 残り {5 - subCount}名）
-                </p>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>🏟️ 試合中フォーメーション・自由配置</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      {minute}&apos; リアルタイム連動
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {matchPhase === 'finished'
+                      ? '試合終了後の最終布陣を表示しています。'
+                      : livePitchInteractionMode === 'free'
+                        ? '✋ 自由配置中: 選手をドラッグで好きな位置へ移動・即時再計算（通常チームの編成は維持）'
+                        : livePitchInteractionMode === 'swap'
+                          ? '🔀 入替モード: スタメン2名をタップしてポジション入替（交代枠消費なし）'
+                          : `🔄 交代モード: 自クラブ選手をタップしてベンチ選手と交代（交代枠: 残り ${5 - subCount}名）`}
+                  </p>
+                </div>
+                {matchPhase !== 'finished' && subCount < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('subs')}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    <span>選手交代リストを開く</span>
+                  </button>
+                )}
               </div>
-              {matchPhase !== 'finished' && subCount < 5 && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('subs')}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all cursor-pointer shadow-md flex items-center gap-1.5"
-                >
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
-                  <span>選手交代リストを開く</span>
-                </button>
+
+              {matchPhase !== 'finished' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                  <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLivePitchPlayerId(null);
+                        setLivePitchInteractionMode('sub');
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        livePitchInteractionMode === 'sub'
+                          ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🔄 タップ交代
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLivePitchPlayerId(null);
+                        setLivePitchInteractionMode('swap');
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        livePitchInteractionMode === 'swap'
+                          ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      🔀 ポジション入替
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLivePitchPlayerId(null);
+                        setLivePitchInteractionMode('free');
+                        const customPositions = syncCustomPositionsFromStarters(tactics, state.players);
+                        const nextFree: TeamTactics = {
+                          ...tactics,
+                          placementMode: 'free',
+                          customPositions
+                        };
+                        syncUserAndLiveTactics(nextFree, false);
+                        setInMatchTacticsToast('試合中「自由配置」を有効にしました。自クラブ選手をドラッグして任意座標へ移動できます');
+                        setTimeout(() => setInMatchTacticsToast(null), 3200);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                        livePitchInteractionMode === 'free'
+                          ? 'bg-indigo-500 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Move className="w-3.5 h-3.5" />
+                      <span>自由配置</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <select
+                      value={tactics.formation}
+                      onChange={e => {
+                        const newForm = e.target.value as FormationName;
+                        const updated = updateTacticsFormation(tactics, newForm, state.players);
+                        setSelectedLivePitchPlayerId(null);
+                        setLivePitchInteractionMode('sub');
+                        syncUserAndLiveTactics(updated, false);
+                        triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                        setInMatchTacticsToast(`この試合のフォーメーションを ${newForm} に変更しました`);
+                        setTimeout(() => setInMatchTacticsToast(null), 3000);
+                      }}
+                      className="bg-slate-800 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white cursor-pointer"
+                    >
+                      {(Object.keys(FORMATION_TEMPLATES) as FormationName[]).map(f => (
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLivePitchPlayerId(null);
+                        const resetTac = resetFreePlacementToFormation(tactics, state.players);
+                        syncUserAndLiveTactics(resetTac, false);
+                        triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                        setInMatchTacticsToast(`試合中配置を【${tactics.formation}】標準位置にリセットしました`);
+                        setTimeout(() => setInMatchTacticsToast(null), 3000);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer border border-slate-700"
+                      title="現在フォーメーションの標準位置へリセット"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>標準位置リセット</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {inMatchTacticsToast && (
+                <div className="bg-emerald-950/90 border border-emerald-500/80 rounded-xl px-3 py-2 text-emerald-200 text-xs font-bold flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{inMatchTacticsToast}</span>
+                </div>
               )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Home Pitch */}
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
-                    <span className="font-bold text-white text-sm">{homeClub?.name}</span>
-                    {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
-                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${homeStartersList.length < 11 ? 'bg-red-900/70 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
-                      {homeStartersList.length}人
-                    </span>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
-                    {homeTactics.formation}
-                  </span>
-                </div>
-                <div className="relative w-full h-84 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
-                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
-                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
-                  {homeStartersList.map((s, idx) => {
-                    const p = s.player;
-                    const dynamicFatigue = getLiveInMatchFatigue(p, homeClub?.id || '', minute, revealedEvents, homeTactics.instructions, s.position);
-                    const isUserPlayer = isUserHome;
-                    const isSubIn = !initialHomeStarterIdsRef.current.includes(p.id);
-                    return (
-                      <div
-                        key={p.id || idx}
-                        style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
-                        onClick={() => {
-                          if (isUserPlayer && matchPhase !== 'finished') {
-                            setSubPlayerOffId(p.id);
-                            setActiveTab('subs');
-                          }
-                        }}
-                        className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 ${
-                          isUserPlayer && matchPhase !== 'finished' ? 'cursor-pointer group hover:scale-110 transition-transform' : ''
-                        }`}
-                      >
-                        <div
-                          className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md relative ${
-                            isSubIn ? 'border-amber-300 ring-2 ring-amber-400/50' : 'border-white/80'
-                          }`}
-                          style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
-                        >
-                          {p.shirtNumber || s.position}
-                          {isUserPlayer && matchPhase !== 'finished' && (
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
-                          )}
-                          {isSubIn && (
-                            <span className="absolute -bottom-1 -right-1 px-1 rounded bg-amber-400 text-slate-950 text-[7px] font-black">IN</span>
-                          )}
-                        </div>
-                        <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
-                          {p.name.split(' ').pop()}
-                        </div>
-                        <div className="w-11 mt-0.5">
-                          <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
-                        </div>
+              {(() => {
+                const isEditableHome = isUserHome && matchPhase !== 'finished';
+                const isFree = isEditableHome && livePitchInteractionMode === 'free';
+                const isSwap = isEditableHome && livePitchInteractionMode === 'swap';
+                return (
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
+                        <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                        {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                        {isFree && (
+                          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold px-1.5 py-0.5 rounded">
+                            自由配置
+                          </span>
+                        )}
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${homeStartersList.length < 11 ? 'bg-red-900/70 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
+                          {homeStartersList.length}人
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-                <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1">
-                  <span>控え待機: {homeBenchList.length}名</span>
-                  <span>
-                    交代: {revealedEvents.filter(e => e.type === 'sub' && e.clubId === homeClub?.id && e.subInPlayerId).length}/5
-                  </span>
-                </div>
-              </div>
+                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                        {homeTactics.formation}
+                      </span>
+                    </div>
+                    {isEditableHome && selectedLivePitchPlayerId && (isFree || isSwap) && (
+                      <div className="flex items-center justify-between text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/30 rounded-lg px-2.5 py-1">
+                        <span>🔄 入替先の選手をタップしてください（{state.players[selectedLivePitchPlayerId]?.name} を選択中）</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLivePitchPlayerId(null)}
+                          className="font-bold hover:underline cursor-pointer"
+                        >
+                          解除 ✕
+                        </button>
+                      </div>
+                    )}
+                    <div
+                      ref={isEditableHome ? liveUserPitchRef : undefined}
+                      style={{ touchAction: isFree ? 'none' : 'auto' }}
+                      className={`relative w-full ${isEditableHome ? 'h-96 sm:h-[410px]' : 'h-84 md:h-[410px]'} bg-emerald-950/80 rounded-2xl border-2 ${
+                        isFree ? 'border-indigo-500/60' : 'border-emerald-600/40'
+                      } overflow-hidden shadow-inner select-none`}
+                    >
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30 pointer-events-none" />
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30 pointer-events-none" />
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30 pointer-events-none" />
+                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30 pointer-events-none" />
+                      {homeStartersList.map((s, idx) => {
+                        const p = s.player;
+                        const dynamicFatigue = getLiveInMatchFatigue(p, homeClub?.id || '', minute, revealedEvents, homeTactics.instructions, s.position);
+                        const isUserPlayer = isUserHome;
+                        const isSubIn = !initialHomeStarterIdsRef.current.includes(p.id);
+                        const isDraggingThis = isEditableHome && draggingLivePlayerId === p.id;
+                        const isSelected = isEditableHome && selectedLivePitchPlayerId === p.id;
+                        const fit = isEditableHome ? getPositionFitOvr(p, s.position) : null;
+                        return (
+                          <div
+                            key={p.id || idx}
+                            style={{
+                              left: `${s.pitchX}%`,
+                              top: `${s.pitchY}%`,
+                              touchAction: isFree ? 'none' : 'manipulation',
+                              transition: isDraggingThis
+                                ? 'none'
+                                : 'left 0.25s ease-out, top 0.25s ease-out'
+                            }}
+                            onPointerDown={(e) => {
+                              if (!isFree) return;
+                              e.stopPropagation();
+                              try {
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                              liveDragMovedRef.current = false;
+                              latestDragTacticsRef.current = tactics;
+                              setDraggingLivePlayerId(p.id);
+                            }}
+                            onPointerMove={(e) => {
+                              if (!isFree || draggingLivePlayerId !== p.id || !liveUserPitchRef.current) return;
+                              e.stopPropagation();
+                              const rect = liveUserPitchRef.current.getBoundingClientRect();
+                              if (rect.width <= 0 || rect.height <= 0) return;
+                              const normX = (e.clientX - rect.left) / rect.width;
+                              const normY = (e.clientY - rect.top) / rect.height;
+                              liveDragMovedRef.current = true;
+                              const baseTac = latestDragTacticsRef.current || tactics;
+                              const updated = applyFreePlacementMove(
+                                baseTac,
+                                p.id,
+                                normX,
+                                normY,
+                                p.position === 'GK' || s.position === 'GK',
+                                state.players
+                              );
+                              latestDragTacticsRef.current = updated;
+                              syncUserAndLiveTactics(updated, false);
+                            }}
+                            onPointerUp={(e) => {
+                              if (!isEditableHome || draggingLivePlayerId !== p.id) return;
+                              try {
+                                e.currentTarget.releasePointerCapture(e.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                              setDraggingLivePlayerId(null);
+                              if (liveDragMovedRef.current && latestDragTacticsRef.current) {
+                                const committed = latestDragTacticsRef.current;
+                                latestDragTacticsRef.current = null;
+                                syncUserAndLiveTactics(committed, false);
+                                triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                                const movedSlot = committed.lineup.starters.find(st => st.playerId === p.id);
+                                setInMatchTacticsToast(
+                                  `試合中自由配置を更新しました（${p.name.split(' ').pop()}: ${movedSlot?.position || s.position}・残り試合へ反映）`
+                                );
+                                setTimeout(() => setInMatchTacticsToast(null), 3000);
+                              }
+                            }}
+                            onPointerCancel={() => {
+                              if (isEditableHome && draggingLivePlayerId === p.id) {
+                                setDraggingLivePlayerId(null);
+                                latestDragTacticsRef.current = null;
+                              }
+                            }}
+                            onClick={() => {
+                              if (!isUserPlayer || matchPhase === 'finished') return;
+                              if (isFree && liveDragMovedRef.current) {
+                                liveDragMovedRef.current = false;
+                                return;
+                              }
+                              if (livePitchInteractionMode === 'sub') {
+                                setSubPlayerOffId(p.id);
+                                setActiveTab('subs');
+                                return;
+                              }
+                              if (!selectedLivePitchPlayerId) {
+                                setSelectedLivePitchPlayerId(p.id);
+                              } else if (selectedLivePitchPlayerId === p.id) {
+                                setSelectedLivePitchPlayerId(null);
+                              } else if (state.userClubId) {
+                                const res = executePlayerReplacement(tactics, state.players, state.userClubId, selectedLivePitchPlayerId, p.id);
+                                setSelectedLivePitchPlayerId(null);
+                                if (!res.success) {
+                                  setInMatchTacticsToast(res.message || 'ポジションを入替できませんでした');
+                                  setTimeout(() => setInMatchTacticsToast(null), 3000);
+                                  return;
+                                }
+                                syncUserAndLiveTactics(res.newTactics, false);
+                                triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                                setInMatchTacticsToast(
+                                  `ポジション入替完了: ${state.players[selectedLivePitchPlayerId]?.name.split(' ').pop()} ⇄ ${p.name.split(' ').pop()}`
+                                );
+                                setTimeout(() => setInMatchTacticsToast(null), 3000);
+                              }
+                            }}
+                            className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center ${
+                              isDraggingThis ? 'z-40 scale-115 drop-shadow-2xl' : isSelected ? 'z-30 scale-110' : 'z-10'
+                            } ${
+                              isFree
+                                ? 'cursor-grab active:cursor-grabbing'
+                                : isUserPlayer && matchPhase !== 'finished'
+                                  ? 'cursor-pointer group hover:scale-110 transition-transform'
+                                  : ''
+                            }`}
+                          >
+                            {isEditableHome && fit && (
+                              <div className="flex items-center gap-0.5 mb-0.5 shadow-sm">
+                                <span className="px-1 rounded-l text-[8px] font-black bg-slate-950/95 text-emerald-400 border-l border-y border-slate-700">
+                                  {s.position}
+                                </span>
+                                <span className={`px-1 rounded-r text-[8px] font-black border-r border-y border-slate-700 ${
+                                  fit.fitGrade === 'S' ? 'bg-emerald-600 text-white' :
+                                  fit.fitGrade === 'A' ? 'bg-blue-600 text-white' :
+                                  fit.fitGrade === 'B' ? 'bg-amber-600 text-white' :
+                                  fit.fitGrade === 'C' ? 'bg-orange-600 text-white' : 'bg-red-700 text-white'
+                                }`}>
+                                  {fit.fitGrade}
+                                </span>
+                              </div>
+                            )}
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md relative ${
+                                isSelected
+                                  ? 'border-amber-300 ring-2 ring-amber-400'
+                                  : isDraggingThis
+                                    ? 'border-indigo-300 ring-2 ring-indigo-400'
+                                    : isSubIn
+                                      ? 'border-amber-300 ring-2 ring-amber-400/50'
+                                      : 'border-white/80'
+                              }`}
+                              style={{ backgroundColor: homeClub?.primaryColor || '#10b981' }}
+                            >
+                              {p.shirtNumber || s.position}
+                              {isUserPlayer && matchPhase !== 'finished' && livePitchInteractionMode === 'sub' && (
+                                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
+                              )}
+                              {isSubIn && (
+                                <span className="absolute -bottom-1 -right-1 px-1 rounded bg-amber-400 text-slate-950 text-[7px] font-black">IN</span>
+                              )}
+                            </div>
+                            <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
+                              {p.name.split(' ').pop()}
+                            </div>
+                            <div className="w-11 mt-0.5">
+                              <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1">
+                      <span>控え待機: {homeBenchList.length}名</span>
+                      <span>
+                        交代: {revealedEvents.filter(e => e.type === 'sub' && e.clubId === homeClub?.id && e.subInPlayerId).length}/5
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Away Pitch */}
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
-                    <span className="font-bold text-white text-sm">{awayClub?.name}</span>
-                    {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
-                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${awayStartersList.length < 11 ? 'bg-red-900/70 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
-                      {awayStartersList.length}人
-                    </span>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
-                    {awayTactics.formation}
-                  </span>
-                </div>
-                <div className="relative w-full h-84 bg-emerald-950/80 rounded-2xl border-2 border-emerald-600/40 overflow-hidden shadow-inner">
-                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30" />
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30" />
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30" />
-                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
-                  {awayStartersList.map((s, idx) => {
-                    const p = s.player;
-                    const dynamicFatigue = getLiveInMatchFatigue(p, awayClub?.id || '', minute, revealedEvents, awayTactics.instructions, s.position);
-                    const isUserPlayer = !isUserHome;
-                    const isSubIn = !initialAwayStarterIdsRef.current.includes(p.id);
-                    return (
-                      <div
-                        key={p.id || idx}
-                        style={{ left: `${s.pitchX}%`, top: `${s.pitchY}%` }}
-                        onClick={() => {
-                          if (isUserPlayer && matchPhase !== 'finished') {
-                            setSubPlayerOffId(p.id);
-                            setActiveTab('subs');
-                          }
-                        }}
-                        className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-10 ${
-                          isUserPlayer && matchPhase !== 'finished' ? 'cursor-pointer group hover:scale-110 transition-transform' : ''
-                        }`}
-                      >
-                        <div
-                          className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md relative ${
-                            isSubIn ? 'border-amber-300 ring-2 ring-amber-400/50' : 'border-white/80'
-                          }`}
-                          style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
-                        >
-                          {p.shirtNumber || s.position}
-                          {isUserPlayer && matchPhase !== 'finished' && (
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
-                          )}
-                          {isSubIn && (
-                            <span className="absolute -bottom-1 -right-1 px-1 rounded bg-amber-400 text-slate-950 text-[7px] font-black">IN</span>
-                          )}
-                        </div>
-                        <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
-                          {p.name.split(' ').pop()}
-                        </div>
-                        <div className="w-11 mt-0.5">
-                          <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
-                        </div>
+              {(() => {
+                const isEditableAway = !isUserHome && matchPhase !== 'finished';
+                const isFree = isEditableAway && livePitchInteractionMode === 'free';
+                const isSwap = isEditableAway && livePitchInteractionMode === 'swap';
+                return (
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: awayClub?.primaryColor }} />
+                        <span className="font-bold text-white text-sm">{awayClub?.name}</span>
+                        {!isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                        {isFree && (
+                          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold px-1.5 py-0.5 rounded">
+                            自由配置
+                          </span>
+                        )}
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${awayStartersList.length < 11 ? 'bg-red-900/70 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
+                          {awayStartersList.length}人
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-                <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1">
-                  <span>控え待機: {awayBenchList.length}名</span>
-                  <span>
-                    交代: {revealedEvents.filter(e => e.type === 'sub' && e.clubId === awayClub?.id && e.subInPlayerId).length}/5
-                  </span>
-                </div>
-              </div>
+                      <span className="text-xs font-mono font-bold text-blue-400 bg-blue-950/60 px-2 py-0.5 rounded-lg border border-blue-500/30">
+                        {awayTactics.formation}
+                      </span>
+                    </div>
+                    {isEditableAway && selectedLivePitchPlayerId && (isFree || isSwap) && (
+                      <div className="flex items-center justify-between text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/30 rounded-lg px-2.5 py-1">
+                        <span>🔄 入替先の選手をタップしてください（{state.players[selectedLivePitchPlayerId]?.name} を選択中）</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLivePitchPlayerId(null)}
+                          className="font-bold hover:underline cursor-pointer"
+                        >
+                          解除 ✕
+                        </button>
+                      </div>
+                    )}
+                    <div
+                      ref={isEditableAway ? liveUserPitchRef : undefined}
+                      style={{ touchAction: isFree ? 'none' : 'auto' }}
+                      className={`relative w-full ${isEditableAway ? 'h-96 sm:h-[410px]' : 'h-84 md:h-[410px]'} bg-emerald-950/80 rounded-2xl border-2 ${
+                        isFree ? 'border-indigo-500/60' : 'border-emerald-600/40'
+                      } overflow-hidden shadow-inner select-none`}
+                    >
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-emerald-500/30 pointer-events-none" />
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-emerald-500/30 pointer-events-none" />
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-14 border-b border-x border-emerald-500/30 pointer-events-none" />
+                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30 pointer-events-none" />
+                      {awayStartersList.map((s, idx) => {
+                        const p = s.player;
+                        const dynamicFatigue = getLiveInMatchFatigue(p, awayClub?.id || '', minute, revealedEvents, awayTactics.instructions, s.position);
+                        const isUserPlayer = !isUserHome;
+                        const isSubIn = !initialAwayStarterIdsRef.current.includes(p.id);
+                        const isDraggingThis = isEditableAway && draggingLivePlayerId === p.id;
+                        const isSelected = isEditableAway && selectedLivePitchPlayerId === p.id;
+                        const fit = isEditableAway ? getPositionFitOvr(p, s.position) : null;
+                        return (
+                          <div
+                            key={p.id || idx}
+                            style={{
+                              left: `${s.pitchX}%`,
+                              top: `${s.pitchY}%`,
+                              touchAction: isFree ? 'none' : 'manipulation',
+                              transition: isDraggingThis
+                                ? 'none'
+                                : 'left 0.25s ease-out, top 0.25s ease-out'
+                            }}
+                            onPointerDown={(e) => {
+                              if (!isFree) return;
+                              e.stopPropagation();
+                              try {
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                              liveDragMovedRef.current = false;
+                              latestDragTacticsRef.current = tactics;
+                              setDraggingLivePlayerId(p.id);
+                            }}
+                            onPointerMove={(e) => {
+                              if (!isFree || draggingLivePlayerId !== p.id || !liveUserPitchRef.current) return;
+                              e.stopPropagation();
+                              const rect = liveUserPitchRef.current.getBoundingClientRect();
+                              if (rect.width <= 0 || rect.height <= 0) return;
+                              const normX = (e.clientX - rect.left) / rect.width;
+                              const normY = (e.clientY - rect.top) / rect.height;
+                              liveDragMovedRef.current = true;
+                              const baseTac = latestDragTacticsRef.current || tactics;
+                              const updated = applyFreePlacementMove(
+                                baseTac,
+                                p.id,
+                                normX,
+                                normY,
+                                p.position === 'GK' || s.position === 'GK',
+                                state.players
+                              );
+                              latestDragTacticsRef.current = updated;
+                              syncUserAndLiveTactics(updated, false);
+                            }}
+                            onPointerUp={(e) => {
+                              if (!isEditableAway || draggingLivePlayerId !== p.id) return;
+                              try {
+                                e.currentTarget.releasePointerCapture(e.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                              setDraggingLivePlayerId(null);
+                              if (liveDragMovedRef.current && latestDragTacticsRef.current) {
+                                const committed = latestDragTacticsRef.current;
+                                latestDragTacticsRef.current = null;
+                                syncUserAndLiveTactics(committed, false);
+                                triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                                const movedSlot = committed.lineup.starters.find(st => st.playerId === p.id);
+                                setInMatchTacticsToast(
+                                  `試合中自由配置を更新しました（${p.name.split(' ').pop()}: ${movedSlot?.position || s.position}・残り試合へ反映）`
+                                );
+                                setTimeout(() => setInMatchTacticsToast(null), 3000);
+                              }
+                            }}
+                            onPointerCancel={() => {
+                              if (isEditableAway && draggingLivePlayerId === p.id) {
+                                setDraggingLivePlayerId(null);
+                                latestDragTacticsRef.current = null;
+                              }
+                            }}
+                            onClick={() => {
+                              if (!isUserPlayer || matchPhase === 'finished') return;
+                              if (isFree && liveDragMovedRef.current) {
+                                liveDragMovedRef.current = false;
+                                return;
+                              }
+                              if (livePitchInteractionMode === 'sub') {
+                                setSubPlayerOffId(p.id);
+                                setActiveTab('subs');
+                                return;
+                              }
+                              if (!selectedLivePitchPlayerId) {
+                                setSelectedLivePitchPlayerId(p.id);
+                              } else if (selectedLivePitchPlayerId === p.id) {
+                                setSelectedLivePitchPlayerId(null);
+                              } else if (state.userClubId) {
+                                const res = executePlayerReplacement(tactics, state.players, state.userClubId, selectedLivePitchPlayerId, p.id);
+                                setSelectedLivePitchPlayerId(null);
+                                if (!res.success) {
+                                  setInMatchTacticsToast(res.message || 'ポジションを入替できませんでした');
+                                  setTimeout(() => setInMatchTacticsToast(null), 3000);
+                                  return;
+                                }
+                                syncUserAndLiveTactics(res.newTactics, false);
+                                triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                                setInMatchTacticsToast(
+                                  `ポジション入替完了: ${state.players[selectedLivePitchPlayerId]?.name.split(' ').pop()} ⇄ ${p.name.split(' ').pop()}`
+                                );
+                                setTimeout(() => setInMatchTacticsToast(null), 3000);
+                              }
+                            }}
+                            className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center ${
+                              isDraggingThis ? 'z-40 scale-115 drop-shadow-2xl' : isSelected ? 'z-30 scale-110' : 'z-10'
+                            } ${
+                              isFree
+                                ? 'cursor-grab active:cursor-grabbing'
+                                : isUserPlayer && matchPhase !== 'finished'
+                                  ? 'cursor-pointer group hover:scale-110 transition-transform'
+                                  : ''
+                            }`}
+                          >
+                            {isEditableAway && fit && (
+                              <div className="flex items-center gap-0.5 mb-0.5 shadow-sm">
+                                <span className="px-1 rounded-l text-[8px] font-black bg-slate-950/95 text-emerald-400 border-l border-y border-slate-700">
+                                  {s.position}
+                                </span>
+                                <span className={`px-1 rounded-r text-[8px] font-black border-r border-y border-slate-700 ${
+                                  fit.fitGrade === 'S' ? 'bg-emerald-600 text-white' :
+                                  fit.fitGrade === 'A' ? 'bg-blue-600 text-white' :
+                                  fit.fitGrade === 'B' ? 'bg-amber-600 text-white' :
+                                  fit.fitGrade === 'C' ? 'bg-orange-600 text-white' : 'bg-red-700 text-white'
+                                }`}>
+                                  {fit.fitGrade}
+                                </span>
+                              </div>
+                            )}
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-[10px] text-white border-2 shadow-md relative ${
+                                isSelected
+                                  ? 'border-amber-300 ring-2 ring-amber-400'
+                                  : isDraggingThis
+                                    ? 'border-indigo-300 ring-2 ring-indigo-400'
+                                    : isSubIn
+                                      ? 'border-amber-300 ring-2 ring-amber-400/50'
+                                      : 'border-white/80'
+                              }`}
+                              style={{ backgroundColor: awayClub?.primaryColor || '#3b82f6' }}
+                            >
+                              {p.shirtNumber || s.position}
+                              {isUserPlayer && matchPhase !== 'finished' && livePitchInteractionMode === 'sub' && (
+                                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950 animate-pulse" />
+                              )}
+                              {isSubIn && (
+                                <span className="absolute -bottom-1 -right-1 px-1 rounded bg-amber-400 text-slate-950 text-[7px] font-black">IN</span>
+                              )}
+                            </div>
+                            <div className="bg-slate-950/95 text-white text-[9px] font-bold px-1 rounded border border-slate-700/80 mt-0.5 truncate max-w-[70px] text-center shadow-xs">
+                              {p.name.split(' ').pop()}
+                            </div>
+                            <div className="w-11 mt-0.5">
+                              <FatigueGauge fatigue={dynamicFatigue} size="xs" showLabel={false} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1">
+                      <span>控え待機: {awayBenchList.length}名</span>
+                      <span>
+                        交代: {revealedEvents.filter(e => e.type === 'sub' && e.clubId === awayClub?.id && e.subInPlayerId).length}/5
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -2815,6 +3627,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                   onChange={e => {
                     const newForm = e.target.value as FormationName;
                     const updated = updateTacticsFormation(tactics, newForm, state.players);
+                    setSelectedLivePitchPlayerId(null);
+                    setLivePitchInteractionMode('sub');
                     syncUserAndLiveTactics(updated, false);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`この試合のフォーメーションを ${newForm} に変更しました（クラブ基本戦術は維持）`);
@@ -2877,6 +3691,8 @@ export const MatchSimulationView: React.FC<Props> = ({
                       type="button"
                       onClick={() => {
                         const updated = updateTacticsFormation(tactics, preset as FormationName, state.players);
+                        setSelectedLivePitchPlayerId(null);
+                        setLivePitchInteractionMode('sub');
                         syncUserAndLiveTactics(updated, false);
                         triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                         setInMatchTacticsToast(`この試合のフォーメーションを ${preset} に変更しました`);
@@ -2922,6 +3738,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                             excludedPlayerIds: subbedOutPlayerIdsRef.current
                           }
                         );
+                        setSelectedLivePitchPlayerId(null);
                         syncUserAndLiveTactics(arranged, false);
                         triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                         setInMatchTacticsToast(`ピッチ上の出場選手を【${item.label}】で最適再配置しました`);

@@ -798,8 +798,22 @@ export function executePlayerReplacement(
     squadStatus: isOldStarter ? 'STARTING' : isOldBench ? 'BENCH' : 'OUT_OF_SQUAD'
   };
 
+  const syncedCustomPositions = tactics.customPositions
+    ? Object.fromEntries(
+        sanitizedStarters.map(s => [
+          s.playerId,
+          {
+            x: Math.round(((s.pitchX || 50) / 100) * 1000) / 1000,
+            y: Math.round(((s.pitchY || 50) / 100) * 1000) / 1000,
+            position: s.position
+          }
+        ])
+      )
+    : undefined;
+
   const newTactics: TeamTactics = {
     ...tactics,
+    customPositions: syncedCustomPositions,
     lineup: {
       starters: sanitizedStarters,
       bench: uniqueBench,

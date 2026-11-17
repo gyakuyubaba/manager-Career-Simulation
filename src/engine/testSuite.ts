@@ -46,7 +46,7 @@ import {
 } from './storageEngine';
 import { J3_20_CLUBS } from '../data/jLeagueData';
 import { ALL_NEW_4_LEAGUES_CLUBS, REAL_NEW_LEAGUES_STARS } from '../data/europeanNewLeaguesData';
-import { updatePlayerShirtNumber, REPAIR_SAVE_DATA_INTEGRITY, PLAYER_DUPLICATE_CHECK } from './dataValidator';
+import { updatePlayerShirtNumber, REPAIR_SAVE_DATA_INTEGRITY, PLAYER_DUPLICATE_CHECK, executePlayerReplacement } from './dataValidator';
 import { executeTransferCompletion, simulateAITransfers, calculateJoinDate, evaluateAICounterProposal, calculatePlayerInterestInUserClub } from './transferEngine';
 import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 import { SUPPORTED_CUPS, getEuropeanLeaguePhaseStandings, getTournamentBracket, populateEuropeanKnockoutFixtures, advanceEuropeanPlayoffWinnersToRoundOf16 } from './cupEngine';
@@ -6306,6 +6306,103 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 160', name: '既存セーブ後方互換マイグレーション検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 161: 試合前＆試合中の自由配置（座標移動・GK制限・入替/交代座標継承・リセット・A/B隔離）検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const uClub = baseState.clubs[baseState.userClubId!]!;
+    const savedBaseline = JSON.parse(JSON.stringify(uClub.tactics));
+
+    // 1. Pre-match free placement move + position inference + GK clamping
+    const cmSlot = savedBaseline.lineup.starters.find((s: any) => s.position !== 'GK')!;
+    const gkSlot = savedBaseline.lineup.starters.find((s: any) => s.position === 'GK')!;
+    const outId = cmSlot.playerId;
+
+    const afterOutfieldMove = applyFreePlacementMove(
+      savedBaseline,
+      outId,
+      0.5,
+      0.16,
+      false,
+      baseState.players
+    );
+    const movedStarter = afterOutfieldMove.lineup.starters.find(s => s.playerId === outId)!;
+    const movedCustom = afterOutfieldMove.customPositions?.[outId];
+    const outfieldMovedOk =
+      afterOutfieldMove.placementMode === 'free' &&
+      Boolean(movedCustom) &&
+      Math.abs((movedCustom?.y ?? 1) - 0.16) < 0.05 &&
+      ['ST', 'CF', 'CAM'].includes(movedStarter.position);
+
+    // Attempt to drag GK far forward -> must clamp inside own penalty box (y >= 0.85)
+    const afterGkMove = applyFreePlacementMove(
+      afterOutfieldMove,
+      gkSlot.playerId,
+      0.1,
+      0.2,
+      true,
+      baseState.players
+    );
+    const clampedGk = afterGkMove.customPositions?.[gkSlot.playerId];
+    const gkClampedOk = Boolean(
+      clampedGk &&
+      clampedGk.x >= 0.35 && clampedGk.x <= 0.65 &&
+      clampedGk.y >= 0.85 && clampedGk.y <= 0.96
+    );
+
+    // 2. Two-starter swap via executePlayerReplacement preserves customPositions
+    const otherStarterId = afterGkMove.lineup.starters.find(
+      s => s.playerId !== outId && s.playerId !== gkSlot.playerId
+    )!.playerId;
+    const swapRes = executePlayerReplacement(
+      afterGkMove,
+      baseState.players,
+      uClub.id,
+      outId,
+      otherStarterId
+    );
+    const swapCustomOk = Boolean(
+      swapRes.success &&
+      swapRes.newTactics.customPositions?.[otherStarterId] &&
+      swapRes.newTactics.customPositions?.[outId]
+    );
+
+    // 3. In-match substitution inherits outgoing player's customPositions coordinate
+    const benchSubId = afterGkMove.lineup.bench.find(id => baseState.players[id]?.position !== 'GK') || afterGkMove.lineup.bench[0];
+    const afterSubTac = applySubstitutionToTactics(afterGkMove, outId, benchSubId);
+    const subInheritedCustom = afterSubTac.customPositions?.[benchSubId];
+    const subTransferOk = Boolean(
+      subInheritedCustom &&
+      !afterSubTac.customPositions?.[outId] &&
+      Math.abs(subInheritedCustom.y - (movedCustom?.y ?? 0)) < 0.05 &&
+      afterSubTac.lineup.starters.some(s => s.playerId === benchSubId)
+    );
+
+    // 4. Reset restores structured formation positions & savedBaseline A stays untouched
+    const resetTac = resetFreePlacementToFormation(afterSubTac, baseState.players);
+    const resetSubCustom = resetTac.customPositions?.[benchSubId];
+    const resetOk = Boolean(
+      resetTac.lineup.starters.length === 11 &&
+      resetSubCustom &&
+      Math.abs(resetSubCustom.y - (subInheritedCustom?.y ?? 0)) > 0.05
+    );
+    const baselineIsolatedOk =
+      savedBaseline.placementMode !== 'free' &&
+      savedBaseline.lineup.starters.some((s: any) => s.playerId === outId);
+
+    const passed = outfieldMovedOk && gkClampedOk && swapCustomOk && subTransferOk && resetOk && baselineIsolatedOk;
+    results.push({
+      id: 'TEST 161',
+      name: '試合前＆試合中の自由配置（座標移動・GK制限・入替/交代継承・リセット・戦術A/B隔離）検証',
+      passed,
+      details: passed
+        ? `成功: 座標移動/役割推論(${movedStarter.position})・GK制限(x=${clampedGk?.x.toFixed(2)},y=${clampedGk?.y.toFixed(2)})・入替/交代継承(${subInheritedCustom?.y.toFixed(2)})・リセット・通常戦術A隔離すべて正常。`
+        : `失敗: move=${outfieldMovedOk}, gk=${gkClampedOk}, swap=${swapCustomOk}, sub=${subTransferOk}, reset=${resetOk}, iso=${baselineIsolatedOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 161', name: '試合前・試合中自由配置検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -6329,6 +6426,7 @@ export const runAll145Tests = runAll27Tests;
 export const runAll150Tests = runAll27Tests;
 export const runAll155Tests = runAll27Tests;
 export const runAll160Tests = runAll27Tests;
+export const runAll161Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 
