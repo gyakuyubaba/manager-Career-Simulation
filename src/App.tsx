@@ -41,7 +41,7 @@ import { ScoutTab } from './components/tabs/ScoutTab';
 import { CompetitionsTab } from './components/tabs/CompetitionsTab';
 import { ManagerCareerTab } from './components/tabs/ManagerCareerTab';
 import { MatchSimulationView } from './components/tabs/MatchSimulationView';
-import { PressConferenceModal } from './components/tabs/PressConferenceModal';
+import { PressConferenceModal, CompletedInterviewRecord } from './components/tabs/PressConferenceModal';
 import { PlayerDetailModal } from './components/PlayerDetailModal';
 import { SackedDismissalModal } from './components/SackedDismissalModal';
 import { UnexpectedEventModal } from './components/UnexpectedEventModal';
@@ -270,21 +270,41 @@ export default function App() {
     setGameState(stateWithAllMatches);
   };
 
-  // Press conference completion
-  const handlePressComplete = (news: NewsItem, trustDelta: number, boardDelta: number) => {
+  // Press conference completion (persists news, board confidence, player trust, and interview history)
+  const handlePressComplete = (
+    news: NewsItem,
+    trustDelta: number,
+    boardDelta: number,
+    interviewRecord?: CompletedInterviewRecord
+  ) => {
     if (!gameState) return;
+
+    const updatedPlayers = { ...gameState.players };
+    if (gameState.userClubId && trustDelta !== 0) {
+      Object.entries(updatedPlayers).forEach(([pId, p]) => {
+        if (p && p.clubId === gameState.userClubId) {
+          updatedPlayers[pId] = {
+            ...p,
+            managerTrust: Math.max(10, Math.min(100, (p.managerTrust ?? 75) + trustDelta))
+          };
+        }
+      });
+    }
+
+    const nextInterviewHistory = interviewRecord
+      ? [interviewRecord, ...(gameState.interviewHistory || [])].slice(0, 30)
+      : gameState.interviewHistory;
 
     const nextState: GameWorldState = {
       ...gameState,
       boardConfidence: Math.min(100, Math.max(10, gameState.boardConfidence + boardDelta)),
-      news: [news, ...gameState.news]
+      players: updatedPlayers,
+      news: [news, ...gameState.news],
+      interviewHistory: nextInterviewHistory
     };
 
     saveGameState(nextState);
     setGameState(nextState);
-
-    setActivePressFixture(null);
-    setActiveMatchFixture(null);
   };
 
   // Promote youth player to first team
@@ -562,6 +582,11 @@ export default function App() {
             onSelectPreSeason={handleSelectPreSeason}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onOpenSmartphone={() => setShowSmartphone(true)}
+            onDismissPreSeasonBanner={(year) => {
+              const next = { ...gameState, dismissedPreSeasonBannerYear: year };
+              saveGameState(next);
+              setGameState(next);
+            }}
           />
         )}
 
@@ -649,7 +674,10 @@ export default function App() {
           fixture={activePressFixture}
           state={gameState}
           onComplete={handlePressComplete}
-          onClose={() => setActivePressFixture(null)}
+          onClose={() => {
+            setActivePressFixture(null);
+            setActiveMatchFixture(null);
+          }}
         />
       )}
 

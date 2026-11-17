@@ -423,9 +423,12 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
     migrated.budgetRebalanced2026 = true;
   }
 
-  // 9. Preserve preSeasonHistory and ensure active June/July Summer Tour invitations exist without wiping progress
+  // 9. Preserve preSeasonHistory & interviewHistory and ensure active June/July Summer Tour invitations exist without wiping progress
   if (!Array.isArray(migrated.preSeasonHistory)) {
     migrated.preSeasonHistory = [];
+  }
+  if (migrated.interviewHistory && !Array.isArray(migrated.interviewHistory)) {
+    migrated.interviewHistory = [];
   }
   const curDate = migrated.currentDate || '2026-07-01';
   const curYear = parseInt(curDate.slice(0, 4), 10) || 2026;

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { GameWorldState, TeamTactics, FormationName, Player, Position, NewsItem } from '../../types/game';
+import { GameWorldState, TeamTactics, FormationName, Player, Position, NewsItem, AutoPlacementMode } from '../../types/game';
 import { Shield, Users, Activity, Shuffle, Sliders, AlertCircle, AlertTriangle, ArrowLeftRight, CheckCircle2, Move, ZoomIn, ZoomOut, RotateCcw, Sparkles, Save, X } from 'lucide-react';
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
 import { executePlayerReplacement, updatePlayerShirtNumber } from '../../engine/dataValidator';
@@ -9,7 +9,8 @@ import {
   updateTacticsFormation,
   syncCustomPositionsFromStarters,
   applyFreePlacementMove,
-  resetFreePlacementToFormation
+  resetFreePlacementToFormation,
+  autoArrangeTacticsLineup
 } from '../../engine/tacticsEngine';
 import { FatigueGauge } from '../common/FatigueGauge';
 
@@ -73,6 +74,7 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'lineup' | 'instructions' | 'roles'>('lineup');
   const [benchLimitError, setBenchLimitError] = useState<string | null>(null);
+  const [autoPlacementMode, setAutoPlacementMode] = useState<AutoPlacementMode>('balanced');
 
   // Free Placement Mode & Cross-Device Pointer Drag State
   const pitchRef = useRef<HTMLDivElement | null>(null);
@@ -401,79 +403,28 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Auto-fit squad members into starting XI with optimal positional suitability
-  const handleAutoFitStartingXI = () => {
+  // 4-Mode Auto-Placement into starting XI, bench & reserves
+  const AUTO_MODE_LABELS: Record<AutoPlacementMode, string> = {
+    overall: '総合能力重視',
+    tactical: '戦術適性重視',
+    condition: 'コンディション重視',
+    balanced: 'バランス重視'
+  };
+
+  const handleAutoFitStartingXI = (modeOverride?: AutoPlacementMode) => {
     if (!state.userClubId) return;
     const club = state.clubs[state.userClubId];
     if (!club) return;
-    const allSquad = club.playerIds.map(id => state.players[id]).filter(Boolean);
-    const template = FORMATION_TEMPLATES[tactics.formation];
-    if (!template) return;
-
-    // CRITICAL: Strict separation between GK and Outfield
-    const gks = allSquad.filter(p => p.position === 'GK');
-    const outfield = allSquad.filter(p => p.position !== 'GK');
-
-    const assignedIds = new Set<string>();
-    const newStarters = template.map(slot => {
-      const isGkSlot = slot.position === 'GK';
-      const pool = isGkSlot ? gks : outfield;
-
-      let bestP: Player | null = null;
-      let bestScore = -Infinity;
-
-      pool.forEach(p => {
-        if (assignedIds.has(p.id)) return;
-        if (p.injury?.isInjured || p.suspension?.isSuspended) return;
-        const fit = getPositionFitOvr(p, slot.position);
-        const score = 100 - fit.penalty * 3 + p.ovr;
-        if (score > bestScore) {
-          bestScore = score;
-          bestP = p;
-        }
-      });
-
-      if (!bestP) {
-        bestP = pool.find(p => !assignedIds.has(p.id)) || pool[0];
-      }
-      if (bestP) assignedIds.add(bestP.id);
-
-      return {
-        playerId: bestP?.id || '',
-        position: slot.position,
-        pitchX: slot.pitchX,
-        pitchY: slot.pitchY
-      };
-    });
-
-    // Bench: Guarantee 1 GK on bench, then up to 8 outfield players
-    const benchGk = gks.find(p => !assignedIds.has(p.id));
-    const remainingOutfield = outfield.filter(p => !assignedIds.has(p.id));
-    const newBench: string[] = [];
-    if (benchGk) {
-      newBench.push(benchGk.id);
-      assignedIds.add(benchGk.id);
-    }
-    for (const op of remainingOutfield) {
-      if (newBench.length >= 9) break;
-      newBench.push(op.id);
-      assignedIds.add(op.id);
-    }
-
-    // Reserves: 3rd+ GK and remaining outfield
-    const newReserves = allSquad.filter(p => !assignedIds.has(p.id)).map(p => p.id);
-
-    const updatedTactics: TeamTactics = {
-      ...tactics,
-      lineup: {
-        starters: newStarters,
-        bench: newBench,
-        reserves: newReserves
-      }
-    };
-
+    const targetMode = modeOverride || autoPlacementMode;
+    const updatedTactics = autoArrangeTacticsLineup(
+      boardTactics,
+      club.playerIds,
+      state.players,
+      targetMode
+    );
+    setFreeDraftTactics(null);
     onUpdateTactics(updatedTactics);
-    setToastMessage('全所属選手からポジション適性・能力値最高のスタメンを自動最適編成しました！');
+    setToastMessage(`【${AUTO_MODE_LABELS[targetMode]}】でベストメンバーを自動最適配置しました！`);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -792,15 +743,26 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <select
+                    value={autoPlacementMode}
+                    onChange={e => setAutoPlacementMode(e.target.value as AutoPlacementMode)}
+                    className="bg-slate-900 border border-blue-500/40 rounded-lg px-2 py-1.5 text-xs font-bold text-cyan-200 focus:outline-none cursor-pointer"
+                    title="自動配置の基準モードを選択"
+                  >
+                    <option value="overall">総合能力重視</option>
+                    <option value="tactical">戦術適性重視</option>
+                    <option value="condition">コンディション重視</option>
+                    <option value="balanced">バランス重視</option>
+                  </select>
                   <button
                     type="button"
-                    onClick={handleAutoFitStartingXI}
+                    onClick={() => handleAutoFitStartingXI()}
                     className="px-3 py-1.5 rounded-lg bg-blue-600/90 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                    title="全所属選手からポジション適性・能力値最高の11名を自動選出します"
+                    title="選択した方針でスタメン・ベンチを自動最適配置します"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>適性自動最適化</span>
+                    <span>自動配置</span>
                   </button>
 
                   <button

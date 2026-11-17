@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player, CompetitionCategory, FormationName } from '../../types/game';
+import { MatchFixture, GameWorldState, TeamTactics, MatchEvent, Player, CompetitionCategory, FormationName, AutoPlacementMode, Position } from '../../types/game';
 import {
   simulateFullMatch,
   generateAssistantCoachAdvice,
@@ -13,12 +13,13 @@ import {
   resimulateRemainingMatchFromMinute,
   finalizeMatchResultAndPlayerStats,
   calculateMatchFatigueDelta,
+  buildPreMatchTacticalAnalysis,
   createPRNG,
   hashStringToNumber
 } from '../../engine/matchEngine';
 import { autoReplaceIneligiblePlayers } from '../../engine/dataValidator';
 import { getDefaultTacticsForClub } from '../../data/squadPopulator';
-import { updateTacticsFormation } from '../../engine/tacticsEngine';
+import { updateTacticsFormation, autoArrangeTacticsLineup, FORMATION_TEMPLATES } from '../../engine/tacticsEngine';
 import { determineMatchOutcome } from '../../engine/dateEngine';
 import { FatigueGauge, ConditionDot } from '../common/FatigueGauge';
 import { PlayerReplacementModal } from '../PlayerReplacementModal';
@@ -86,6 +87,10 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Dedicated pre-match preparation tab
   const [preMatchTab, setPreMatchTab] = useState<'formation' | 'squad' | 'tactics' | 'preview'>('formation');
   const [inMatchTacticsToast, setInMatchTacticsToast] = useState<string | null>(null);
+  const [preMatchToast, setPreMatchToast] = useState<string | null>(null);
+  const [autoPlacementMode, setAutoPlacementMode] = useState<AutoPlacementMode>('balanced');
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string>('opp_def_weakness');
+  const [savedPostMatchFormation, setSavedPostMatchFormation] = useState<boolean>(false);
 
   // Track players who have already been subbed off to strictly forbid re-entry
   const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
@@ -161,15 +166,67 @@ export const MatchSimulationView: React.FC<Props> = ({
     clubId: string,
     currentMin: number,
     eventsList: MatchEvent[],
-    pressIntensity: string = '標準的'
+    tacticsOrPress: string | TeamTactics['instructions'] = '標準的',
+    matchPosition?: Position | string
   ): number => {
     const subInEv = eventsList.find(
       e => e.type === 'sub' && e.clubId === clubId && e.subInPlayerId === p.id
     );
+    const subOutEv = eventsList.find(
+      e =>
+        e.clubId === clubId &&
+        ((e.type === 'sub' && (e.subOutPlayerId === p.id || e.playerId === p.id)) ||
+          ((e.type === 'red_card' || e.type === 'second_yellow') && e.playerId === p.id))
+    );
     const enteredMin = subInEv ? subInEv.minute : 0;
-    const playedMins = Math.max(0, currentMin - enteredMin);
-    const delta = calculateMatchFatigueDelta(p, playedMins, pressIntensity, Boolean(subInEv));
+    const endMin = subOutEv ? Math.min(currentMin, subOutEv.minute) : currentMin;
+    const playedMins = Math.max(0, endMin - enteredMin);
+    if (playedMins <= 0) return Math.min(100, Math.round(p.fatigue ?? 0));
+    const delta = calculateMatchFatigueDelta(
+      p,
+      playedMins,
+      tacticsOrPress,
+      Boolean(subInEv),
+      matchPosition ? { matchPosition } : undefined
+    );
     return Math.min(100, Math.round((p.fatigue ?? 0) + delta));
+  };
+
+  const applyPreMatchTacticsUpdate = (nextTac: TeamTactics, toastText: string) => {
+    syncUserAndLiveTactics(nextTac, true);
+    if (matchPhase === 'pre' && onUpdateTactics) {
+      onUpdateTactics(cloneTacticsDeep(nextTac));
+    }
+    const newCheck = finalMatchEligibilityCheck(
+      nextTac.lineup.starters.map(s => s.playerId),
+      nextTac.lineup.bench,
+      state.userClubId || '',
+      state.players,
+      state.currentDate,
+      fixture.competition
+    );
+    setEligibilityResult(newCheck.isEligible ? null : newCheck);
+
+    if (matchPhase === 'pre' && homeClub && awayClub) {
+      const nextRes = simulateFullMatch(
+        fixture,
+        homeClub,
+        awayClub,
+        isUserHome ? nextTac : homeLiveTacticsRef.current,
+        !isUserHome ? nextTac : awayLiveTacticsRef.current,
+        state.players,
+        undefined,
+        {
+          skipAutoSubsForClubId: state.userClubId || undefined,
+          initialHomeStarterIds: initialHomeStarterIdsRef.current,
+          initialAwayStarterIds: initialAwayStarterIdsRef.current
+        }
+      );
+      simulatedResultRef.current = nextRes;
+      setSimulatedResult(nextRes);
+    }
+    setPreMatchToast(toastText);
+    setTimeout(() => setPreMatchToast(null), 3200);
   };
 
   const applyEventsToLiveTactics = (eventsToApply: MatchEvent[]) => {
@@ -1678,17 +1735,82 @@ export const MatchSimulationView: React.FC<Props> = ({
               );
             })()}
 
-            {/* PRE-MATCH TAB 1: DUAL FORMATIONS */}
+            {/* PRE-MATCH TAB 1: DUAL FORMATIONS + FORMATION/AUTO-PLACEMENT BAR */}
             {preMatchTab === 'formation' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Home Pitch */}
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
-                      <span className="font-bold text-white text-sm">{homeClub?.name}</span>
-                      {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-slate-300">試合前フォーメーション変更:</span>
+                      <select
+                        value={tactics.formation}
+                        onChange={e => {
+                          const newForm = e.target.value as FormationName;
+                          const updated = updateTacticsFormation(tactics, newForm, state.players);
+                          applyPreMatchTacticsUpdate(updated, `試合前フォーメーションを【${newForm}】に変更しました`);
+                        }}
+                        className="bg-slate-800 border border-emerald-500/50 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none cursor-pointer"
+                      >
+                        {(Object.keys(FORMATION_TEMPLATES) as FormationName[]).map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
                     </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <select
+                        value={autoPlacementMode}
+                        onChange={e => setAutoPlacementMode(e.target.value as AutoPlacementMode)}
+                        className="bg-slate-950 border border-blue-500/40 rounded-lg px-2 py-1.5 text-xs font-bold text-cyan-200 cursor-pointer"
+                      >
+                        <option value="overall">総合能力重視</option>
+                        <option value="tactical">戦術適性重視</option>
+                        <option value="condition">コンディション重視</option>
+                        <option value="balanced">バランス重視</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const userClubObj = state.userClubId ? state.clubs[state.userClubId] : null;
+                          if (!userClubObj) return;
+                          const arranged = autoArrangeTacticsLineup(
+                            tactics,
+                            userClubObj.playerIds,
+                            state.players,
+                            autoPlacementMode
+                          );
+                          const modeNames: Record<AutoPlacementMode, string> = {
+                            overall: '総合能力重視',
+                            tactical: '戦術適性重視',
+                            condition: 'コンディション重視',
+                            balanced: 'バランス重視'
+                          };
+                          applyPreMatchTacticsUpdate(arranged, `【${modeNames[autoPlacementMode]}】で自動配置を実行しました`);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600/90 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
+                        <span>自動配置実行</span>
+                      </button>
+                    </div>
+                  </div>
+                  {preMatchToast && (
+                    <div className="text-xs font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{preMatchToast}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Home Pitch */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: homeClub?.primaryColor }} />
+                        <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                        {isUserHome && <span className="text-[10px] bg-emerald-500 text-slate-950 font-bold px-1 rounded">YOU</span>}
+                      </div>
                     <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
                       {homeTactics.formation}
                     </span>
@@ -1765,6 +1887,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                       );
                     })}
                   </div>
+                </div>
                 </div>
               </div>
             )}
@@ -1903,66 +2026,166 @@ export const MatchSimulationView: React.FC<Props> = ({
               </div>
             )}
 
-            {/* PRE-MATCH TAB 3: TACTICS INFO */}
+            {/* PRE-MATCH TAB 3: TACTICS INFO & INTERACTIVE PRE-MATCH ANALYSIS */}
             {preMatchTab === 'tactics' && (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-                <div className="border-b border-slate-800 pb-2">
-                  <h3 className="text-sm font-bold text-white">チーム戦術詳細比較</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">両チームのフォーメーション、攻撃・守備スタイル、プレス強度です。</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Home Club */}
-                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="font-bold text-white text-sm">{homeClub?.name}</span>
-                      <span className="text-xs font-mono font-bold text-emerald-400">{homeTactics.formation}</span>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex justify-between py-1 border-b border-slate-800/40">
-                        <span className="text-slate-400">攻撃スタイル</span>
-                        <span className="font-bold text-slate-200">{homeTactics.instructions?.attackingStyle || 'ポゼッション・パス'}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800/40">
-                        <span className="text-slate-400">守備スタイル</span>
-                        <span className="font-bold text-slate-200">{homeTactics.instructions?.defensiveStyle || 'ハイプレス'}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800/40">
-                        <span className="text-slate-400">プレス強度</span>
-                        <span className="font-bold text-slate-200">{homeTactics.instructions?.pressIntensity || '非常に激しい'}</span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span className="text-slate-400">ディフェンスライン</span>
-                        <span className="font-bold text-slate-200">{homeTactics.instructions?.defensiveLine || 'ハイライン'}</span>
-                      </div>
-                    </div>
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                  <div className="border-b border-slate-800 pb-2">
+                    <h3 className="text-sm font-bold text-white">チーム戦術詳細比較</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">両チームのフォーメーション、攻撃・守備スタイル、プレス強度です。</p>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Home Club */}
+                    <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="font-bold text-white text-sm">{homeClub?.name}</span>
+                        <span className="text-xs font-mono font-bold text-emerald-400">{homeTactics.formation}</span>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between py-1 border-b border-slate-800/40">
+                          <span className="text-slate-400">攻撃スタイル</span>
+                          <span className="font-bold text-slate-200">{homeTactics.instructions?.attackingStyle || 'ポゼッション・パス'}</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40">
+                          <span className="text-slate-400">守備スタイル</span>
+                          <span className="font-bold text-slate-200">{homeTactics.instructions?.defensiveStyle || 'ハイプレス'}</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40">
+                          <span className="text-slate-400">プレス強度</span>
+                          <span className="font-bold text-slate-200">{homeTactics.instructions?.pressIntensity || '非常に激しい'}</span>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span className="text-slate-400">ディフェンスライン</span>
+                          <span className="font-bold text-slate-200">{homeTactics.instructions?.defensiveLine || 'ハイライン'}</span>
+                        </div>
+                      </div>
+                    </div>
 
-                  {/* Away Club */}
-                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="font-bold text-white text-sm">{awayClub?.name}</span>
-                      <span className="text-xs font-mono font-bold text-blue-400">{awayTactics.formation}</span>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex justify-between py-1 border-b border-slate-800/40">
-                        <span className="text-slate-400">攻撃スタイル</span>
-                        <span className="font-bold text-slate-200">{awayTactics.instructions?.attackingStyle || 'ダイレクト・カウンター'}</span>
+                    {/* Away Club */}
+                    <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="font-bold text-white text-sm">{awayClub?.name}</span>
+                        <span className="text-xs font-mono font-bold text-blue-400">{awayTactics.formation}</span>
                       </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800/40">
-                        <span className="text-slate-400">守備スタイル</span>
-                        <span className="font-bold text-slate-200">{awayTactics.instructions?.defensiveStyle || 'ミドルブロック'}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800/40">
-                        <span className="text-slate-400">プレス強度</span>
-                        <span className="font-bold text-slate-200">{awayTactics.instructions?.pressIntensity || '標準的'}</span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span className="text-slate-400">ディフェンスライン</span>
-                        <span className="font-bold text-slate-200">{awayTactics.instructions?.defensiveLine || '標準'}</span>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between py-1 border-b border-slate-800/40">
+                          <span className="text-slate-400">攻撃スタイル</span>
+                          <span className="font-bold text-slate-200">{awayTactics.instructions?.attackingStyle || 'ダイレクト・カウンター'}</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40">
+                          <span className="text-slate-400">守備スタイル</span>
+                          <span className="font-bold text-slate-200">{awayTactics.instructions?.defensiveStyle || 'ミドルブロック'}</span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40">
+                          <span className="text-slate-400">プレス強度</span>
+                          <span className="font-bold text-slate-200">{awayTactics.instructions?.pressIntensity || '標準的'}</span>
+                        </div>
+                        <div className="flex justify-between py-1">
+                          <span className="text-slate-400">ディフェンスライン</span>
+                          <span className="font-bold text-slate-200">{awayTactics.instructions?.defensiveLine || '標準'}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                {/* Multi-Angle Interactive Pre-Match Tactical Analysis Panel */}
+                {homeClub && awayClub && (() => {
+                  const userClubObj = isUserHome ? homeClub : awayClub;
+                  const oppClubObj = isUserHome ? awayClub : homeClub;
+                  const oppTacObj = isUserHome ? awayTactics : homeTactics;
+                  const analysisOptions = buildPreMatchTacticalAnalysis({
+                    fixture,
+                    userClub: userClubObj,
+                    oppClub: oppClubObj,
+                    userTactics: tactics,
+                    oppTactics: oppTacObj,
+                    players: state.players
+                  });
+                  const activeOption = analysisOptions.find(o => o.id === selectedAnalysisId) || analysisOptions[0];
+
+                  return (
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                        <div>
+                          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-emerald-400" />
+                            <span>試合前 戦術アナリスト分析（全10観点・戦術反映可）</span>
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            相手データ・自チームの疲労や相性から確認したい分析項目を選択してください。
+                          </p>
+                        </div>
+                        {preMatchToast && (
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+                            {preMatchToast}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        {analysisOptions.map(opt => {
+                          const isSelected = opt.id === activeOption?.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setSelectedAnalysisId(opt.id)}
+                              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer space-y-1 ${
+                                isSelected
+                                  ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-sm'
+                                  : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-600'
+                              }`}
+                            >
+                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300">
+                                {opt.badge}
+                              </span>
+                              <div className="text-[11px] font-bold leading-snug line-clamp-2">{opt.title}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {activeOption && (
+                        <div className="rounded-2xl bg-slate-950/90 border border-emerald-500/30 p-4 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-emerald-400">{activeOption.questionPrompt}</span>
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold shrink-0">
+                              {activeOption.badge}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-200 leading-relaxed">{activeOption.analysisReport}</p>
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+                            <div className="text-xs text-slate-300">
+                              推奨戦術プラン: <strong className="text-amber-300">{activeOption.tacticalProposalLabel}</strong>
+                            </div>
+                            {activeOption.recommendedAdjustment && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextTac: TeamTactics = {
+                                    ...tactics,
+                                    instructions: {
+                                      ...tactics.instructions,
+                                      ...activeOption.recommendedAdjustment
+                                    }
+                                  };
+                                  applyPreMatchTacticsUpdate(
+                                    nextTac,
+                                    `分析提案「${activeOption.tacticalProposalLabel}」を戦術へ適用しました`
+                                  );
+                                }}
+                                className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer shadow-sm"
+                              >
+                                この提案を戦術に反映
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -2125,7 +2348,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
                   {homeStartersList.map((s, idx) => {
                     const p = s.player;
-                    const dynamicFatigue = getLiveInMatchFatigue(p, homeClub?.id || '', minute, revealedEvents, homeTactics.instructions?.pressIntensity);
+                    const dynamicFatigue = getLiveInMatchFatigue(p, homeClub?.id || '', minute, revealedEvents, homeTactics.instructions, s.position);
                     const isUserPlayer = isUserHome;
                     const isSubIn = !initialHomeStarterIdsRef.current.includes(p.id);
                     return (
@@ -2196,7 +2419,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 border-t border-x border-emerald-500/30" />
                   {awayStartersList.map((s, idx) => {
                     const p = s.player;
-                    const dynamicFatigue = getLiveInMatchFatigue(p, awayClub?.id || '', minute, revealedEvents, awayTactics.instructions?.pressIntensity);
+                    const dynamicFatigue = getLiveInMatchFatigue(p, awayClub?.id || '', minute, revealedEvents, awayTactics.instructions, s.position);
                     const isUserPlayer = !isUserHome;
                     const isSubIn = !initialAwayStarterIdsRef.current.includes(p.id);
                     return (
@@ -2262,9 +2485,11 @@ export const MatchSimulationView: React.FC<Props> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
-              {userStarters.map(p => {
-                // Dynamic in-match fatigue: balanced calculation from actual minutes played (respects sub entry minute & base fatigue 0)
-                const dynamicFatigue = getLiveInMatchFatigue(p, state.userClubId || '', minute, revealedEvents, tactics.instructions?.pressIntensity);
+              {tactics.lineup.starters.map(slot => {
+                const p = state.players[slot.playerId];
+                if (!p) return null;
+                // Dynamic in-match fatigue: balanced calculation from actual minutes played & role
+                const dynamicFatigue = getLiveInMatchFatigue(p, state.userClubId || '', minute, revealedEvents, tactics.instructions, slot.position);
 
                 return (
                   <div key={p.id} className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
@@ -2445,9 +2670,11 @@ export const MatchSimulationView: React.FC<Props> = ({
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-red-400">OUT (ベンチへ下げる選手)</label>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                  {userStarters.map(p => {
+                  {tactics.lineup.starters.map(slot => {
+                    const p = state.players[slot.playerId];
+                    if (!p) return null;
                     const isSelected = subPlayerOffId === p.id;
-                    const dynamicFatigue = getLiveInMatchFatigue(p, state.userClubId || '', minute, revealedEvents, tactics.instructions?.pressIntensity);
+                    const dynamicFatigue = getLiveInMatchFatigue(p, state.userClubId || '', minute, revealedEvents, tactics.instructions, slot.position);
 
                     return (
                       <button
@@ -2587,7 +2814,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                   value={tactics.formation}
                   onChange={e => {
                     const newForm = e.target.value as FormationName;
-                    const updated = updateTacticsFormation(tactics, newForm);
+                    const updated = updateTacticsFormation(tactics, newForm, state.players);
                     syncUserAndLiveTactics(updated, false);
                     triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                     setInMatchTacticsToast(`この試合のフォーメーションを ${newForm} に変更しました（クラブ基本戦術は維持）`);
@@ -2649,7 +2876,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                       key={preset}
                       type="button"
                       onClick={() => {
-                        const updated = updateTacticsFormation(tactics, preset as FormationName);
+                        const updated = updateTacticsFormation(tactics, preset as FormationName, state.players);
                         syncUserAndLiveTactics(updated, false);
                         triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
                         setInMatchTacticsToast(`この試合のフォーメーションを ${preset} に変更しました`);
@@ -2665,6 +2892,47 @@ export const MatchSimulationView: React.FC<Props> = ({
                     </button>
                   );
                 })}
+              </div>
+
+              {/* In-match 4-Mode Auto-Placement on active on-pitch players */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-cyan-300">
+                  ピッチ内メンバー自動最適再配置（現在の出場選手のみ・交代枠消費なし）:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {([
+                    { mode: 'overall', label: '総合能力重視' },
+                    { mode: 'tactical', label: '戦術適性重視' },
+                    { mode: 'condition', label: 'コンディション重視' },
+                    { mode: 'balanced', label: 'バランス重視' }
+                  ] as const).map(item => (
+                    <button
+                      key={item.mode}
+                      type="button"
+                      onClick={() => {
+                        const userClubObj = state.userClubId ? state.clubs[state.userClubId] : null;
+                        if (!userClubObj) return;
+                        const arranged = autoArrangeTacticsLineup(
+                          tactics,
+                          userClubObj.playerIds,
+                          state.players,
+                          item.mode,
+                          {
+                            liveMatchPitchOnly: true,
+                            excludedPlayerIds: subbedOutPlayerIdsRef.current
+                          }
+                        );
+                        syncUserAndLiveTactics(arranged, false);
+                        triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                        setInMatchTacticsToast(`ピッチ上の出場選手を【${item.label}】で最適再配置しました`);
+                        setTimeout(() => setInMatchTacticsToast(null), 3000);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white text-[11px] font-bold cursor-pointer transition-colors"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -2958,6 +3226,30 @@ export const MatchSimulationView: React.FC<Props> = ({
                 )}
               </div>
             </div>
+
+            {/* Optional explicit post-match opt-in to save in-match formation to club baseline */}
+            {onUpdateTactics && (
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs">
+                <span className="text-slate-400">
+                  試合中のフォーメーション（<strong className="text-slate-200 font-mono">{tactics.formation}</strong>）はクラブの通常編成には自動上書きされていません。
+                </span>
+                <button
+                  type="button"
+                  disabled={savedPostMatchFormation}
+                  onClick={() => {
+                    onUpdateTactics(cloneTacticsDeep(tactics));
+                    setSavedPostMatchFormation(true);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                    savedPostMatchFormation
+                      ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700'
+                  }`}
+                >
+                  {savedPostMatchFormation ? '✓ 通常編成へ保存済み' : 'この試合の形を通常編成に保存'}
+                </button>
+              </div>
+            )}
 
             {/* Bottom Proceed Button */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3">

@@ -1,7 +1,7 @@
 import stadiumImg from '../../assets/images/stadium_pitch_hero_1790585035252.jpg';
 import React from 'react';
 import { GameWorldState, MatchFixture } from '../../types/game';
-import { formatDateJP } from '../../engine/dateEngine';
+import { formatDateJP, addDays } from '../../engine/dateEngine';
 import { generatePreSeasonInvitations } from '../../engine/preSeasonEngine';
 import { 
   Trophy, 
@@ -17,7 +17,8 @@ import {
   Flag,
   CheckCircle2,
   AlertCircle,
-  Smartphone
+  Smartphone,
+  X
 } from 'lucide-react';
 import { generateClubVisionRoadmap } from '../../engine/clubVisionEngine';
 import { getUnreadSmartphoneCount } from '../../engine/smartphoneEngine';
@@ -28,6 +29,7 @@ interface Props {
   onSelectPreSeason: (tournamentId: string) => void;
   onNavigateTab: (tab: 'tactics' | 'transfers' | 'fixtures' | 'club') => void;
   onOpenSmartphone?: () => void;
+  onDismissPreSeasonBanner?: (year: number) => void;
 }
 
 export const HomeDashboardTab: React.FC<Props> = ({ 
@@ -35,7 +37,8 @@ export const HomeDashboardTab: React.FC<Props> = ({
   onOpenMatch, 
   onSelectPreSeason,
   onNavigateTab,
-  onOpenSmartphone
+  onOpenSmartphone,
+  onDismissPreSeasonBanner
 }) => {
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
   const unreadSmartphone = getUnreadSmartphoneCount(state);
@@ -74,8 +77,25 @@ export const HomeDashboardTab: React.FC<Props> = ({
   const finalTourFixture = activeTour?.finalFixtureId
     ? state.fixtures.find(f => f.id === activeTour.finalFixtureId)
     : undefined;
+  const hasPlayedPostTourMatch = Boolean(
+    activeTour &&
+      state.fixtures.some(
+        f =>
+          f.status === 'finished' &&
+          f.competition !== 'pre-season' &&
+          (f.homeClubId === state.userClubId || f.awayClubId === state.userClubId) &&
+          f.date >= activeTour.endDate &&
+          f.date.startsWith(String(currentYearNum))
+      )
+  );
+  const isTourBannerDismissed = state.dismissedPreSeasonBannerYear === currentYearNum;
+  const isWithinPostTourGrace = Boolean(
+    activeTour && state.currentDate <= addDays(activeTour.endDate, 1)
+  );
   const shouldShowActiveTourPanel = Boolean(
-    activeTour && (currentMmDd >= '06-25' && currentMmDd <= '08-15')
+    activeTour &&
+      (activeTour.stage !== 'completed' ||
+        (!isTourBannerDismissed && !hasPlayedPostTourMatch && isWithinPostTourGrace))
   );
 
   return (
@@ -223,6 +243,17 @@ export const HomeDashboardTab: React.FC<Props> = ({
                     ? '決勝戦ステージ'
                     : 'グループリーグ進行中'}
               </span>
+              {activeTour.stage === 'completed' && onDismissPreSeasonBanner && (
+                <button
+                  type="button"
+                  onClick={() => onDismissPreSeasonBanner(currentYearNum)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+                  title="大会結果は大会タブ・ニュースに保持されます"
+                >
+                  <X className="w-3 h-3" />
+                  <span>ホーム表示を閉じる</span>
+                </button>
+              )}
             </div>
           </div>
 

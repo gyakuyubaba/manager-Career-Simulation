@@ -11,7 +11,8 @@ import {
   GoalDetail,
   CompetitionCategory,
   PenaltyShootoutResult,
-  PenaltyKickerResult
+  PenaltyKickerResult,
+  Position
 } from '../types/game';
 import { addDays, getCompetitionCategory } from './dateEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
@@ -1276,15 +1277,35 @@ export function finalizeMatchResultAndPlayerStats(params: {
       competitionStats: existing.competitionStats ? { ...existing.competitionStats } : {}
     };
 
-    const tacticsPress =
-      (ps.clubId === homeClub.id ? homeTactics.instructions?.pressIntensity : awayTactics.instructions?.pressIntensity) || '標準的';
-    const calculatedFatigueDelta = calculateMatchFatigueDelta(
-      existing,
-      ps.minutesPlayed,
-      tacticsPress,
-      !ps.isStarter
-    );
-    updated.fatigue = Math.max(0, Math.min(100, (updated.fatigue || 0) + calculatedFatigueDelta));
+    const teamTactics = ps.clubId === homeClub.id ? homeTactics : awayTactics;
+    const starterSlot = (teamTactics.lineup?.starters || []).find(s => s.playerId === pId);
+    const matchRolePosition = starterSlot?.position || existing.position;
+    const fixtureDateStr = fixture.date || '2026-08-01';
+    const recentDates = (existing.recentMatchDates || []).filter(d => {
+      const diff = Math.round((new Date(fixtureDateStr).getTime() - new Date(d).getTime()) / (1000 * 3600 * 24));
+      return diff > 0 && diff <= 14;
+    });
+    const recent6DaysCount = recentDates.filter(d => {
+      const diff = Math.round((new Date(fixtureDateStr).getTime() - new Date(d).getTime()) / (1000 * 3600 * 24));
+      return diff > 0 && diff <= 6;
+    }).length;
+
+    if (existing.lastFatigueAppliedFixtureId !== fixture.id) {
+      const calculatedFatigueDelta = calculateMatchFatigueDelta(
+        existing,
+        ps.minutesPlayed,
+        teamTactics.instructions || '標準的',
+        !ps.isStarter,
+        {
+          matchPosition: matchRolePosition,
+          congestionMatches: recent6DaysCount
+        }
+      );
+      updated.fatigue = Math.max(0, Math.min(100, (updated.fatigue || 0) + calculatedFatigueDelta));
+      updated.lastMatchDate = fixtureDateStr;
+      updated.recentMatchDates = [...recentDates, fixtureDateStr].slice(-6);
+      updated.lastFatigueAppliedFixtureId = fixture.id;
+    }
 
     const conceded = ps.clubId === homeClub.id ? awayScore : homeScore;
 
@@ -2703,44 +2724,343 @@ export function generateAssistantCoachAdvice(
   }
 }
 
+export interface MatchFatigueContext {
+  defensiveStyle?: string;
+  pressIntensity?: string;
+  defensiveLine?: string;
+  attackingStyle?: string;
+  tempo?: string;
+  counterUrgency?: string;
+  matchPosition?: Position | string;
+  congestionMatches?: number;
+}
+
 export function calculateMatchFatigueDelta(
   player: Player,
   minutesPlayed: number,
-  pressIntensity: string = '標準的',
-  isSubbedIn: boolean = false
+  pressOrTactics: string | TeamTactics['instructions'] = '標準的',
+  isSubbedIn: boolean = false,
+  context?: MatchFatigueContext
 ): number {
-  const playerStamina = player.stamina || player.physical || 75;
-  const staminaFactor = Math.max(0.65, Math.min(1.35, 1.0 - (playerStamina - 75) * 0.012));
+  if (minutesPlayed <= 0) return 0;
 
+  const playerStamina = player.stamina ?? Math.round((player.physical || 75) * 0.92 + 6);
+  const staminaFactor = Math.max(0.58, Math.min(1.42, 1.0 - (playerStamina - 75) * 0.015));
+
+  const age = player.age || 25;
+  let ageFactor = 1.0;
+  if (age <= 20) ageFactor = 1.04;
+  else if (age <= 27) ageFactor = 0.95;
+  else if (age <= 30) ageFactor = 1.0;
+  else if (age <= 33) ageFactor = 1.10;
+  else ageFactor = 1.22;
+
+  const effectivePos = (context?.matchPosition || player.position || 'CM') as Position;
   let positionWorkrate = 1.0;
-  if (['LWB', 'RWB', 'LM', 'RM'].includes(player.position)) {
-    positionWorkrate = 1.22;
-  } else if (['CM', 'CDM', 'CAM'].includes(player.position)) {
+  if (['LWB', 'RWB'].includes(effectivePos)) {
+    positionWorkrate = 1.28;
+  } else if (['LM', 'RM'].includes(effectivePos)) {
+    positionWorkrate = 1.18;
+  } else if (['LB', 'RB'].includes(effectivePos)) {
+    positionWorkrate = 1.16;
+  } else if (effectivePos === 'CM') {
+    positionWorkrate = 1.15;
+  } else if (effectivePos === 'CDM') {
+    positionWorkrate = 1.10;
+  } else if (['LW', 'RW'].includes(effectivePos)) {
     positionWorkrate = 1.12;
-  } else if (['ST', 'CF', 'LW', 'RW'].includes(player.position)) {
-    positionWorkrate = 1.05;
-  } else if (['CB', 'LB', 'RB'].includes(player.position)) {
-    positionWorkrate = 0.90;
-  } else if (player.position === 'GK') {
-    positionWorkrate = 0.35;
+  } else if (effectivePos === 'CAM') {
+    positionWorkrate = 1.06;
+  } else if (['ST', 'CF'].includes(effectivePos)) {
+    positionWorkrate = 1.04;
+  } else if (effectivePos === 'CB') {
+    positionWorkrate = 0.86;
+  } else if (effectivePos === 'GK') {
+    positionWorkrate = 0.26;
   }
 
-  const timeFactor = Math.max(0, minutesPlayed) / 90;
-  const pressMultiplier =
-    pressIntensity === '非常に激しい' || pressIntensity === '相手CB・GK限定猛プレス'
-      ? 1.2
-      : pressIntensity === '自陣引き気味'
-        ? 0.85
-        : 1.0;
+  const instructionsObj = typeof pressOrTactics === 'object' && pressOrTactics !== null ? pressOrTactics : undefined;
+  const pressIntensity =
+    context?.pressIntensity ||
+    instructionsObj?.pressIntensity ||
+    (typeof pressOrTactics === 'string' ? pressOrTactics : '標準的');
+  const defensiveStyle = context?.defensiveStyle || instructionsObj?.defensiveStyle || 'ミドルブロック';
+  const defensiveLine = context?.defensiveLine || instructionsObj?.defensiveLine || '標準';
+  const attackingStyle = context?.attackingStyle || instructionsObj?.attackingStyle || 'ポゼッション・パス';
+  const tempo = context?.tempo || instructionsObj?.tempo || '標準';
+
+  let pressMultiplier = 1.0;
+  if (pressIntensity === '非常に激しい' || pressIntensity === '相手CB・GK限定猛プレス') {
+    pressMultiplier = 1.24;
+  } else if (pressIntensity === 'セカンドボール回収特化') {
+    pressMultiplier = 1.10;
+  } else if (pressIntensity === '自陣引き気味') {
+    pressMultiplier = 0.80;
+  }
+
+  let styleMult = 1.0;
+  if (defensiveStyle === 'ゲーゲンプレス' || defensiveStyle === 'オールコート・マンツーマン') {
+    styleMult *= 1.15;
+  } else if (defensiveStyle === 'ハイプレス' || defensiveStyle === 'サイド誘導トラップ') {
+    styleMult *= 1.08;
+  } else if (defensiveStyle === 'ローブロック・堅守' || defensiveStyle === 'カテナチオ・中央完全封鎖') {
+    styleMult *= 0.86;
+  }
+
+  if (defensiveLine === '超ハイライン・オフサイドトラップ特化' || defensiveLine === 'ハイライン') {
+    styleMult *= 1.07;
+  } else if (defensiveLine === 'ディープライン') {
+    styleMult *= 0.92;
+  }
+
+  if (tempo === '電光石火・超ハイテンポ' || tempo === '高速テンポ') {
+    styleMult *= 1.08;
+  } else if (tempo === 'じっくりビルドアップ') {
+    styleMult *= 0.92;
+  }
+
+  if (attackingStyle === 'ダイレクト・カウンター' || attackingStyle === 'サイド攻撃・クロス') {
+    styleMult *= 1.05;
+  } else if (attackingStyle === 'ポゼッション・パス' || attackingStyle === 'ティキタカ・超近距離パス回し') {
+    styleMult *= 0.96;
+  }
+
+  let sprintWorkloadMult = 1.0;
+  const styleStr = player.playstyle || '';
+  if (['ボックストゥボックス', 'スピードスター', '俊足ドリブラー', '攻撃的SB', 'ハードタックラー', 'ラインブレイカー'].includes(styleStr)) {
+    sprintWorkloadMult += 0.06;
+  } else if (['アンカー', 'ターゲットマン', '守備的SB', '守備的GK', 'ビルドアップ型GK'].includes(styleStr)) {
+    sprintWorkloadMult -= 0.04;
+  }
+  const paceVal = player.pace || 75;
+  if (effectivePos !== 'GK') {
+    sprintWorkloadMult += (paceVal - 75) * 0.0018;
+  }
+
+  // Individual micro-variance seeded cleanly on player.id so identical teammates still diverge realistically
+  const idHash = (player.id || 'p').split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const microVariance = 0.96 + (idHash % 9) * 0.01; // 0.96 .. 1.04
+
+  const congestionMult = 1 + Math.min(0.24, (context?.congestionMatches || 0) * 0.10);
+  const timeFactor = Math.min(1.4, Math.max(0, minutesPlayed) / 90);
+  const subFreshMult = isSubbedIn && minutesPlayed <= 45 ? 0.94 : 1.0;
 
   const skillMods = getPlayerSkillMatchModifiers(player, {
     minute: minutesPlayed,
     isSubbedIn
   });
-  return Math.round(
-    (30 * staminaFactor * positionWorkrate * timeFactor * pressMultiplier) /
-    Math.max(1.0, skillMods.staminaRetentionMult)
-  );
+
+  const rawDelta =
+    (29 *
+      staminaFactor *
+      ageFactor *
+      positionWorkrate *
+      pressMultiplier *
+      styleMult *
+      sprintWorkloadMult *
+      microVariance *
+      congestionMult *
+      subFreshMult *
+      timeFactor) /
+    Math.max(1.0, skillMods.staminaRetentionMult);
+
+  return Math.max(1, Math.min(75, Math.round(rawDelta)));
+}
+
+export interface PreMatchTacticalAnalysisOption {
+  id: string;
+  category:
+    | 'opp_defense_weakness'
+    | 'opp_attack_trait'
+    | 'ace_countermeasure'
+    | 'flank_vs_center'
+    | 'set_piece'
+    | 'formation_matchup'
+    | 'pressing_counter'
+    | 'self_balance'
+    | 'condition_check'
+    | 'match_flow';
+  title: string;
+  badge: string;
+  questionPrompt: string;
+  analysisReport: string;
+  tacticalProposalLabel: string;
+  recommendedAdjustment?: Partial<TeamTactics['instructions']>;
+}
+
+export function buildPreMatchTacticalAnalysis(params: {
+  fixture: MatchFixture;
+  userClub: Club;
+  oppClub: Club;
+  userTactics: TeamTactics;
+  oppTactics: TeamTactics;
+  players: Record<string, Player>;
+}): PreMatchTacticalAnalysisOption[] {
+  const { userClub, oppClub, userTactics, oppTactics, players } = params;
+
+  const getStarterPlayers = (club: Club, tac: TeamTactics): Player[] => {
+    const ids = (tac.lineup?.starters || []).map(s => s.playerId).filter(Boolean);
+    const resolved = ids.map(id => players[id]).filter(Boolean);
+    if (resolved.length > 0) return resolved;
+    return (club.playerIds || []).map(id => players[id]).filter(Boolean).slice(0, 11);
+  };
+
+  const userStarters = getStarterPlayers(userClub, userTactics);
+  const oppStarters = getStarterPlayers(oppClub, oppTactics);
+
+  const oppSortedByOvr = [...oppStarters].sort((a, b) => b.ovr - a.ovr);
+  const oppAce = oppSortedByOvr[0];
+  const oppDefenders = oppStarters.filter(p => ['CB', 'LB', 'RB', 'LWB', 'RWB', 'GK'].includes(p.position));
+  const avgOppDef = oppDefenders.length > 0
+    ? Math.round(oppDefenders.reduce((s, p) => s + p.ovr, 0) / oppDefenders.length)
+    : oppClub.reputation || 74;
+  const oppSlowDef = [...oppDefenders].filter(p => p.position !== 'GK').sort((a, b) => a.pace - b.pace)[0];
+
+  const userTired = userStarters.filter(p => (p.fatigue || 0) >= 35).sort((a, b) => (b.fatigue || 0) - (a.fatigue || 0));
+  const userBestForm = [...userStarters].sort((a, b) => {
+    const scoreMap: Record<string, number> = { pink: 5, red: 4, yellow: 3, cyan: 2, purple: 1 };
+    return (scoreMap[b.condition] || 3) - (scoreMap[a.condition] || 3) || b.ovr - a.ovr;
+  })[0];
+
+  const oppForm = oppTactics.formation || '4-3-3';
+  const oppIs3Back = oppForm.startsWith('3-') || oppForm.startsWith('5-');
+  const oppAttackStyle = oppTactics.instructions?.attackingStyle || 'ダイレクト・カウンター';
+  const oppDefStyle = oppTactics.instructions?.defensiveStyle || 'ミドルブロック';
+  const oppDefLine = oppTactics.instructions?.defensiveLine || '標準';
+
+  const oppStrength = oppClub.reputation || 75;
+  const userStrength = userClub.reputation || 75;
+
+  return [
+    {
+      id: 'opp_def_weakness',
+      category: 'opp_defense_weakness',
+      title: '相手の守備ラインの弱点分析',
+      badge: '守備攻略',
+      questionPrompt: `${oppClub.name}の守備組織で狙うべき弱点はどこか？`,
+      analysisReport: `${oppClub.name}の最終ライン平均評価は${avgOppDef}前後、ライン設定は「${oppDefLine}」です。${
+        oppSlowDef
+          ? `${oppSlowDef.name}（SPD ${oppSlowDef.pace} / DEF ${oppSlowDef.defending}）周辺の背後のスペースが狙い目となります。`
+          : '横スライドの遅れから発生するハーフスペースの攻略が有効です。'
+      }`,
+      tacticalProposalLabel: oppDefLine.includes('ハイ') ? '縦に速いカウンターで背後を突く' : 'サイドからの揺さぶりでブロックを崩す',
+      recommendedAdjustment: oppDefLine.includes('ハイ')
+        ? { attackingStyle: 'ダイレクト・カウンター', counterUrgency: 'ボール奪取時即カウンター' }
+        : { attackingStyle: 'サイド攻撃・クロス', tempo: '高速テンポ' }
+    },
+    {
+      id: 'opp_attack_trait',
+      category: 'opp_attack_trait',
+      title: '相手の攻撃パターン警戒',
+      badge: '攻撃対策',
+      questionPrompt: `${oppClub.name}が最も得意とする攻撃ルートと対策は？`,
+      analysisReport: `${oppClub.name}の攻撃スタイルは「${oppAttackStyle}」（${oppForm}）。奪った直後の縦への意識が高く、ペナルティエリア付近でのファーストタッチに警戒が必要です。`,
+      tacticalProposalLabel: oppAttackStyle.includes('サイド') ? 'サイド誘導トラップでクロス封じ' : 'ミドルブロックで中央ルート閉鎖',
+      recommendedAdjustment: oppAttackStyle.includes('サイド')
+        ? { defensiveStyle: 'サイド誘導トラップ', defensiveLine: '標準' }
+        : { defensiveStyle: 'ミドルブロック', pressIntensity: '標準的' }
+    },
+    {
+      id: 'ace_countermeasure',
+      category: 'ace_countermeasure',
+      title: '相手エース選手の封じ込め策',
+      badge: 'キーマン対策',
+      questionPrompt: `${oppAce ? `${oppAce.name}（${oppAce.position} / OVR ${oppAce.ovr}）` : '相手主力'}をどう封じるか？`,
+      analysisReport: oppAce
+        ? `相手最大の脅威は${oppAce.name}（シュート${oppAce.shooting}・ドリブル${oppAce.dribbling}）。ボールが入る前のパスコース遮断と、ダブルチームでの即時ケアが失点抑止の鍵です。`
+        : `相手前線の中心選手へ自由な前向きターンを許さない距離感の維持が不可欠です。`,
+      tacticalProposalLabel: '中盤と最終ラインで挟み込み徹底監視',
+      recommendedAdjustment: { pressIntensity: 'セカンドボール回収特化', counterUrgency: 'ファウルストップ警戒・ボールキープ' }
+    },
+    {
+      id: 'flank_vs_center',
+      category: 'flank_vs_center',
+      title: 'サイド攻撃 vs 中央突破の比較',
+      badge: '攻撃ルート',
+      questionPrompt: `${oppClub.name}の陣形（${oppForm}）にはサイドと中央のどちらが有効か？`,
+      analysisReport: oppIs3Back
+        ? `相手は「${oppForm}」で中央にCBを3枚揃えています。中央に人数をかけすぎるより、ウイングバック背後のタッチライン際・ワイドエリアを突くサイド攻撃が効果的です。`
+        : `相手は4バック布陣（${oppForm}）を採用。SBとCBの間のポケット、またはアンカー脇のハーフスペースを活用した中央突破〜ワンツーが刺さりやすい配置です。`,
+      tacticalProposalLabel: oppIs3Back ? 'サイド攻撃・クロス主軸に切替' : '中央突破・ハーフスペース攻略に切替',
+      recommendedAdjustment: oppIs3Back
+        ? { attackingStyle: 'サイド攻撃・クロス', counterUrgency: 'サイド高速展開カウンター' }
+        : { attackingStyle: 'ポジショナルプレー・ハーフスペース攻略', tempo: '高速テンポ' }
+    },
+    {
+      id: 'set_piece',
+      category: 'set_piece',
+      title: 'セットプレー攻防ポイント',
+      badge: 'セットプレー',
+      questionPrompt: `FK・CKなどセットプレーでの優位性と注意点は？`,
+      analysisReport: `均衡した展開ではセットプレー1本が勝敗を分けます。${userClub.name}はキッカー精度を活かしたニアサイドへの速いボール、守備時はゾーン＋マンツーマンの併用が推奨されます。`,
+      tacticalProposalLabel: '攻守の集中維持・規律あるライン管理',
+      recommendedAdjustment: { defensiveLine: '標準', tempo: '緩急コントロール・ゲーム支配' }
+    },
+    {
+      id: 'formation_matchup',
+      category: 'formation_matchup',
+      title: 'フォーメーション相性と噛み合わせ',
+      badge: '陣形相性',
+      questionPrompt: `自陣「${userTactics.formation}」と相手「${oppForm}」の相性は？`,
+      analysisReport: `${userTactics.formation} 対 ${oppForm} の構図では、中盤の数的優位をどちらが握れるかが焦点です。アンカー・インサイドハーフの立ち位置調整でビルドアップ出口を確保できます。`,
+      tacticalProposalLabel: 'ポゼッション重視で中盤の主導権掌握',
+      recommendedAdjustment: { attackingStyle: 'ポゼッション・パス', tempo: 'じっくりビルドアップ' }
+    },
+    {
+      id: 'pressing_counter',
+      category: 'pressing_counter',
+      title: '相手のプレスへの回避策',
+      badge: 'ビルドアップ',
+      questionPrompt: `相手（${oppDefStyle}）のプレッシャーをどう剥がすか？`,
+      analysisReport: oppDefStyle.includes('プレス') || oppDefStyle.includes('マン')
+        ? `相手は積極的な前線プレス（${oppDefStyle}）を仕掛けてきます。無理な自陣パス回しは危険なロストにつながるため、素早い縦パスかGKからのミドルレンジ配球が安全かつ有効です。`
+        : `相手は比較的ブロックを敷く傾向（${oppDefStyle}）。焦らずボランチを経由して左右に振り、相手を動かしてギャップを作りましょう。`,
+      tacticalProposalLabel: oppDefStyle.includes('プレス') ? '奪取即カウンター・縦への逃がし徹底' : '丁寧なパス回しで相手守備を引き出す',
+      recommendedAdjustment: oppDefStyle.includes('プレス')
+        ? { attackingStyle: 'ロングボール・ターゲットマン', counterUrgency: 'ボール奪取時即カウンター' }
+        : { attackingStyle: 'ティキタカ・超近距離パス回し', tempo: 'じっくりビルドアップ' }
+    },
+    {
+      id: 'self_balance',
+      category: 'self_balance',
+      title: '自チームの強み・弱みチェック',
+      badge: '戦力診断',
+      questionPrompt: `現在の自クラブ構成における最大の武器と注意点は？`,
+      analysisReport: `${userBestForm ? `好調の${userBestForm.name}（${userBestForm.position} / OVR ${userBestForm.ovr}）を中心とした攻撃参加` : '中盤からの推進力'}が今日のストロングポイントです。反面、攻守切替時のカウンター被弾スペースには要注意。`,
+      tacticalProposalLabel: '攻守バランス最適化（標準プレス＋奪還）',
+      recommendedAdjustment: { defensiveStyle: 'ミドルブロック', pressIntensity: '標準的' }
+    },
+    {
+      id: 'condition_check',
+      category: 'condition_check',
+      title: '選手コンディション・疲労警戒レポート',
+      badge: '疲労診断',
+      questionPrompt: `試合開始時点でのスタミナ・疲労面の懸念点は？`,
+      analysisReport: userTired.length > 0
+        ? `先発メンバーのうち${userTired.slice(0, 2).map(p => `${p.name}(疲労${p.fatigue}%)`).join('・')}らに疲労蓄積が見られます。激しいプレスを90分続けると終盤の失速・怪我リスクが高まるため、省エネ管理か60分前後での交代を推奨。`
+        : `先発メンバーの疲労値は良好な範囲内に収まっています。序盤から主導権を握るアグレッシブな入りが可能です。`,
+      tacticalProposalLabel: userTired.length > 0 ? '自陣引き気味・体力温存プランへ調整' : 'ハイプレスで序盤から圧倒',
+      recommendedAdjustment: userTired.length > 0
+        ? { pressIntensity: '自陣引き気味', defensiveStyle: 'ローブロック・堅守', tempo: 'じっくりビルドアップ' }
+        : { pressIntensity: '非常に激しい', defensiveStyle: 'ハイプレス' }
+    },
+    {
+      id: 'match_flow',
+      category: 'match_flow',
+      title: '試合展開予想・勝敗分岐シナリオ',
+      badge: '展開予測',
+      questionPrompt: `この一戦の予想される流れと勝負の時間帯は？`,
+      analysisReport: userStrength >= oppStrength + 4
+        ? `${userClub.name}がボールを支配し押し込む時間帯が長くなる予想です。引いた相手を前に焦れず、前半1点・後半追加点のゲームメイクが理想。`
+        : oppStrength >= userStrength + 4
+          ? `実力上位の${oppClub.name}（戦力評価${oppStrength}）が攻勢に出る展開が濃厚。前半を無失点で耐え、60分以降のカウンターで一刺しする現実的プランが勝利への近道です。`
+          : `力関係が拮抗した好勝負。60〜75分の選手交代と戦術チェンジが勝点3の行方を左右します。`,
+      tacticalProposalLabel: oppStrength >= userStrength + 4 ? '堅守速攻プラン適用' : 'ゲーム支配コントロール適用',
+      recommendedAdjustment: oppStrength >= userStrength + 4
+        ? { defensiveStyle: 'ローブロック・堅守', counterUrgency: 'ボール奪取時即カウンター' }
+        : { tempo: '緩急コントロール・ゲーム支配' }
+    }
+  ];
 }
 
 /**

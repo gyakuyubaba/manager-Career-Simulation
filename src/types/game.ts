@@ -294,6 +294,9 @@ export interface Player {
   gkAttributes?: GkDetailAttributes;
   marketValueHistory?: MarketValueHistoryEntry[];
   satisfaction?: number; // 0 - 100 player contract/role/playing time satisfaction
+  lastMatchDate?: string;
+  recentMatchDates?: string[];
+  lastFatigueAppliedFixtureId?: string;
 }
 
 export type SkillCategory = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
@@ -623,6 +626,8 @@ export interface PeriodSummary {
     result: 'W' | 'D' | 'L';
   }[];
 }
+
+export type AutoPlacementMode = 'overall' | 'tactical' | 'condition' | 'balanced';
 
 export interface FreeCustomPositionCoord {
   x: number; // 0..1 normalized pitch width (0 = left touchline, 1 = right touchline)
@@ -1256,6 +1261,18 @@ export interface GameWorldState {
     winnerClubName: string;
     points: number;
     rankings: BallonDorCandidate[];
+  }[];
+  dismissedPreSeasonBannerYear?: number;
+  interviewHistory?: {
+    id: string;
+    fixtureId: string;
+    date: string;
+    opponentName: string;
+    scoreStr: string;
+    qa: Array<{ question: string; answer: string; category?: string }>;
+    headline: string;
+    trustDelta: number;
+    boardDelta: number;
   }[];
 }
 

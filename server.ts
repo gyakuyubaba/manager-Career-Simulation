@@ -435,11 +435,93 @@ app.post('/api/ai-test', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/press-conference-questions (Dynamic AI press questions grounded in match facts)
+app.post('/api/press-conference-questions', async (req: Request, res: Response) => {
+  const { clubName, opponentName, matchContext, scoreStr, eventsSummary } = req.body || {};
+  const { client: geminiClient, key: gKey } = getGeminiClient();
+  const oKey = getOpenAIKey();
+
+  if (!geminiClient && !oKey) {
+    return res.json({ ok: false, questions: [], fallback: true });
+  }
+
+  const prompt = `
+あなたはサッカージャーナリストです。以下の試合結果・事実のみに基づき、試合直後インタビューの質問を3問、それぞれ4つの監督回答選択肢付きで生成してください。架空の得点者や存在しない出来事を作らないでください。
+
+【試合データ】
+・自クラブ: ${clubName || '当クラブ'}
+・対戦相手: ${opponentName || '相手クラブ'}
+・スコア・結果: ${scoreStr || matchContext || '公式戦終了'}
+・試合中の主な出来事: ${eventsSummary || '90分間の激闘'}
+
+必ず以下のJSONオブジェクトのみを返してください:
+{
+  "questions": [
+    {
+      "id": "ai_q_1",
+      "category": "短いカテゴリ名",
+      "reporterRole": "記者肩書",
+      "question": "質問文",
+      "choices": [
+        { "id": "c1", "label": "短い見出し(12文字以内)", "text": "具体的な回答コメント", "tone": "positive", "trustDelta": 2, "boardDelta": 2 }
+      ]
+    }
+  ]
+}
+tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | "critical" のいずれか、trustDelta と boardDelta は -2 から +3 の整数にしてください。
+`;
+
+  try {
+    if (activeProvider === 'openai' && oKey) {
+      const raw = await callOpenAIChatCompletion(
+        'あなたは日本語スポーツメディアの記者です。必ず指定JSONオブジェクトのみで回答してください。',
+        prompt,
+        true
+      );
+      const parsed = parseJsonObjectSafe(raw);
+      if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+        recordDiagnostic('openai', '/api/press-conference-questions', 'connected', '会見質問生成成功');
+        return res.json({ ok: true, questions: parsed.questions.slice(0, 3) });
+      }
+    } else if (geminiClient) {
+      const response = await geminiClient.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+      const text = response.text;
+      if (text) {
+        const parsed = parseJsonObjectSafe(text);
+        if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+          recordDiagnostic('gemini', '/api/press-conference-questions', 'connected', '会見質問生成成功');
+          return res.json({ ok: true, questions: parsed.questions.slice(0, 3) });
+        }
+      }
+    }
+  } catch (err) {
+    const status = classifyProviderError(err);
+    const provider: AiProviderType = activeProvider === 'openai' && oKey ? 'openai' : 'gemini';
+    recordDiagnostic(provider, '/api/press-conference-questions', status, sanitizeErrorMessage(err, [gKey, oKey]));
+  }
+
+  return res.json({ ok: false, questions: [], fallback: true });
+});
+
 // POST /api/press-conference endpoint
 app.post('/api/press-conference', async (req: Request, res: Response) => {
-  const { question, managerResponse, matchContext, clubName, managerName } = req.body;
+  const { question, managerResponse, matchContext, clubName, managerName, qaList } = req.body;
 
-  if (!managerResponse) {
+  const formattedQaList = Array.isArray(qaList) && qaList.length > 0
+    ? qaList
+        .map((item: any, idx: number) => `Q${idx + 1}: ${item.question || ''}\nA${idx + 1}: 「${item.answer || ''}」`)
+        .join('\n')
+    : '';
+
+  const effectiveResponse = managerResponse || (Array.isArray(qaList) && qaList[0]?.answer) || '';
+
+  if (!effectiveResponse) {
     return res.status(400).json({ error: 'Manager response is required' });
   }
 
@@ -451,8 +533,7 @@ app.post('/api/press-conference', async (req: Request, res: Response) => {
 ・クラブ: ${clubName || 'クラブ'}
 ・監督名: ${managerName || '監督'}
 ・試合状況: ${matchContext || '白熱した公式戦'}
-・記者からの質問: ${question || '本日の試合についての総括をお願いします'}
-・監督の生コメント（自由回答）: 「${managerResponse}」
+${formattedQaList ? `【質疑応答ログ】\n${formattedQaList}` : `・記者からの質問: ${question || '本日の試合についての総括をお願いします'}\n・監督の生コメント（自由回答）: 「${effectiveResponse}」`}
 
 【指示】
 監督の発言のトーン（強気、選手を庇う、戦術的、審判への不満、謙虚、自信など）を深く洞察し、現実のスポーツ新聞・サッカー専門誌のリアルな記事を作成してください。
@@ -512,14 +593,17 @@ app.post('/api/press-conference', async (req: Request, res: Response) => {
   }
 
   // Realistic fallback rule-based generation
-  const isPositive = !managerResponse.includes('審判') && !managerResponse.includes('最悪') && !managerResponse.includes('責任');
-  const isAggressive = managerResponse.includes('勝ち点') || managerResponse.includes('優勝') || managerResponse.includes('完璧') || managerResponse.includes('自信');
+  const combinedText = formattedQaList || effectiveResponse;
+  const isPositive = !combinedText.includes('審判') && !combinedText.includes('最悪') && !combinedText.includes('プロの基準を満たしていない');
+  const isAggressive = combinedText.includes('勝ち点') || combinedText.includes('優勝') || combinedText.includes('完璧') || combinedText.includes('自信');
 
   const headline = isAggressive
-    ? `【会見詳報】${managerName}監督、強気の言葉で選手を鼓舞「${managerResponse.slice(0, 20)}…」`
-    : `【会見詳報】${clubName}の${managerName}監督が語る「${managerResponse.slice(0, 20)}…」`;
+    ? `【会見詳報】${managerName}監督、強気の言葉で選手を鼓舞「${effectiveResponse.slice(0, 22)}…」`
+    : `【会見詳報】${clubName}の${managerName}監督が語る「${effectiveResponse.slice(0, 22)}…」`;
 
-  const article = `試合後のフラッシュインタビューおよび記者会見に臨んだ${managerName}監督は、「${managerResponse}」と語り、チームの現在の立ち位置と次節への決意を述べた。冷静かつ的確な現状認識に対し、報道陣からも納得の声が上がった。`;
+  const article = formattedQaList
+    ? `試合後の記者会見に出席した${managerName}監督は、全${Array.isArray(qaList) ? qaList.length : 1}問の質問に対し「${effectiveResponse}」などと回答し、試合の収穫と課題を明確に語った。冷静かつ的確な現状認識に報道陣からも納得の声が上がった。`
+    : `試合後のフラッシュインタビューおよび記者会見に臨んだ${managerName}監督は、「${effectiveResponse}」と語り、チームの現在の立ち位置と次節への決意を述べた。冷静かつ的確な現状認識に対し、報道陣からも納得の声が上がった。`;
 
   const fanReaction = isPositive
     ? 'サポーターからは「頼もしい監督の言葉に勇気づけられた」「次節も信じてついていく」と好意的な反応が多数。'

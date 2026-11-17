@@ -1,4 +1,4 @@
-import { Position, FormationName, TeamTactics, Player, FreeCustomPositionCoord } from '../types/game';
+import { Position, FormationName, TeamTactics, Player, FreeCustomPositionCoord, AutoPlacementMode } from '../types/game';
 
 export interface FormationSlot {
   position: Position;
@@ -1151,3 +1151,370 @@ export function resetFreePlacementToFormation(
     placementMode: tactics.placementMode || 'formation'
   };
 }
+
+function getRoleAttributeScore(player: Player, slotPos: Position): number {
+  const stamina = player.stamina ?? Math.round((player.physical || 75) * 0.92 + 6);
+  const pace = player.pace || 70;
+  const shooting = player.shooting || 70;
+  const passing = player.passing || 70;
+  const dribbling = player.dribbling || 70;
+  const defending = player.defending || 70;
+  const physical = player.physical || 70;
+  const gkStat = player.gk || 65;
+
+  if (slotPos === 'GK') {
+    return gkStat * 0.78 + passing * 0.12 + physical * 0.10;
+  }
+  if (slotPos === 'CB') {
+    return defending * 0.54 + physical * 0.28 + passing * 0.10 + pace * 0.08;
+  }
+  if (['LB', 'RB', 'LWB', 'RWB'].includes(slotPos)) {
+    return pace * 0.25 + defending * 0.30 + stamina * 0.20 + passing * 0.15 + dribbling * 0.10;
+  }
+  if (slotPos === 'CDM') {
+    return defending * 0.38 + passing * 0.24 + physical * 0.22 + stamina * 0.16;
+  }
+  if (slotPos === 'CM') {
+    return passing * 0.32 + stamina * 0.24 + dribbling * 0.20 + defending * 0.14 + shooting * 0.10;
+  }
+  if (slotPos === 'CAM') {
+    return passing * 0.34 + dribbling * 0.30 + shooting * 0.24 + pace * 0.12;
+  }
+  if (['LM', 'RM', 'LW', 'RW'].includes(slotPos)) {
+    return pace * 0.28 + dribbling * 0.28 + passing * 0.22 + shooting * 0.14 + stamina * 0.08;
+  }
+  return shooting * 0.42 + physical * 0.20 + pace * 0.18 + dribbling * 0.15 + passing * 0.05;
+}
+
+function getTacticalInstructionAffinity(
+  player: Player,
+  slotPos: Position,
+  instructions?: TeamTactics['instructions']
+): number {
+  if (!instructions || slotPos === 'GK') return 0;
+  const stamina = player.stamina ?? Math.round((player.physical || 75) * 0.92 + 6);
+  let bonus = 0;
+
+  const press = instructions.pressIntensity || '';
+  const defStyle = instructions.defensiveStyle || '';
+  const atkStyle = instructions.attackingStyle || '';
+  const defLine = instructions.defensiveLine || '';
+
+  if (press.includes('激') || defStyle.includes('プレス') || defStyle.includes('マン')) {
+    bonus += (stamina - 70) * 0.35 + (player.pace - 70) * 0.15;
+  }
+  if (atkStyle.includes('ポゼッション') || atkStyle.includes('ティキタカ') || atkStyle.includes('ハーフスペース')) {
+    bonus += (player.passing - 70) * 0.35 + (player.dribbling - 70) * 0.20;
+  } else if (atkStyle.includes('カウンター') || atkStyle.includes('サイド')) {
+    bonus += (player.pace - 70) * 0.35 + (player.shooting - 70) * 0.15;
+  }
+  if (defStyle.includes('ローブロック') || defStyle.includes('カテナチオ')) {
+    bonus += (player.defending - 70) * 0.30 + (player.physical - 70) * 0.25;
+  }
+  if (defLine.includes('ハイ') && ['CB', 'LB', 'RB', 'CDM'].includes(slotPos)) {
+    bonus += (player.pace - 70) * 0.28;
+  }
+  return bonus;
+}
+
+function getConditionFreshnessScore(player: Player): number {
+  const condMap: Record<Player['condition'], number> = {
+    pink: 100,
+    red: 85,
+    yellow: 68,
+    cyan: 44,
+    purple: 22
+  };
+  const condScore = condMap[player.condition] ?? 68;
+  const fatigue = Math.max(0, Math.min(100, player.fatigue ?? 0));
+  const freshness = 100 - fatigue;
+  const stamina = player.stamina ?? 75;
+  return freshness * 0.58 + condScore * 0.30 + stamina * 0.12;
+}
+
+export function scorePlayerForAutoSlot(
+  player: Player,
+  slotPos: Position,
+  mode: AutoPlacementMode,
+  instructions?: TeamTactics['instructions']
+): number {
+  const isPlayerGk = player.position === 'GK';
+  const isSlotGk = slotPos === 'GK';
+  if (isPlayerGk !== isSlotGk) {
+    return -999999;
+  }
+
+  const fit = getPositionFitOvr(player, slotPos);
+  const roleAttr = getRoleAttributeScore(player, slotPos);
+  const condFresh = getConditionFreshnessScore(player);
+  const tactAffinity = getTacticalInstructionAffinity(player, slotPos, instructions);
+  const fatigue = Math.max(0, Math.min(100, player.fatigue ?? 0));
+
+  switch (mode) {
+    case 'overall':
+      return player.ovr * 1.25 + roleAttr * 0.42 - fit.penalty * 4.5 - fatigue * 0.08;
+    case 'tactical': {
+      const naturalBonus = player.position === slotPos ? 26 : fit.fitGrade === 'S' ? 22 : fit.fitGrade === 'A' ? 14 : 0;
+      return fit.effectiveOvr * 0.85 + roleAttr * 0.35 + tactAffinity * 0.75 + naturalBonus - fit.penalty * 6.5 - fatigue * 0.12;
+    }
+    case 'condition': {
+      const heavyFatiguePenalty = fatigue >= 60 ? (fatigue - 55) * 1.15 : 0;
+      return condFresh * 1.35 + fit.effectiveOvr * 0.55 + roleAttr * 0.25 - fit.penalty * 3.8 - heavyFatiguePenalty;
+    }
+    case 'balanced':
+    default:
+      return fit.effectiveOvr * 0.85 + roleAttr * 0.38 + condFresh * 0.48 + tactAffinity * 0.30 - fit.penalty * 4.8;
+  }
+}
+
+/**
+ * 4-Mode Auto-Placement Solver:
+ * - 'overall': 総合能力重視
+ * - 'tactical': 戦術適性重視
+ * - 'condition': コンディション重視
+ * - 'balanced': バランス重視
+ *
+ * Strictly preserves natural player.position, separates GK vs outfield,
+ * and supports liveMatchPitchOnly (rearranging only the active on-pitch players during a live match).
+ */
+export function autoArrangeTacticsLineup(
+  currentTactics: TeamTactics,
+  clubPlayerIds: string[],
+  playersMap: Record<string, Player>,
+  mode: AutoPlacementMode = 'balanced',
+  options?: {
+    liveMatchPitchOnly?: boolean;
+    excludedPlayerIds?: string[];
+  }
+): TeamTactics {
+  const template = FORMATION_TEMPLATES[currentTactics.formation] || FORMATION_TEMPLATES['4-3-3'];
+  if (!template || template.length !== 11) return currentTactics;
+
+  const excludedSet = new Set(options?.excludedPlayerIds || []);
+  const liveMatchPitchOnly = Boolean(options?.liveMatchPitchOnly);
+
+  if (liveMatchPitchOnly) {
+    const activePitchIds = (currentTactics.lineup?.starters || [])
+      .map(s => s.playerId)
+      .filter(id => id && Boolean(playersMap[id]) && !excludedSet.has(id));
+
+    if (activePitchIds.length === 0) return currentTactics;
+
+    const assignedPlayerIds = new Set<string>();
+    const assignedSlotIndices = new Set<number>();
+    const newStarters: Array<{ playerId: string; position: Position; pitchX: number; pitchY: number }> = [];
+
+    // 1. GK slot first
+    const gkSlotIdx = template.findIndex(s => s.position === 'GK');
+    if (gkSlotIdx !== -1) {
+      const gkSlot = template[gkSlotIdx];
+      let bestGkId = activePitchIds.find(id => playersMap[id]?.position === 'GK');
+      if (!bestGkId) {
+        bestGkId = activePitchIds[0];
+      }
+      if (bestGkId) {
+        assignedPlayerIds.add(bestGkId);
+        assignedSlotIndices.add(gkSlotIdx);
+        newStarters[gkSlotIdx] = {
+          playerId: bestGkId,
+          position: gkSlot.position,
+          pitchX: gkSlot.pitchX,
+          pitchY: gkSlot.pitchY
+        };
+      }
+    }
+
+    // 2. Optimal global greedy bipartite pairing of remaining active pitch players -> template outfield slots
+    while (assignedPlayerIds.size < activePitchIds.length && assignedSlotIndices.size < template.length) {
+      let bestPairScore = -Infinity;
+      let bestPId = '';
+      let bestSlotIdx = -1;
+
+      for (const pId of activePitchIds) {
+        if (assignedPlayerIds.has(pId)) continue;
+        const p = playersMap[pId];
+        if (!p) continue;
+        for (let sIdx = 0; sIdx < template.length; sIdx++) {
+          if (assignedSlotIndices.has(sIdx)) continue;
+          const s = scorePlayerForAutoSlot(p, template[sIdx].position, mode, currentTactics.instructions);
+          if (s > bestPairScore) {
+            bestPairScore = s;
+            bestPId = pId;
+            bestSlotIdx = sIdx;
+          }
+        }
+      }
+
+      if (!bestPId || bestSlotIdx === -1) break;
+      assignedPlayerIds.add(bestPId);
+      assignedSlotIndices.add(bestSlotIdx);
+      const slot = template[bestSlotIdx];
+      newStarters[bestSlotIdx] = {
+        playerId: bestPId,
+        position: slot.position,
+        pitchX: slot.pitchX,
+        pitchY: slot.pitchY
+      };
+    }
+
+    const compactStarters = newStarters.filter(Boolean);
+    const syncedCustom: Record<string, FreeCustomPositionCoord> = {};
+    compactStarters.forEach(s => {
+      if (s.playerId) {
+        syncedCustom[s.playerId] = {
+          x: Math.round((s.pitchX / 100) * 1000) / 1000,
+          y: Math.round((s.pitchY / 100) * 1000) / 1000,
+          position: s.position
+        };
+      }
+    });
+
+    return {
+      ...currentTactics,
+      customPositions: currentTactics.placementMode === 'free' ? syncedCustom : currentTactics.customPositions,
+      lineup: {
+        ...currentTactics.lineup,
+        starters: compactStarters
+      }
+    };
+  }
+
+  // Full Squad Selection (Pre-match / Tactics Squad Tab)
+  const squadPlayers = clubPlayerIds
+    .map(id => playersMap[id])
+    .filter((p): p is Player => Boolean(p) && !excludedSet.has(p.id));
+
+  const healthyEligible = squadPlayers.filter(
+    p => !p.injury?.isInjured && p.injuryStatus !== 'INJURED' && !p.suspension?.isSuspended
+  );
+  const candidatePool = healthyEligible.length >= 11 ? healthyEligible : squadPlayers;
+
+  const assignedIds = new Set<string>();
+  const assignedSlotIndices = new Set<number>();
+  const newStarters: Array<{ playerId: string; position: Position; pitchX: number; pitchY: number }> = new Array(11);
+
+  // 1. Strict GK slot assignment
+  const gkSlotIdx = template.findIndex(s => s.position === 'GK');
+  if (gkSlotIdx !== -1) {
+    const gkSlot = template[gkSlotIdx];
+    const gkCandidates = candidatePool
+      .filter(p => p.position === 'GK')
+      .sort(
+        (a, b) =>
+          scorePlayerForAutoSlot(b, 'GK', mode, currentTactics.instructions) -
+          scorePlayerForAutoSlot(a, 'GK', mode, currentTactics.instructions)
+      );
+    const chosenGk = gkCandidates[0] || candidatePool[0];
+    if (chosenGk) {
+      assignedIds.add(chosenGk.id);
+      assignedSlotIndices.add(gkSlotIdx);
+      newStarters[gkSlotIdx] = {
+        playerId: chosenGk.id,
+        position: gkSlot.position,
+        pitchX: gkSlot.pitchX,
+        pitchY: gkSlot.pitchY
+      };
+    }
+  }
+
+  // 2. Pair best available outfield players to remaining formation slots globally
+  // Prioritize most specialist / highest impact pairings cleanly
+  while (assignedSlotIndices.size < template.length) {
+    let bestScore = -Infinity;
+    let bestCandidate: Player | null = null;
+    let bestSlotIdx = -1;
+
+    for (const p of candidatePool) {
+      if (assignedIds.has(p.id)) continue;
+      if (p.position === 'GK') continue;
+      for (let sIdx = 0; sIdx < template.length; sIdx++) {
+        if (assignedSlotIndices.has(sIdx)) continue;
+        const slot = template[sIdx];
+        if (slot.position === 'GK') continue;
+        const sc = scorePlayerForAutoSlot(p, slot.position, mode, currentTactics.instructions);
+        if (sc > bestScore) {
+          bestScore = sc;
+          bestCandidate = p;
+          bestSlotIdx = sIdx;
+        }
+      }
+    }
+
+    if (!bestCandidate || bestSlotIdx === -1) break;
+    assignedIds.add(bestCandidate.id);
+    assignedSlotIndices.add(bestSlotIdx);
+    const slot = template[bestSlotIdx];
+    newStarters[bestSlotIdx] = {
+      playerId: bestCandidate.id,
+      position: slot.position,
+      pitchX: slot.pitchX,
+      pitchY: slot.pitchY
+    };
+  }
+
+  // Fill any edge empty slot if roster < 11
+  for (let sIdx = 0; sIdx < template.length; sIdx++) {
+    if (!newStarters[sIdx]) {
+      const slot = template[sIdx];
+      const fallback = squadPlayers.find(p => !assignedIds.has(p.id) && (slot.position === 'GK' ? p.position === 'GK' : p.position !== 'GK'));
+      if (fallback) assignedIds.add(fallback.id);
+      newStarters[sIdx] = {
+        playerId: fallback?.id || '',
+        position: slot.position,
+        pitchX: slot.pitchX,
+        pitchY: slot.pitchY
+      };
+    }
+  }
+
+  // 3. Build Bench (max 9, guarantee 1 GK if available, sorted by mode score)
+  const remainingHealthy = candidatePool.filter(p => !assignedIds.has(p.id));
+  const benchGk = remainingHealthy
+    .filter(p => p.position === 'GK')
+    .sort((a, b) => scorePlayerForAutoSlot(b, 'GK', mode) - scorePlayerForAutoSlot(a, 'GK', mode))[0];
+
+  const newBench: string[] = [];
+  if (benchGk) {
+    newBench.push(benchGk.id);
+    assignedIds.add(benchGk.id);
+  }
+
+  const remainingOutfield = remainingHealthy
+    .filter(p => p.position !== 'GK' && !assignedIds.has(p.id))
+    .sort((a, b) => {
+      const aScore = scorePlayerForAutoSlot(a, a.position, mode, currentTactics.instructions);
+      const bScore = scorePlayerForAutoSlot(b, b.position, mode, currentTactics.instructions);
+      return bScore - aScore;
+    });
+
+  for (const op of remainingOutfield) {
+    if (newBench.length >= 9) break;
+    newBench.push(op.id);
+    assignedIds.add(op.id);
+  }
+
+  const newReserves = squadPlayers.filter(p => !assignedIds.has(p.id)).map(p => p.id);
+
+  const syncedCustomPositions: Record<string, FreeCustomPositionCoord> = {};
+  newStarters.forEach(s => {
+    if (s.playerId) {
+      syncedCustomPositions[s.playerId] = {
+        x: Math.round((s.pitchX / 100) * 1000) / 1000,
+        y: Math.round((s.pitchY / 100) * 1000) / 1000,
+        position: s.position
+      };
+    }
+  });
+
+  return {
+    ...currentTactics,
+    placementMode: currentTactics.placementMode || 'formation',
+    customPositions: currentTactics.placementMode === 'free' ? syncedCustomPositions : currentTactics.customPositions,
+    lineup: {
+      starters: newStarters,
+      bench: newBench,
+      reserves: newReserves
+    }
+  };
+}
+

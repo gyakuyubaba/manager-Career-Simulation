@@ -48,6 +48,71 @@ export function addDays(dateStr: string, days: number): string {
   return d.toISOString().split('T')[0];
 }
 
+export function daysBetweenDates(fromDateStr: string, toDateStr: string): number {
+  const fromMs = new Date(fromDateStr).getTime();
+  const toMs = new Date(toDateStr).getTime();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return 99;
+  return Math.round((toMs - fromMs) / (1000 * 3600 * 24));
+}
+
+export function calculateDailyFatigueRecovery(
+  player: Player,
+  options: {
+    hasMatchToday: boolean;
+    trainingFocus: GameWorldState['trainingFocus'];
+    currentDate: string;
+  }
+): number {
+  const { hasMatchToday, trainingFocus, currentDate } = options;
+  const stamina = player.stamina ?? Math.round((player.physical || 75) * 0.92 + 6);
+  const physical = player.physical || 75;
+  const age = player.age || 25;
+
+  if (hasMatchToday) {
+    // Matchday light activation only
+    const matchdayRec = 1.5 + (stamina - 75) * 0.03 + (age <= 25 ? 0.5 : age >= 33 ? -0.5 : 0);
+    return Math.max(1, Math.min(4, Math.round(matchdayRec)));
+  }
+
+  let baseRecovery = trainingFocus === 'コンディション回復'
+    ? 12.5
+    : trainingFocus === '守備戦術・プレス'
+      ? 5.2
+      : 6.5;
+
+  // Individual stamina & physical contribution
+  baseRecovery += (stamina - 75) * 0.14;
+  baseRecovery += (physical - 75) * 0.07;
+
+  // Age recovery curve
+  if (age <= 22) baseRecovery += 1.6;
+  else if (age <= 28) baseRecovery += 0.6;
+  else if (age <= 32) baseRecovery -= 0.7;
+  else baseRecovery -= 1.8;
+
+  // Rest-day progression & fixture congestion awareness
+  if (player.lastMatchDate) {
+    const restDays = daysBetweenDates(player.lastMatchDate, currentDate);
+    if (restDays === 1) {
+      // Immediate day-after muscle soreness slows initial bounce back slightly
+      baseRecovery *= 0.85;
+    } else if (restDays >= 3) {
+      // Accumulated full rest accelerates supercompensation
+      baseRecovery *= 1.12;
+    }
+  }
+
+  const recentMatches6d = (player.recentMatchDates || []).filter(d => {
+    const diff = daysBetweenDates(d, currentDate);
+    return diff >= 0 && diff <= 6;
+  }).length;
+  if (recentMatches6d >= 2) {
+    baseRecovery *= 0.84;
+  }
+
+  return Math.max(2, Math.min(22, Math.round(baseRecovery)));
+}
+
 // Accurate age calculation based on birth date string and current game date (Requirement 9)
 export function calculateAge(birthDateStr: string, currentDateStr: string): number {
   if (!birthDateStr) return 25;
@@ -610,14 +675,14 @@ export function advanceOneDay(
       p.age = calculateAge(p.birthDate, nextDate);
     }
 
-    // Balanced multi-day fatigue recovery: slower on rest days (6 base / 12 recovery training), minimal pre-match recovery (2) on matchdays
+    // Individualized multi-day fatigue recovery based on stamina, physical, age, rest days, congestion & trainingFocus
     if (p.fatigue > 0) {
       const hasMatchToday = todayFixtures.some(f => f.homeClubId === p.clubId || f.awayClubId === p.clubId);
-      const restFactor = hasMatchToday
-        ? 2
-        : state.trainingFocus === 'コンディション回復'
-          ? 12
-          : 6;
+      const restFactor = calculateDailyFatigueRecovery(p, {
+        hasMatchToday,
+        trainingFocus: state.trainingFocus,
+        currentDate: nextDate
+      });
       p.fatigue = Math.max(0, p.fatigue - restFactor);
     }
 

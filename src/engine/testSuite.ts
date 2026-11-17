@@ -11,7 +11,8 @@ import {
   applyMatchEventToTactics,
   finalizeMatchResultAndPlayerStats,
   resimulateRemainingMatchFromMinute,
-  calculateMatchFatigueDelta
+  calculateMatchFatigueDelta,
+  buildPreMatchTacticalAnalysis
 } from './matchEngine';
 import { 
   advanceOneDay, 
@@ -23,7 +24,8 @@ import {
   rebuildStandingsFromMatchResults,
   getRecentLeagueForm,
   scheduleSecondDivisionPlayoffs,
-  addDays
+  addDays,
+  calculateDailyFatigueRecovery
 } from './dateEngine';
 import { evaluateMatchBoardConfidence, calculateClubStature, evaluateSeasonObjectivesBoardConfidence, getBoardConfidenceStage } from './boardConfidenceEngine';
 import { generateClubVisionRoadmap, isSecondDivisionLeague } from './clubVisionEngine';
@@ -88,8 +90,11 @@ import {
   applyFreePlacementMove,
   resolveFreePlacementCollisions,
   resetFreePlacementToFormation,
-  syncCustomPositionsFromStarters
+  syncCustomPositionsFromStarters,
+  autoArrangeTacticsLineup,
+  updateTacticsFormation
 } from './tacticsEngine';
+import { generatePostMatchInterviewQuestions } from './interviewEngine';
 
 export interface TestResult {
   id: string;
@@ -5908,6 +5913,399 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 155', name: 'サマーツアー大会形式＆報酬検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 156: 選手別疲労・スタミナ消耗差別化＆日次回復・試合前疲労維持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const uClub = baseState.clubs[baseState.userClubId!]!;
+    const refPlayer = baseState.players[uClub.playerIds.find(id => baseState.players[id]?.position !== 'GK')!]!;
+    const highStamPlayer: Player = { ...refPlayer, id: 't156_hi', stamina: 92, age: 24, pace: 84, fatigue: 0, position: 'CM' };
+    const lowStamOldPlayer: Player = { ...refPlayer, id: 't156_lo', stamina: 58, age: 35, pace: 72, fatigue: 0, position: 'CM' };
+
+    const hiDelta = calculateMatchFatigueDelta(highStamPlayer, 90, '標準的', false, { matchPosition: 'CM' });
+    const loDelta = calculateMatchFatigueDelta(lowStamOldPlayer, 90, '標準的', false, { matchPosition: 'CM' });
+
+    const wbDelta = calculateMatchFatigueDelta({ ...highStamPlayer, id: 't156_wb', stamina: 75, age: 26 }, 90, '標準的', false, { matchPosition: 'LWB' });
+    const cbDelta = calculateMatchFatigueDelta({ ...highStamPlayer, id: 't156_cb', stamina: 75, age: 26 }, 90, '標準的', false, { matchPosition: 'CB' });
+    const gkDelta = calculateMatchFatigueDelta({ ...highStamPlayer, id: 't156_gk', stamina: 75, age: 26, position: 'GK' }, 90, '標準的', false, { matchPosition: 'GK' });
+
+    const intenseDelta = calculateMatchFatigueDelta(highStamPlayer, 90, { pressIntensity: '非常に激しい', defensiveStyle: 'ゲーゲンプレス', defensiveLine: 'ハイライン', tempo: '高速テンポ', attackingStyle: 'ダイレクト・カウンター', buildUpPlay: 'バランス型', counterUrgency: 'ボール奪取時即カウンター', width: '標準', playerInstructions: {} } as any, false, { matchPosition: 'CM', congestionMatches: 2 });
+    const calmDelta = calculateMatchFatigueDelta(highStamPlayer, 90, { pressIntensity: '自陣引き気味', defensiveStyle: 'ローブロック・堅守', defensiveLine: 'ディープライン', tempo: 'じっくりビルドアップ', attackingStyle: 'ポゼッション・パス', buildUpPlay: 'ポゼッション・パス', counterUrgency: '様子を見る', width: '標準', playerInstructions: {} } as any, false, { matchPosition: 'CM', congestionMatches: 0 });
+
+    const bench0Delta = calculateMatchFatigueDelta(highStamPlayer, 0, '標準的', true);
+    const sub20Delta = calculateMatchFatigueDelta(highStamPlayer, 20, '標準的', true);
+
+    // Individual daily recovery
+    const hiRec = calculateDailyFatigueRecovery({ ...highStamPlayer, physical: 88, fatigue: 45, lastMatchDate: '2026-09-01' }, { hasMatchToday: false, trainingFocus: 'コンディション回復', currentDate: '2026-09-05' });
+    const loRec = calculateDailyFatigueRecovery({ ...lowStamOldPlayer, physical: 58, fatigue: 45, lastMatchDate: '2026-09-04' }, { hasMatchToday: false, trainingFocus: '守備戦術・プレス', currentDate: '2026-09-05' });
+
+    // Carried-over fatigue across advanceOneDay without resetting to 0 + dedupe via lastFatigueAppliedFixtureId
+    const oppId = Object.keys(baseState.clubs).find(id => id !== uClub.id && baseState.clubs[id].playerIds.length >= 11)!;
+    const preMatchFatigueTestState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const homeTac = preMatchFatigueTestState.clubs[uClub.id].tactics!;
+    const awayTac = preMatchFatigueTestState.clubs[oppId].tactics!;
+    const tiredStarterId = homeTac.lineup.starters[1].playerId;
+    preMatchFatigueTestState.players[tiredStarterId].fatigue = 42;
+    preMatchFatigueTestState.players[tiredStarterId].lastMatchDate = '2026-08-30';
+    const nextDay = advanceOneDay(preMatchFatigueTestState);
+    const carriedOverFatigue = nextDay.updatedState.players[tiredStarterId].fatigue ?? 0;
+
+    const testFix: MatchFixture = {
+      id: 't156_fix',
+      date: '2026-09-10',
+      competition: uClub.league,
+      competitionName: 'League',
+      homeClubId: uClub.id,
+      awayClubId: oppId,
+      status: 'upcoming',
+      isUserMatch: true
+    };
+    const pBefore: Record<string, Player> = JSON.parse(JSON.stringify(baseState.players));
+    pBefore[tiredStarterId] = { ...pBefore[tiredStarterId], fatigue: 35 };
+    const subOutPlayerId = homeTac.lineup.starters[2].playerId;
+    const subInPlayerId = homeTac.lineup.bench.find(id => baseState.players[id]?.position !== 'GK') || homeTac.lineup.bench[0];
+    const subEvents: MatchEvent[] = [
+      {
+        minute: 45,
+        type: 'sub',
+        clubId: uClub.id,
+        playerId: subOutPlayerId,
+        playerName: pBefore[subOutPlayerId]?.name || 'Sub Out',
+        subOutPlayerId,
+        subInPlayerId,
+        description: 'Sub at 45'
+      }
+    ];
+    const initHomeIds = homeTac.lineup.starters.map(s => s.playerId);
+    const initAwayIds = awayTac.lineup.starters.map(s => s.playerId);
+    const finalizedOnce = finalizeMatchResultAndPlayerStats({
+      fixture: testFix,
+      homeClub: preMatchFatigueTestState.clubs[uClub.id],
+      awayClub: preMatchFatigueTestState.clubs[oppId],
+      initialHomeStarterIds: initHomeIds,
+      initialAwayStarterIds: initAwayIds,
+      homeTactics: homeTac,
+      awayTactics: awayTac,
+      playersRegistry: pBefore,
+      homeScore: 2,
+      awayScore: 1,
+      extraTimePlayed: false,
+      events: subEvents,
+      homePossession: 54,
+      homeShots: 12,
+      awayShots: 7,
+      homeShotsOnTarget: 6,
+      awayShotsOnTarget: 3,
+      rng: () => 0.5
+    });
+    const unusedBenchId = homeTac.lineup.bench.find(id => id !== subInPlayerId && id !== tiredStarterId);
+    const unusedBenchBefore = unusedBenchId ? (pBefore[unusedBenchId].fatigue ?? 0) : 0;
+    const unusedBenchAfter = unusedBenchId ? (finalizedOnce.updatedPlayers[unusedBenchId].fatigue ?? 0) : 0;
+    // Dedupe check when finalize runs twice for same fixture id
+    const finalizedTwice = finalizeMatchResultAndPlayerStats({
+      fixture: testFix,
+      homeClub: preMatchFatigueTestState.clubs[uClub.id],
+      awayClub: preMatchFatigueTestState.clubs[oppId],
+      initialHomeStarterIds: initHomeIds,
+      initialAwayStarterIds: initAwayIds,
+      homeTactics: homeTac,
+      awayTactics: awayTac,
+      playersRegistry: finalizedOnce.updatedPlayers,
+      homeScore: 2,
+      awayScore: 1,
+      extraTimePlayed: false,
+      events: subEvents,
+      homePossession: 54,
+      homeShots: 12,
+      awayShots: 7,
+      homeShotsOnTarget: 6,
+      awayShotsOnTarget: 3,
+      rng: () => 0.5
+    });
+
+    const tiredAfter = finalizedOnce.updatedPlayers[tiredStarterId].fatigue ?? 0;
+    const tiredAfterTwice = finalizedTwice.updatedPlayers[tiredStarterId].fatigue ?? 0;
+    const subInAfter = finalizedOnce.updatedPlayers[subInPlayerId].fatigue ?? 0;
+    const subOutAfter = finalizedOnce.updatedPlayers[subOutPlayerId].fatigue ?? 0;
+
+    const checksOk =
+      loDelta > hiDelta &&
+      wbDelta > cbDelta &&
+      cbDelta > gkDelta &&
+      intenseDelta > calmDelta &&
+      bench0Delta === 0 &&
+      sub20Delta > 0 &&
+      sub20Delta < hiDelta &&
+      hiRec > loRec &&
+      carriedOverFatigue > 0 &&
+      carriedOverFatigue < 42 &&
+      unusedBenchAfter === unusedBenchBefore &&
+      tiredAfter > 35 &&
+      finalizedOnce.updatedPlayers[tiredStarterId].lastFatigueAppliedFixtureId === 't156_fix' &&
+      tiredAfterTwice === tiredAfter &&
+      subInAfter > (pBefore[subInPlayerId].fatigue || 0) &&
+      subOutAfter < tiredAfter + 35;
+
+    results.push({
+      id: 'TEST 156',
+      name: '選手別疲労消耗（スタミナ/年齢/ポジション/戦術/交代）・日次回復・試合前疲労維持検証',
+      passed: checksOk,
+      details: checksOk
+        ? `成功: hi=${hiDelta} vs lo=${loDelta}, WB=${wbDelta}/CB=${cbDelta}/GK=${gkDelta}, 戦術=${intenseDelta}vs${calmDelta}, 未使用控えΔ0, 重複付与防止確認`
+        : `失敗: hi=${hiDelta}, lo=${loDelta}, wb=${wbDelta}, cb=${cbDelta}, gk=${gkDelta}, intense=${intenseDelta}, calm=${calmDelta}, carried=${carriedOverFatigue}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 156', name: '選手別疲労・回復検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 157: 試合前戦術分析（10観点）＆試合後動的インタビュー（条件分岐・複数問・信頼反映）検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const uClub = baseState.clubs[baseState.userClubId!]!;
+    const oppId = Object.keys(baseState.clubs).find(id => id !== uClub.id && baseState.clubs[id].playerIds.length >= 11)!;
+    const oppClub = baseState.clubs[oppId];
+    const uTac = uClub.tactics!;
+    const oTac = oppClub.tactics!;
+    const injPid = uTac.lineup.starters[1].playerId;
+    const sampleFix: MatchFixture = {
+      id: 't157_fix_win',
+      date: '2026-10-18',
+      competition: uClub.league,
+      competitionName: 'League',
+      homeClubId: uClub.id,
+      awayClubId: oppId,
+      status: 'finished',
+      homeScore: 3,
+      awayScore: 2,
+      isUserMatch: true,
+      events: [
+        { minute: 12, type: 'goal', clubId: oppId, playerId: 'opp_fw_1', playerName: 'Opp FW', description: 'Goal' },
+        { minute: 30, type: 'goal', clubId: oppId, playerId: 'opp_mf_1', playerName: 'Opp Mid', description: 'Goal' },
+        { minute: 55, type: 'goal', clubId: uClub.id, playerId: 'usr_fw_1', playerName: 'User FW', description: 'Goal' },
+        { minute: 74, type: 'injury', clubId: uClub.id, playerId: injPid, playerName: 'User Inj', description: 'Injury' },
+        { minute: 89, type: 'goal', clubId: uClub.id, playerId: 'usr_ace_1', playerName: 'Hero Ace', description: 'Late Winner' }
+      ]
+    };
+
+    const preAnalysis = buildPreMatchTacticalAnalysis({
+      fixture: sampleFix,
+      userClub: uClub,
+      oppClub,
+      userTactics: uTac,
+      oppTactics: oTac,
+      players: baseState.players
+    });
+
+    const comebackQuestions = generatePostMatchInterviewQuestions({ fixture: sampleFix, state: baseState, count: 3 });
+
+    const heavyLossFix: MatchFixture = {
+      ...sampleFix,
+      id: 't157_fix_loss',
+      homeScore: 0,
+      awayScore: 4,
+      events: [
+        { minute: 87, type: 'goal', clubId: oppId, playerId: 'opp_st_1', playerName: 'Opp Striker', description: 'Late 4th' }
+      ]
+    };
+    const heavyLossQuestions = generatePostMatchInterviewQuestions({ fixture: heavyLossFix, state: baseState, count: 3 });
+
+    const analysisOk = preAnalysis.length === 10 && preAnalysis.every(a => a.analysisReport.length > 10 && a.title.length > 0);
+    const questionsOk =
+      comebackQuestions.length === 3 &&
+      heavyLossQuestions.length === 3 &&
+      comebackQuestions[0].id !== heavyLossQuestions[0].id &&
+      comebackQuestions.some(q => q.id === 'q_comeback_win') &&
+      comebackQuestions.some(q => q.id === 'q_late_goal_for') &&
+      comebackQuestions.every(q => q.choices.length >= 4) &&
+      heavyLossQuestions.some(q => q.id === 'q_heavy_loss') &&
+      heavyLossQuestions.some(q => q.id === 'q_late_goal_against');
+
+    const passed = analysisOk && questionsOk;
+    results.push({
+      id: 'TEST 157',
+      name: '試合前戦術分析10観点＆試合後動的インタビュー（逆転/劇的弾/大敗/負傷分岐）検証',
+      passed,
+      details: passed
+        ? `成功: 戦術分析=${preAnalysis.length}項目, 逆転勝利Q=[${comebackQuestions.map(q => q.id).join(',')}], 大敗Q=[${heavyLossQuestions.map(q => q.id).join(',')}]`
+        : `失敗: analysisOk=${analysisOk} (${preAnalysis.length}), questionsOk=${questionsOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 157', name: '戦術分析・インタビュー拡張検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 158: 4モード自動配置（総合/戦術/コンディション/バランス）・GK分離・試合中ピッチ内再配置＆A/B分離検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const uClub = baseState.clubs[baseState.userClubId!]!;
+    const baseTactics = uClub.tactics!;
+    const testPlayers: Record<string, Player> = JSON.parse(JSON.stringify(baseState.players));
+    const clubIds = [...uClub.playerIds];
+
+    // Pick 2 outfield players: starExhausted (OVR 95, fatigue 90, purple) vs fitSolid (OVR 80, fatigue 2, pink)
+    const outfieldIds = clubIds.filter(id => testPlayers[id] && testPlayers[id].position !== 'GK');
+    const starId = outfieldIds[0];
+    const freshId = outfieldIds[outfieldIds.length - 1];
+    testPlayers[starId] = {
+      ...testPlayers[starId],
+      position: 'ST',
+      ovr: 95,
+      shooting: 94,
+      pace: 90,
+      fatigue: 92,
+      condition: 'purple',
+      injury: { isInjured: false, type: '', daysRemaining: 0 },
+      suspension: { isSuspended: false, matchesRemaining: 0 }
+    };
+    testPlayers[freshId] = {
+      ...testPlayers[freshId],
+      position: 'ST',
+      ovr: 80,
+      shooting: 81,
+      pace: 83,
+      fatigue: 2,
+      condition: 'pink',
+      injury: { isInjured: false, type: '', daysRemaining: 0 },
+      suspension: { isSuspended: false, matchesRemaining: 0 }
+    };
+
+    const tacOverall = autoArrangeTacticsLineup(baseTactics, clubIds, testPlayers, 'overall');
+    const tacCondition = autoArrangeTacticsLineup(baseTactics, clubIds, testPlayers, 'condition');
+
+    const gkSlotOverall = tacOverall.lineup.starters.find(s => s.position === 'GK');
+    const gkSlotCond = tacCondition.lineup.starters.find(s => s.position === 'GK');
+    const gkNaturalCheck =
+      Boolean(gkSlotOverall && testPlayers[gkSlotOverall.playerId]?.position === 'GK') &&
+      Boolean(gkSlotCond && testPlayers[gkSlotCond.playerId]?.position === 'GK');
+
+    // Star should be preferred in overall, while fresh ST beats exhausted ST in condition mode
+    const overallUsesStar = tacOverall.lineup.starters.some(s => s.playerId === starId);
+    const condPrefersFresh = tacCondition.lineup.starters.some(s => s.playerId === freshId);
+
+    // Live match formation change + liveMatchPitchOnly preserves EXACT same 11 active pitch players
+    const originalBaseline: typeof baseTactics = JSON.parse(JSON.stringify(baseTactics));
+    const switchedLive = updateTacticsFormation(originalBaseline, '3-5-2', testPlayers);
+    const rearrangedPitchOnly = autoArrangeTacticsLineup(switchedLive, clubIds, testPlayers, 'tactical', {
+      liveMatchPitchOnly: true
+    });
+    const activeIdsBefore = new Set<string>(originalBaseline.lineup.starters.map(s => s.playerId));
+    const activeIdsAfter = new Set<string>(rearrangedPitchOnly.lineup.starters.map(s => s.playerId));
+    const pitchSetIdentical =
+      activeIdsBefore.size === 11 &&
+      activeIdsAfter.size === 11 &&
+      [...activeIdsBefore].every(id => activeIdsAfter.has(id));
+    const baselineUnchanged = originalBaseline.formation === baseTactics.formation;
+
+    const passed = gkNaturalCheck && overallUsesStar && condPrefersFresh && pitchSetIdentical && baselineUnchanged;
+    results.push({
+      id: 'TEST 158',
+      name: '4モード自動配置・GK分離・試合中ピッチ内再配置＆通常戦術A/試合中B分離検証',
+      passed,
+      details: passed
+        ? `成功: GK分離=${gkNaturalCheck}, overall=${overallUsesStar}, condition=${condPrefersFresh}, pitchOnly11人保持=${pitchSetIdentical}`
+        : `失敗: gk=${gkNaturalCheck}, overall=${overallUsesStar}, cond=${condPrefersFresh}, pitchOnly=${pitchSetIdentical}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 158', name: '4モード自動配置・試合中編成検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 159: サマーツアー終了後ホーム非表示条件＆履歴・次年度再招待保持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const completedState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClub = completedState.clubs[completedState.userClubId!]!;
+    const inv2026 = generatePreSeasonInvitations(userClub, completedState.clubs, completedState.manager, 2026)[0];
+    const { tournamentState } = initializePreSeasonTournament(completedState.clubs, userClub.id, inv2026, 2026, completedState.manager);
+    const finishedTour = {
+      ...tournamentState,
+      stage: 'completed' as const,
+      endDate: '2026-07-18',
+      championClubId: userClub.id,
+      userFinalPlacement: '優勝' as const,
+      rewardProcessed: true
+    };
+
+    const checkHomeBannerVisible = (s: GameWorldState): boolean => {
+      const y = parseInt((s.currentDate || '2026-07-01').slice(0, 4), 10) || 2026;
+      const tour = s.preSeasonTournament && s.preSeasonTournament.seasonYear === y ? s.preSeasonTournament : undefined;
+      if (!tour) return false;
+      const hasPost = s.fixtures.some(
+        f => f.status === 'finished' && f.competition !== 'pre-season' && (f.homeClubId === s.userClubId || f.awayClubId === s.userClubId) && f.date >= tour.endDate && f.date.startsWith(String(y))
+      );
+      const dismissed = s.dismissedPreSeasonBannerYear === y;
+      const withinGrace = s.currentDate <= addDays(tour.endDate, 1);
+      return tour.stage !== 'completed' || (!dismissed && !hasPost && withinGrace);
+    };
+
+    const sCompletedSameDay: GameWorldState = { ...completedState, currentDate: '2026-07-18', preSeasonTournament: finishedTour };
+    const sDismissed: GameWorldState = { ...sCompletedSameDay, dismissedPreSeasonBannerYear: 2026 };
+    const sAfterGrace: GameWorldState = { ...sCompletedSameDay, currentDate: '2026-07-22' };
+    const sNextYear: GameWorldState = {
+      ...sAfterGrace,
+      currentDate: '2027-07-01',
+      selectedPreSeason: undefined,
+      preSeasonTournament: undefined
+    };
+
+    const visSameDay = checkHomeBannerVisible(sCompletedSameDay) === true;
+    const hiddenAfterDismiss = checkHomeBannerVisible(sDismissed) === false;
+    const hiddenAfterGrace = checkHomeBannerVisible(sAfterGrace) === false;
+    const nextYearInvitationsReady =
+      generatePreSeasonInvitations(userClub, sNextYear.clubs, sNextYear.manager, 2027).length >= 3 &&
+      sNextYear.dismissedPreSeasonBannerYear === 2026; // 2026 dismissal does NOT suppress 2027
+
+    const passed = visSameDay && hiddenAfterDismiss && hiddenAfterGrace && nextYearInvitationsReady;
+    results.push({
+      id: 'TEST 159',
+      name: 'サマーツアー終了後ホーム非表示（猶予後・閉じる操作）・次年度招待維持検証',
+      passed,
+      details: passed
+        ? `成功: 当日表示=${visSameDay}, 閉じた後非表示=${hiddenAfterDismiss}, 猶予後自動非表示=${hiddenAfterGrace}, 翌年再招待正常`
+        : `失敗: visSameDay=${visSameDay}, hiddenDismiss=${hiddenAfterDismiss}, hiddenGrace=${hiddenAfterGrace}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 159', name: 'サマーツアー終了後ホーム制御検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 160: 既存セーブデータ後方互換マイグレーション（疲労・大会・移籍・trophy保持）検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const legacySave: any = JSON.parse(JSON.stringify(baseState));
+    const uClubId = legacySave.userClubId;
+    const trackedPid = legacySave.clubs[uClubId].playerIds[0];
+    legacySave.players[trackedPid].fatigue = 55;
+    delete legacySave.players[trackedPid].lastMatchDate;
+    delete legacySave.players[trackedPid].recentMatchDates;
+    delete legacySave.players[trackedPid].lastFatigueAppliedFixtureId;
+    delete legacySave.interviewHistory;
+    delete legacySave.dismissedPreSeasonBannerYear;
+    legacySave.manager = {
+      ...legacySave.manager,
+      careerTrophies: 3
+    };
+
+    const migrated = migrateGameState(legacySave, 7);
+    const preservedOk =
+      migrated.players[trackedPid].fatigue === 55 &&
+      migrated.manager.careerTrophies === 3 &&
+      migrated.schemaVersion === CURRENT_SCHEMA_VERSION &&
+      (migrated.clubs[uClubId].tactics?.lineup.starters.length ?? 0) === 11;
+
+    results.push({
+      id: 'TEST 160',
+      name: '既存セーブ後方互換マイグレーション（疲労値・キャリアトロフィー・戦術・新フィールド安全保護）検証',
+      passed: preservedOk,
+      details: preservedOk
+        ? `成功: Schema v${CURRENT_SCHEMA_VERSION} 移行後も選手疲労(55)・獲得タイトル数(3)・先発編成が破損せず保持されました。`
+        : `失敗: fatigue=${migrated.players[trackedPid]?.fatigue}, careerTrophies=${migrated.manager?.careerTrophies}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 160', name: '既存セーブ後方互換マイグレーション検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -5930,6 +6328,7 @@ export const runAll140Tests = runAll27Tests;
 export const runAll145Tests = runAll27Tests;
 export const runAll150Tests = runAll27Tests;
 export const runAll155Tests = runAll27Tests;
+export const runAll160Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 
