@@ -73,9 +73,13 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
       }
     })();
 
+    const qController = new AbortController();
+    const qTimer = setTimeout(() => qController.abort(), 12000);
+
     fetch('/api/press-conference-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: qController.signal,
       body: JSON.stringify({
         provider: storedProvider,
         clubName: userClub?.name || '自クラブ',
@@ -107,10 +111,15 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
       })
       .catch(() => {
         // Keep deterministic questions silently on network/API unavailability
+      })
+      .finally(() => {
+        clearTimeout(qTimer);
       });
 
     return () => {
       active = false;
+      clearTimeout(qTimer);
+      qController.abort();
     };
   }, [fixture.id]);
 
@@ -139,10 +148,13 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
       }
     })();
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
     try {
       const response = await fetch('/api/press-conference', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           provider: storedProvider,
           question: finalTranscript[0]?.question,
@@ -232,6 +244,7 @@ export const PressConferenceModal: React.FC<Props> = ({ fixture, state, onComple
       };
       onComplete(fallbackNews, totalTrustDelta, totalBoardDelta, record);
     } finally {
+      clearTimeout(timer);
       setIsSubmitting(false);
     }
   };

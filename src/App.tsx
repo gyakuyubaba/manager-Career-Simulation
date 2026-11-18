@@ -167,7 +167,9 @@ export default function App() {
     if (!gameState) return;
     setGameState({
       ...gameState,
-      tactics
+      tactics,
+      autoSubstitutionEnabled:
+        tactics.autoSubstitutionEnabled ?? gameState.autoSubstitutionEnabled ?? true
     });
   };
 
@@ -686,6 +688,11 @@ export default function App() {
         <PlayerDetailModal
           player={inspectingPlayer}
           club={stateClubForPlayer(gameState, inspectingPlayer.clubId)}
+          userClub={gameState.userClubId ? gameState.clubs[gameState.userClubId] : null}
+          manager={gameState.manager}
+          standings={gameState.standings}
+          tournaments={gameState.tournaments}
+          clubs={gameState.clubs}
           isUserPlayer={inspectingPlayer.clubId === gameState.userClubId}
           isShortlisted={Boolean(
             (gameState.shortlistPlayerIds && gameState.shortlistPlayerIds.includes(inspectingPlayer.id)) || inspectingPlayer.isOnShortlist

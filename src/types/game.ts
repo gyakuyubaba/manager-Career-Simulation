@@ -260,9 +260,11 @@ export interface Player {
   contractYearsRemaining?: number;
   accumulatedYellowCards?: Record<string, number>; // competition -> count
   accumulatedRedCards?: Record<string, number>;
-  // Type 2 High School Player Registration (2種登録選手)
+  // Type 2 High School Player Registration (2種登録選手) & Special Designated Player (特別指定選手)
   isType2Registered?: boolean;
   isType2?: boolean;
+  isSpecialDesignated?: boolean;
+  specialDesignatedUniversity?: string;
 
   // Data Verification Status (公式データ再検証ステータス)
   isVerified?: boolean;
@@ -639,6 +641,7 @@ export interface TeamTactics {
   formation: FormationName;
   placementMode?: 'formation' | 'free';
   customPositions?: Record<string, FreeCustomPositionCoord>;
+  autoSubstitutionEnabled?: boolean;
   lineup: {
     starters: { playerId: string; position: Position; pitchX: number; pitchY: number }[];
     bench: string[];
@@ -707,6 +710,7 @@ export interface MatchEvent {
   subInPlayerId?: string;
   subInPlayerName?: string;
   description: string;
+  reason?: string;
   goalDetail?: GoalDetail;
 }
 
@@ -717,6 +721,7 @@ export interface MatchSubstitutionRecord {
   outPlayerName: string;
   inPlayerId: string;
   inPlayerName: string;
+  reason?: string;
 }
 
 export interface PlayerMatchStatSummary {
@@ -843,6 +848,8 @@ export interface TournamentCompetition {
   leaguePhaseTable?: StandingsRow[];
 }
 
+export type TournamentCompetitionsState = Partial<Record<CupKey, TournamentCompetition>>;
+
 export interface StandingsRow {
   clubId: string;
   clubName: string;
@@ -857,20 +864,55 @@ export interface StandingsRow {
   form: ('W' | 'D' | 'L')[];
 }
 
+export type PlayerInterestTier = '非常に高い' | '高い' | '普通' | '低い' | '非常に低い';
+
+export interface CompetingOffer {
+  id: string;
+  clubId: string;
+  clubName: string;
+  clubTier: Club['tier'];
+  leagueKey: LeagueKey;
+  leagueName: string;
+  hasEuropeanFootball?: boolean;
+  europeanCompetition?: 'UCL' | 'UEL' | 'UECL' | 'NONE';
+  offeredFee: number;
+  wageOffered: number;
+  contractYearsOffered: number;
+  squadRoleOffered: Player['squadRole'];
+  totalPackageScore: number;
+  submittedDate: string;
+  status: 'active' | 'accepted_by_player' | 'rejected' | 'withdrawn';
+  reason?: string;
+}
+
 export interface TransferNegotiation {
   id: string;
   playerId: string;
   sellerClubId: string;
   buyerClubId: string;
-  status: 'club_negotiating' | 'club_agreed' | 'player_negotiating' | 'completed' | 'collapsed';
+  status: 'club_negotiating' | 'club_agreed' | 'player_negotiating' | 'terms_agreed' | 'completed' | 'collapsed' | 'hijacked';
   isLoan: boolean;
   negotiationType?: 'permanent' | 'loan' | 'buy_option' | 'dev_loan';
   buyOptionFee?: number;
   cooldownUntil?: string; // 10-day renegotiation ban date after collapse
+  createdDate?: string;
+  lastUpdatedDate?: string;
+  negotiationDeadline?: string;
+
+  // Interest & Acquisition Likelihood
+  interestTier?: PlayerInterestTier;
+  interestScore?: number;
+  interestReasons?: string[];
+  acquisitionProbability?: number;
+  competingOffers?: CompetingOffer[];
+  outcomeReason?: string;
+  hijackedByClubId?: string;
+  hijackedByClubName?: string;
   
   // Club Stage
   initialAskingPrice: number;
   currentBidFee: number;
+  clubAgreedFee?: number;
   clubPatience: number; // 1 to 4 warnings before walkout
   clubMessages: { sender: 'user' | 'ai'; text: string; date: string }[];
 
@@ -1153,6 +1195,7 @@ export interface GameWorldState {
   consecutiveLosses: number;
   consecutiveWinless?: number; // Tracks draws + losses for realistic crisis penalty
   isSacked: boolean;
+  autoSubstitutionEnabled?: boolean;
   difficultySettings: DifficultySettings;
 
   clubs: Record<string, Club>;

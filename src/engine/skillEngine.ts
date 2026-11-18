@@ -175,27 +175,27 @@ function pickInitialTier(ovr: number, age: number, idx: number, hash: number): S
 }
 
 const SIGNATURE_SKILL_PRESETS: Array<{
-  match: (name: string) => boolean;
+  match: (name: string, player: Player) => boolean;
   normal: string[];
   rare: string[];
 }> = [
-  { match: n => n.includes('Messi') || n.includes('メッシ'), normal: ['skill_02', 'skill_03', 'skill_14', 'skill_23', 'skill_34', 'skill_55', 'skill_66'], rare: ['rare_03', 'rare_04'] },
-  { match: n => n.includes('Cristiano Ronaldo') || n.includes('ロナウド'), normal: ['skill_01', 'skill_07', 'skill_08', 'skill_55', 'skill_57', 'skill_59', 'skill_68'], rare: ['rare_01', 'rare_07'] },
-  { match: n => n.includes('Mbappé') || n.includes('Mbappe'), normal: ['skill_01', 'skill_03', 'skill_15', 'skill_17', 'skill_22', 'skill_47', 'skill_65'], rare: ['rare_01', 'rare_07'] },
-  { match: n => n.includes('Haaland'), normal: ['skill_01', 'skill_07', 'skill_12', 'skill_47', 'skill_48', 'skill_65'], rare: ['rare_01', 'rare_11'] },
-  { match: n => n.includes('Yamal'), normal: ['skill_02', 'skill_14', 'skill_15', 'skill_22', 'skill_28', 'skill_32', 'skill_34'], rare: ['rare_02', 'rare_13'] },
-  { match: n => n.includes('Raphinha'), normal: ['skill_02', 'skill_15', 'skill_17', 'skill_28', 'skill_54', 'skill_55', 'skill_65'], rare: ['rare_08', 'rare_13'] },
-  { match: n => n.includes('Rodri'), normal: ['skill_05', 'skill_20', 'skill_26', 'skill_35', 'skill_40', 'skill_44', 'skill_63'], rare: ['rare_04', 'rare_12'] },
-  { match: n => n.includes('Bellingham'), normal: ['skill_12', 'skill_19', 'skill_20', 'skill_34', 'skill_52', 'skill_61', 'skill_68'], rare: ['rare_08', 'rare_07'] },
-  { match: n => n.includes('ter Stegen'), normal: ['skill_69', 'skill_72', 'skill_74', 'skill_76', 'skill_79', 'skill_80'], rare: ['rare_06'] },
-  { match: n => n.includes('Donnarumma') || n.includes('Courtois') || n.includes('Alisson'), normal: ['skill_69', 'skill_70', 'skill_75', 'skill_76', 'skill_77', 'skill_78'], rare: ['rare_06', 'rare_15'] },
-  { match: n => n.includes('Kvaratskhelia'), normal: ['skill_02', 'skill_13', 'skill_15', 'skill_22', 'skill_28', 'skill_67'], rare: ['rare_02', 'rare_13'] },
-  { match: n => n.includes('三笘') || n.includes('Mitoma'), normal: ['skill_14', 'skill_15', 'skill_16', 'skill_17', 'skill_22', 'skill_29'], rare: ['rare_02'] },
-  { match: n => n.includes('久保') || n.includes('Kubo'), normal: ['skill_02', 'skill_14', 'skill_15', 'skill_23', 'skill_34', 'skill_55'], rare: ['rare_03'] },
-  { match: n => n.includes('師岡'), normal: ['skill_12', 'skill_19', 'skill_21', 'skill_54', 'skill_64', 'skill_65'], rare: [] },
-  { match: n => n.includes('名古'), normal: ['skill_23', 'skill_24', 'skill_28', 'skill_34', 'skill_55', 'skill_66'], rare: [] },
-  { match: n => n.includes('サニブラウン'), normal: ['skill_16', 'skill_47', 'skill_53'], rare: [] },
-  { match: n => n.includes('三井寺'), normal: ['skill_14', 'skill_23', 'skill_34', 'skill_66'], rare: [] }
+  { match: (n, p) => p.position !== 'GK' && (n.includes('Lionel Messi') || n.includes('リオネル・メッシ') || n === 'メッシ'), normal: ['skill_02', 'skill_03', 'skill_14', 'skill_23', 'skill_34', 'skill_55', 'skill_66'], rare: ['rare_03', 'rare_04'] },
+  { match: (n, p) => p.position !== 'GK' && (n.includes('Cristiano Ronaldo') || n.includes('クリスティアーノ・ロナウド')), normal: ['skill_01', 'skill_07', 'skill_08', 'skill_55', 'skill_57', 'skill_59', 'skill_68'], rare: ['rare_01', 'rare_07'] },
+  { match: (n, p) => p.position !== 'GK' && (n.includes('Mbappé') || n.includes('Mbappe')), normal: ['skill_01', 'skill_03', 'skill_15', 'skill_17', 'skill_22', 'skill_47', 'skill_65'], rare: ['rare_01', 'rare_07'] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('Haaland'), normal: ['skill_01', 'skill_07', 'skill_12', 'skill_47', 'skill_48', 'skill_65'], rare: ['rare_01', 'rare_11'] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('Lamine Yamal'), normal: ['skill_02', 'skill_14', 'skill_15', 'skill_22', 'skill_28', 'skill_32', 'skill_34'], rare: ['rare_02', 'rare_13'] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('Raphinha'), normal: ['skill_02', 'skill_15', 'skill_17', 'skill_28', 'skill_54', 'skill_55', 'skill_65'], rare: ['rare_08', 'rare_13'] },
+  { match: (n, p) => p.position !== 'GK' && (n === 'Rodri' || n.includes('Rodri ')), normal: ['skill_05', 'skill_20', 'skill_26', 'skill_35', 'skill_40', 'skill_44', 'skill_63'], rare: ['rare_04', 'rare_12'] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('Jude Bellingham'), normal: ['skill_12', 'skill_19', 'skill_20', 'skill_34', 'skill_52', 'skill_61', 'skill_68'], rare: ['rare_08', 'rare_07'] },
+  { match: (n, p) => p.position === 'GK' && n.includes('ter Stegen'), normal: ['skill_69', 'skill_72', 'skill_74', 'skill_76', 'skill_79', 'skill_80'], rare: ['rare_06'] },
+  { match: (n, p) => p.position === 'GK' && (n.includes('Donnarumma') || n.includes('Courtois') || n.includes('Alisson')), normal: ['skill_69', 'skill_70', 'skill_75', 'skill_76', 'skill_77', 'skill_78'], rare: ['rare_06', 'rare_15'] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('Kvaratskhelia'), normal: ['skill_02', 'skill_13', 'skill_15', 'skill_22', 'skill_28', 'skill_67'], rare: ['rare_02', 'rare_13'] },
+  { match: (n, p) => p.position !== 'GK' && (n.includes('三笘') || n.includes('Mitoma')), normal: ['skill_14', 'skill_15', 'skill_16', 'skill_17', 'skill_22', 'skill_29'], rare: ['rare_02'] },
+  { match: (n, p) => p.position !== 'GK' && (n.includes('久保 建英') || n.includes('Takefusa Kubo') || n === '久保'), normal: ['skill_02', 'skill_14', 'skill_15', 'skill_23', 'skill_34', 'skill_55'], rare: ['rare_03'] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('師岡'), normal: ['skill_12', 'skill_19', 'skill_21', 'skill_54', 'skill_64', 'skill_65'], rare: [] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('名古'), normal: ['skill_23', 'skill_24', 'skill_28', 'skill_34', 'skill_55', 'skill_66'], rare: [] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('サニブラウン'), normal: ['skill_16', 'skill_47', 'skill_53'], rare: [] },
+  { match: (n, p) => p.position !== 'GK' && n.includes('三井寺'), normal: ['skill_14', 'skill_23', 'skill_34', 'skill_66'], rare: [] }
 ];
 
 function getCandidateNormalSkillsForPlayer(player: Player): string[] {
@@ -307,20 +307,22 @@ export function sanitizePlayerSkills(player: Player): {
 export function initializePlayerSkills(player: Player): Player {
   if (player.skills && player.skills.length > 0) {
     const sanitized = sanitizePlayerSkills(player);
-    return {
-      ...player,
-      skills: sanitized.skills,
-      rareSkills: sanitized.rareSkills,
-      skillHistory: player.skillHistory || []
-    };
+    if (sanitized.skills.length > 0) {
+      return {
+        ...player,
+        skills: sanitized.skills,
+        rareSkills: sanitized.rareSkills,
+        skillHistory: player.skillHistory || []
+      };
+    }
   }
 
   const h = seededHash(`${player.id}_${player.name}`);
   const ovr = player.ovr || 70;
   const age = player.age || 24;
 
-  // Check signature preset first
-  const preset = SIGNATURE_SKILL_PRESETS.find(pr => pr.match(player.name || ''));
+  // Check signature preset first (position & specific name guarded)
+  const preset = SIGNATURE_SKILL_PRESETS.find(pr => pr.match(player.name || '', player));
   let normalIds: string[] = [];
   let rareIds: string[] = [];
 
@@ -328,9 +330,9 @@ export function initializePlayerSkills(player: Player): Player {
     normalIds = [...preset.normal];
     rareIds = [...preset.rare];
   } else {
-    // Realistic counts by OVR & age (0 to 7 normal, 0 to 2 rare)
+    // Realistic counts by OVR & age (1 to 7 normal, 0 to 2 rare)
     let normalTarget = 1;
-    if (age <= 18 && ovr < 70) normalTarget = h % 2; // 0-1
+    if (age <= 18 && ovr < 70) normalTarget = 1 + (h % 2); // 1-2
     else if (ovr >= 87) normalTarget = 6 + (h % 2); // 6-7
     else if (ovr >= 82) normalTarget = 4 + (h % 3); // 4-6
     else if (ovr >= 76) normalTarget = 3 + (h % 2); // 3-4

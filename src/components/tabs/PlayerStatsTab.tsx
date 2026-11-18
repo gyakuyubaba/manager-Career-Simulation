@@ -969,16 +969,24 @@ export const PlayerStatsTab: React.FC<Props> = ({ state, onSelectPlayer }) => {
               );
             })()}
 
-            {/* Loan info or Type 2 Info */}
-            {inspectingPlayer.isType2Registered && (
+            {/* Loan info, Special Designated Player, or Type 2 Info */}
+            {inspectingPlayer.isSpecialDesignated ? (
+              <div className="p-3 bg-cyan-950/20 border border-cyan-500/30 rounded-xl text-xs text-cyan-200">
+                <span className="font-bold block mb-1">特別指定選手情報</span>
+                <span>所属元: {inspectingPlayer.specialDesignatedUniversity || '大学サッカー部'}</span>
+                <span className="block text-[11px] text-cyan-300/80 mt-1">
+                  JFA・Jリーグ特別指定選手として登録されています（2種登録とは別区分）。
+                </span>
+              </div>
+            ) : inspectingPlayer.isType2Registered ? (
               <div className="p-3 bg-purple-950/20 border border-purple-500/30 rounded-xl text-xs text-purple-300">
-                <span className="font-bold block mb-1">【2種登録選手情報】</span>
-                <span>所属高校: {inspectingPlayer.type2HighSchool || '提携高校'}</span>
+                <span className="font-bold block mb-1">2種登録選手情報</span>
+                <span>所属育成組織・高校: {inspectingPlayer.type2HighSchool || 'クラブU-18 / 提携高校'}</span>
                 <span className="block text-[11px] text-purple-400/80 mt-1">
                   高校公式戦（選手権予選・総体）と日程が重複する試合には出場できません。
                 </span>
               </div>
-            )}
+            ) : null}
 
             <div className="pt-2 flex justify-end">
               <button

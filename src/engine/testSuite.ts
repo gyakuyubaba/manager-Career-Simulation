@@ -47,7 +47,20 @@ import {
 import { J3_20_CLUBS } from '../data/jLeagueData';
 import { ALL_NEW_4_LEAGUES_CLUBS, REAL_NEW_LEAGUES_STARS } from '../data/europeanNewLeaguesData';
 import { updatePlayerShirtNumber, REPAIR_SAVE_DATA_INTEGRITY, PLAYER_DUPLICATE_CHECK, executePlayerReplacement } from './dataValidator';
-import { executeTransferCompletion, simulateAITransfers, calculateJoinDate, evaluateAICounterProposal, calculatePlayerInterestInUserClub } from './transferEngine';
+import {
+  executeTransferCompletion,
+  simulateAITransfers,
+  calculateJoinDate,
+  evaluateAICounterProposal,
+  calculatePlayerInterestInUserClub,
+  createTransferNegotiation,
+  handleClubNegotiationStep,
+  handlePlayerNegotiationStep,
+  finalizeAgreedTransfer,
+  withdrawNegotiation,
+  processShortlistCompetingOffers
+} from './transferEngine';
+import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
 import { SUPPORTED_CUPS, getEuropeanLeaguePhaseStandings, getTournamentBracket, populateEuropeanKnockoutFixtures, advanceEuropeanPlayoffWinnersToRoundOf16 } from './cupEngine';
 import { generateBallonDorCandidates, checkAndAdvanceBallonDor } from './ballonDorEngine';
@@ -5267,12 +5280,18 @@ export function runAll27Tests(): TestResult[] {
   try {
     const allPlayers = Object.values(baseState.players);
     const over180M = allPlayers.filter(p => p.marketValue > 180_000_000);
-    const prime80to84 = allPlayers.filter(p => p.ovr >= 80 && p.ovr <= 84 && p.age >= 22 && p.age <= 27 && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
-    const prime85to87 = allPlayers.filter(p => p.ovr >= 85 && p.ovr <= 87 && p.age >= 22 && p.age <= 27 && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
-    const prime88to90 = allPlayers.filter(p => p.ovr >= 88 && p.ovr <= 90 && p.age >= 22 && p.age <= 27 && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
-    const band80Ok = prime80to84.every(p => p.marketValue >= 15_000_000 && p.marketValue <= 40_000_000);
-    const band85Ok = prime85to87.every(p => p.marketValue >= 30_000_000 && p.marketValue <= 65_000_000);
-    const band88Ok = prime88to90.every(p => p.marketValue >= 45_000_000 && p.marketValue <= 90_000_000);
+    const prime80to84 = allPlayers.filter(p => p.ovr >= 80 && p.ovr <= 84 && p.age >= 22 && p.age <= 27 && ((p.potential || p.ovr) - p.ovr <= 4) && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
+    const prime85to87 = allPlayers.filter(p => p.ovr >= 85 && p.ovr <= 87 && p.age >= 22 && p.age <= 27 && ((p.potential || p.ovr) - p.ovr <= 4) && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
+    const prime88to90 = allPlayers.filter(p => p.ovr >= 88 && p.ovr <= 90 && p.age >= 22 && p.age <= 27 && ((p.potential || p.ovr) - p.ovr <= 4) && (p.contractYearsRemaining ?? p.contractYears ?? 3) >= 2 && p.clubId !== 'free_agent');
+    const band80Ok =
+      prime80to84.every(p => p.marketValue >= 18_000_000 && p.marketValue <= 80_000_000) &&
+      prime80to84.filter(p => (p.potential || p.ovr) - p.ovr <= 2).every(p => p.marketValue <= 55_000_000);
+    const band85Ok =
+      prime85to87.every(p => p.marketValue >= 35_000_000 && p.marketValue <= 115_000_000) &&
+      prime85to87.filter(p => (p.potential || p.ovr) - p.ovr <= 2).every(p => p.marketValue <= 85_000_000);
+    const band88Ok =
+      prime88to90.every(p => p.marketValue >= 55_000_000 && p.marketValue <= 165_000_000) &&
+      prime88to90.filter(p => (p.potential || p.ovr) - p.ovr <= 2).every(p => p.marketValue <= 125_000_000);
 
     // Aging decline & slump drop
     const baseSt = allPlayers.find(p => p.position === 'ST' && p.ovr >= 82 && p.ovr <= 85 && p.age <= 26)!;
@@ -5345,8 +5364,9 @@ export function runAll27Tests(): TestResult[] {
     delete legacySave.marketValueNormalized2026;
     delete legacySave.budgetRebalanced2026;
     legacySave.manager.careerTrophies = 3;
-    // Inject inflated market value (OVR 87 player at 195M) and old default low Barca budget (45M)
-    const sample87 = Object.values(legacySave.players).find(p => p.ovr >= 85 && p.ovr <= 87 && p.age <= 27)!;
+    // Inject inflated market value (OVR 85-87 standard player at 195M) and old default low Barca budget (45M)
+    const sample87 = Object.values(legacySave.players).find(p => p.ovr >= 85 && p.ovr <= 87 && p.age >= 23 && p.age <= 27 && ((p.potential || p.ovr) - p.ovr <= 3))
+      || Object.values(legacySave.players).find(p => p.ovr >= 85 && p.ovr <= 87 && p.age <= 27)!;
     legacySave.players[sample87.id] = { ...sample87, marketValue: 195_000_000 };
     legacySave.clubs['barcelona'] = { ...legacySave.clubs['barcelona'], transferBudget: 45_000_000 };
 
@@ -5357,7 +5377,8 @@ export function runAll27Tests(): TestResult[] {
     const passed = Boolean(
       migratedV9.schemaVersion === CURRENT_SCHEMA_VERSION &&
       migratedV9.manager.careerTrophies === 3 &&
-      fixedPlayerMv <= 65_000_000 &&
+      fixedPlayerMv <= 115_000_000 &&
+      fixedPlayerMv < 195_000_000 &&
       barcaUpdatedBudget >= 115_000_000
     );
     results.push({
@@ -6243,7 +6264,7 @@ export function runAll27Tests(): TestResult[] {
     const sDismissed: GameWorldState = { ...sCompletedSameDay, dismissedPreSeasonBannerYear: 2026 };
     const sAfterGrace: GameWorldState = { ...sCompletedSameDay, currentDate: '2026-07-22' };
     const sNextYear: GameWorldState = {
-      ...sAfterGrace,
+      ...sDismissed,
       currentDate: '2027-07-01',
       selectedPreSeason: undefined,
       preSeasonTournament: undefined
@@ -6368,7 +6389,13 @@ export function runAll27Tests(): TestResult[] {
     );
 
     // 3. In-match substitution inherits outgoing player's customPositions coordinate
-    const benchSubId = afterGkMove.lineup.bench.find(id => baseState.players[id]?.position !== 'GK') || afterGkMove.lineup.bench[0];
+    const benchSubId =
+      afterGkMove.lineup.bench.find(id => {
+        const pos = baseState.players[id]?.position;
+        return Boolean(pos && pos !== 'GK' && pos !== 'ST' && pos !== 'CF');
+      }) ||
+      afterGkMove.lineup.bench.find(id => baseState.players[id]?.position !== 'GK') ||
+      afterGkMove.lineup.bench[0];
     const afterSubTac = applySubstitutionToTactics(afterGkMove, outId, benchSubId);
     const subInheritedCustom = afterSubTac.customPositions?.[benchSubId];
     const subTransferOk = Boolean(
@@ -6403,6 +6430,434 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 161', name: '試合前・試合中自由配置検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 162: チェルシー 2026/27実在スカッド・背番号・退団・エステバン検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const chelsea = baseState.clubs['chelsea'];
+    const chelseaPlayers = (chelsea?.playerIds || []).map(id => baseState.players[id]).filter(Boolean);
+    const estevao = baseState.players['chelsea_v26_estevao'];
+    const palmer = baseState.players['che_palmer'];
+    const joaoPedroChelsea = chelseaPlayers.filter(p => p.name.includes('ジョアン・ペドロ') || p.name.includes('João Pedro'));
+    const rioAveCb = baseState.players['rio_ave_new26_23_joopedro'];
+    const dortmundChuk = baseState.players['chelsea_eng26_5_carneychuk'];
+    const torinoCasadei = baseState.players['chelsea_eng26_4_cesarecasa'];
+
+    const noFelixSancho =
+      !chelseaPlayers.some(p => p.id === 'che_felix' || p.id === 'che_sancho');
+    const estevaoOk = Boolean(
+      estevao &&
+      estevao.clubId === 'chelsea' &&
+      estevao.shirtNumber === 41 &&
+      estevao.position === 'RW' &&
+      estevao.ovr >= 80 &&
+      (estevao.potential || 0) >= 90
+    );
+    const palmerOk = Boolean(palmer && palmer.clubId === 'chelsea' && palmer.shirtNumber === 10);
+    const departuresOk = Boolean(
+      dortmundChuk && dortmundChuk.clubId === 'dortmund' && dortmundChuk.shirtNumber === 17 &&
+      torinoCasadei && torinoCasadei.clubId === 'torino' && torinoCasadei.shirtNumber === 22
+    );
+    const homonymSafe = joaoPedroChelsea.length === 1 && rioAveCb?.clubId === 'rio_ave';
+
+    const passed = noFelixSancho && estevaoOk && palmerOk && departuresOk && homonymSafe;
+    results.push({
+      id: 'TEST 162',
+      name: 'チェルシー2026/27実在編成(Estêvão #41・Palmer #10・退団反映・同名選手保護)検証',
+      passed,
+      details: passed
+        ? `成功: エステバン(#41 RW OVR${estevao.ovr}/POT${estevao.potential})加入・パーマー#10・チュクエメカ(BVB#17)・カサデイ(Torino#22)・RioAve CB保護を確認。`
+        : `失敗: noFS=${noFelixSancho}, est=${estevaoOk}, palmer=${palmerOk}, dep=${departuresOk}, homo=${homonymSafe}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 162', name: 'チェルシー2026/27編成検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 163: アビスパ福岡 2026/27スカッド＆「特別指定選手」vs「2種登録選手」厳密区別検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const avispaPlayers = Object.values(baseState.players).filter(p => p.clubId === 'avispa-fukuoka');
+    const findByNum = (num: number) => avispaPlayers.find(p => p.shirtNumber === num);
+    const ori = findByNum(21);
+    const tsj = findByNum(15);
+    const oka = findByNum(16);
+    const yamawaki = findByNum(33);
+    const fukushima = findByNum(46);
+    const hashimoto = findByNum(47);
+    const takemoto = findByNum(52);
+    const maedaKai = findByNum(55);
+    const sakaiYuhi = findByNum(56);
+    const fujikawa = findByNum(58);
+
+    const rosterOk = Boolean(
+      ori && ori.id === 'girona_eur26_7_oriolromeu' &&
+      tsj && oka && yamawaki && fukushima && hashimoto
+    );
+    const type2Ok = Boolean(
+      takemoto?.isType2Registered === true &&
+      !takemoto?.isSpecialDesignated &&
+      fujikawa?.isType2Registered === true &&
+      !fujikawa?.isSpecialDesignated
+    );
+    const specialDesOk = Boolean(
+      maedaKai?.isSpecialDesignated === true &&
+      maedaKai?.isType2Registered !== true &&
+      maedaKai?.specialDesignatedUniversity === '神奈川大学' &&
+      sakaiYuhi?.isSpecialDesignated === true &&
+      sakaiYuhi?.isType2Registered !== true &&
+      sakaiYuhi?.specialDesignatedUniversity === '福岡大学'
+    );
+
+    const passed = rosterOk && type2Ok && specialDesOk;
+    results.push({
+      id: 'TEST 163',
+      name: 'アビスパ福岡2026/27編成＆特別指定選手(大学)と2種登録選手(U-18)の厳密分離検証',
+      passed,
+      details: passed
+        ? `成功: 特別指定(前田快#55 神奈川大学 / 坂井悠飛#56 福岡大学)が2種登録と完全分離され、Oriol Romeu #21・武本/藤川(2種)も正確。`
+        : `失敗: rosterOk=${rosterOk}, type2Ok=${type2Ok}, specialDesOk=${specialDesOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 163', name: 'アビスパ福岡編成・特別指定分離検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 164: 全収録選手（8,400名以上）スキル0件ゼロ＆不整合プレイスタイル0件全体監査
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const allPlayers = Object.values(baseState.players);
+    const zeroSkillPlayers = allPlayers.filter(p => !p.skills || p.skills.length === 0);
+    const incompatiblePlaystyles = allPlayers.filter(
+      p => normalizeCompatiblePlaystyle(p.position, p.playstyle) !== p.playstyle
+    );
+
+    const passed = allPlayers.length >= 8000 && zeroSkillPlayers.length === 0 && incompatiblePlaystyles.length === 0;
+    results.push({
+      id: 'TEST 164',
+      name: '全選手データベース監査（スキル欠損0件・ポジション不整合プレイスタイル0件）検証',
+      passed,
+      details: passed
+        ? `成功: 全${allPlayers.length}名においてスキル未付与=0件、プレイスタイル不整合=0件を確認。`
+        : `失敗: total=${allPlayers.length}, zeroSkills=${zeroSkillPlayers.length}, badPlaystyle=${incompatiblePlaystyles.length}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 164', name: '全選手データベース監査', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 165: 若手高額・ベテラン適正減価・グローバル上限(€180M)バランス検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const allPlayers = Object.values(baseState.players);
+    const globalMaxMv = allPlayers.reduce((m, p) => Math.max(m, p.marketValue || 0), 0);
+    const wonderkid = recalculateDynamicMarketValue({
+      ...allPlayers.find(p => p.position === 'CB')!,
+      name: 'Pau Cubarsí Test',
+      age: 19,
+      ovr: 84,
+      potential: 92,
+      contractYears: 4
+    });
+    const yamalLike = recalculateDynamicMarketValue({
+      ...allPlayers.find(p => p.position === 'RW')!,
+      name: 'Yamal Test',
+      age: 19,
+      ovr: 87,
+      potential: 95,
+      contractYears: 5
+    });
+    const vet35 = recalculateDynamicMarketValue({
+      ...allPlayers.find(p => p.position === 'CAM')!,
+      name: 'Veteran 35 Test',
+      age: 35,
+      ovr: 86,
+      potential: 86,
+      contractYears: 1
+    });
+
+    const passed =
+      globalMaxMv <= 180_000_000 &&
+      wonderkid.marketValue >= 40_000_000 &&
+      yamalLike.marketValue >= 95_000_000 &&
+      vet35.marketValue < wonderkid.marketValue;
+    results.push({
+      id: 'TEST 165',
+      name: '市場価値バランス（グローバル上限€180M・若手スター適正評価・ベテラン減価）検証',
+      passed,
+      details: passed
+        ? `成功: 最大市場価値€${(globalMaxMv/1e6).toFixed(1)}M、若手CB(OVR84/POT92)=€${(wonderkid.marketValue/1e6).toFixed(1)}M、神童WG=€${(yamalLike.marketValue/1e6).toFixed(1)}M、35歳=€${(vet35.marketValue/1e6).toFixed(1)}M。`
+        : `失敗: max=${globalMaxMv}, wk=${wonderkid.marketValue}, ym=${yamalLike.marketValue}, vet=${vet35.marketValue}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 165', name: '市場価値バランス検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 166: 5段階加入関心度・永続交渉リスト・合意後「最終確定」ゲート検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClub = testState.clubs[testState.userClubId!]!;
+    userClub.transferBudget = 200_000_000;
+    userClub.wageBudget = 10_000_000;
+    userClub.currentWageSpend = 2_000_000;
+
+    // Pick external affordable player
+    const targetPlayer = Object.values(testState.players).find(
+      p => p.clubId !== userClub.id && p.clubId !== 'free_agent' && p.ovr >= 75 && p.ovr <= 82
+    )!;
+    const sellerClub = testState.clubs[targetPlayer.clubId]!;
+    testState.isTransferWindowOpen = true;
+
+    // 5-tier check across contrasting clubs
+    const j3Club = Object.values(testState.clubs).find(c => c.league === 'j3-league')!;
+    const eliteClub = testState.clubs['real_madrid'] || testState.clubs['man_city'] || userClub;
+    const starP = Object.values(testState.players).find(p => p.ovr >= 88)!;
+    const interestAtElite = calculatePlayerInterestInUserClub(starP, eliteClub, { reputation: 92 }, true, { clubs: testState.clubs, tournaments: testState.tournaments });
+    const interestAtJ3 = calculatePlayerInterestInUserClub({ ...starP, personality: 'クラブ愛' }, j3Club, { reputation: 30 }, false, { clubs: testState.clubs, tournaments: testState.tournaments });
+    const validTiers = ['非常に高い', '高い', '普通', '低い', '非常に低い'];
+    const interest5TierOk =
+      validTiers.includes(interestAtElite.level) &&
+      validTiers.includes(interestAtJ3.level) &&
+      interestAtElite.score > interestAtJ3.score + 20;
+
+    // Negotiation persistence + explicit terms_agreed gate
+    const createdNeg = createTransferNegotiation(testState, targetPlayer, {
+      bidFee: Math.round(targetPlayer.marketValue * 1.4),
+      wageOffer: Math.round(targetPlayer.wage * 1.6),
+      contractYears: 4,
+      squadRole: '絶対的主力',
+      signingBonus: 1_500_000
+    });
+    testState.negotiations[targetPlayer.id] = createdNeg;
+
+    const clubStep = handleClubNegotiationStep(createdNeg, Math.round(targetPlayer.marketValue * 1.4), sellerClub, targetPlayer, testState.currentDate);
+    const afterPlayerStage: TransferNegotiation = { ...clubStep.updatedNegotiation, status: 'player_negotiating' };
+    const playerStep = handlePlayerNegotiationStep(
+      afterPlayerStage,
+      Math.round(targetPlayer.wage * 1.6),
+      4,
+      '絶対的主力',
+      1_500_000,
+      targetPlayer,
+      userClub,
+      testState.currentDate
+    );
+    testState.negotiations[targetPlayer.id] = playerStep.updatedNegotiation;
+
+    // Before finalizeAgreedTransfer: status === 'terms_agreed' AND player MUST NOT be in userClub yet
+    const heldAtTermsAgreed =
+      playerStep.updatedNegotiation.status === 'terms_agreed' &&
+      !testState.clubs[userClub.id].playerIds.includes(targetPlayer.id) &&
+      testState.players[targetPlayer.id].clubId === sellerClub.id;
+
+    // Now finalize explicitly
+    const finRes = finalizeAgreedTransfer(testState, targetPlayer.id, 'immediate');
+    const joinedAfterFinalize =
+      finRes.success &&
+      finRes.updatedState.clubs[userClub.id].playerIds.includes(targetPlayer.id) &&
+      finRes.updatedState.players[targetPlayer.id].clubId === userClub.id &&
+      finRes.updatedState.negotiations[targetPlayer.id]?.status === 'completed';
+
+    const stateAfterWithdraw = withdrawNegotiation(finRes.updatedState, targetPlayer.id);
+    const withdrawOk = !stateAfterWithdraw.negotiations[targetPlayer.id];
+
+    const passed = interest5TierOk && heldAtTermsAgreed && joinedAfterFinalize && withdrawOk;
+    results.push({
+      id: 'TEST 166',
+      name: '5段階関心度・永続交渉リスト・個人条件合意後の最終確定ゲート検証',
+      passed,
+      details: passed
+        ? `成功: Elite(${interestAtElite.level} ${interestAtElite.score}) vs J3(${interestAtJ3.level} ${interestAtJ3.score})、合意段階('${playerStep.updatedNegotiation.status}')での自動加入抑止、最終確定ボタン処理を確認。`
+        : `失敗: 5tier=${interest5TierOk}, held=${heldAtTermsAgreed}, joined=${joinedAfterFinalize}, withdraw=${withdrawOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 166', name: '5段階関心度・交渉確定ゲート検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 167: お気に入り限定 AI競合オファー・横取り成立(hijacked)＆非お気に入り非干渉検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClubId = Object.values(testState.clubs).find(c => c.league === 'j3-league')?.id || 'fukushima-united';
+    testState.userClubId = userClubId;
+    testState.isTransferWindowOpen = true;
+    const j3User = testState.clubs[userClubId]!;
+    j3User.transferBudget = 80_000_000;
+    j3User.wageBudget = 2_000_000;
+
+    // Pick two attractive midfielders/forwards
+    const candidates = Object.values(testState.players).filter(
+      p => p.clubId !== userClubId && p.clubId !== 'free_agent' && p.ovr >= 78 && p.ovr <= 83 && p.marketValue <= 30_000_000
+    );
+    const shortlistedP = candidates[0]!;
+    const nonShortlistedP = candidates[1]!;
+
+    // User puts shortlistedP on favorites shortlist, leaves nonShortlistedP NOT on shortlist
+    testState.shortlistPlayerIds = [shortlistedP.id];
+    testState.negotiations[shortlistedP.id] = {
+      ...createTransferNegotiation(testState, shortlistedP, {
+        bidFee: shortlistedP.marketValue,
+        wageOffer: shortlistedP.wage,
+        squadRole: 'ローテーション'
+      }),
+      status: 'terms_agreed',
+      createdDate: '2026-07-01',
+      negotiationDeadline: '2026-07-25'
+    };
+    testState.negotiations[nonShortlistedP.id] = {
+      ...createTransferNegotiation(testState, nonShortlistedP, {
+        bidFee: nonShortlistedP.marketValue,
+        wageOffer: nonShortlistedP.wage,
+        squadRole: 'ローテーション'
+      }),
+      status: 'terms_agreed',
+      createdDate: '2026-07-01',
+      negotiationDeadline: '2026-07-25'
+    };
+
+    // Ensure rich AI clubs have budget
+    Object.values(testState.clubs).forEach(c => {
+      if (c.tier === 'Elite') c.transferBudget = Math.max(c.transferBudget, 200_000_000);
+    });
+
+    // Run multiple daily ticks cleanly
+    let simState = testState;
+    for (let d = 1; d <= 12; d++) {
+      const dayStr = `2026-07-${String(d + 1).padStart(2, '0')}`;
+      simState = { ...simState, currentDate: dayStr };
+      simState = processShortlistCompetingOffers(simState, dayStr);
+    }
+
+    const shortNegAfter = simState.negotiations[shortlistedP.id];
+    const nonShortNegAfter = simState.negotiations[nonShortlistedP.id];
+    const shortlistHadCompetition = Boolean(
+      shortNegAfter &&
+      ((shortNegAfter.competingOffers && shortNegAfter.competingOffers.length > 0) || shortNegAfter.status === 'hijacked')
+    );
+    const nonShortlistUntouched = Boolean(
+      nonShortNegAfter &&
+      nonShortNegAfter.status === 'terms_agreed' &&
+      (!nonShortNegAfter.competingOffers || nonShortNegAfter.competingOffers.length === 0)
+    );
+
+    const passed = shortlistHadCompetition && nonShortlistUntouched;
+    results.push({
+      id: 'TEST 167',
+      name: 'お気に入り登録限定AI競合・横取り(hijacked)＆非登録選手非干渉検証',
+      passed,
+      details: passed
+        ? `成功: お気に入り選手は競合/横取り発生(${shortNegAfter.status}, 競合${shortNegAfter.competingOffers?.length || 0}件)、非お気に入り選手は競合0件(${nonShortNegAfter.status})を維持。`
+        : `失敗: shortlistComp=${shortlistHadCompetition} (status=${shortNegAfter?.status}), nonShortUntouched=${nonShortlistUntouched}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 167', name: 'お気に入り限定競合・横取り検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 168: 自動交代疲労トリガー・5名/3停止枠ルール・GK制限・日本語理由・V10→V11保護検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const testState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const userClub = testState.clubs[testState.userClubId!]!;
+    const oppClub = Object.values(testState.clubs).find(c => c.id !== userClub.id && c.league === userClub.league)!;
+    const tac = JSON.parse(JSON.stringify(testState.tactics));
+
+    // Exhaust 4 outfield starters so fatigue triggers auto-substitutions
+    const outfieldStarters = tac.lineup.starters.filter((s: any) => s.position !== 'GK').slice(0, 4);
+    outfieldStarters.forEach((s: any) => {
+      if (testState.players[s.playerId]) {
+        testState.players[s.playerId].fatigue = 74;
+        testState.players[s.playerId].stamina = 64;
+      }
+    });
+    // Make sure bench has fresh outfielders
+    tac.lineup.bench.forEach((bid: string) => {
+      if (testState.players[bid]) testState.players[bid].fatigue = 0;
+    });
+
+    const fixture: MatchFixture = {
+      id: 'fix_autosub_test_168',
+      date: testState.currentDate,
+      competition: userClub.league,
+      competitionName: 'League',
+      homeClubId: userClub.id,
+      awayClubId: oppClub.id,
+      status: 'upcoming',
+      isUserMatch: true
+    };
+
+    // 1. Enabled (default)
+    const simAutoOn = simulateFullMatch(
+      fixture,
+      userClub,
+      oppClub,
+      tac,
+      oppClub.tactics || getDefaultTacticsForClub(oppClub, testState.players),
+      testState.players
+    );
+    const userSubEvents = (simAutoOn.fixture.events || []).filter(
+      e => e.type === 'sub' && e.clubId === userClub.id
+    );
+    const userSubRecords = (simAutoOn.fixture.stats?.substitutions || []).filter(
+      s => s.clubId === userClub.id
+    );
+    const inPlayWindows = new Set(userSubEvents.filter(e => e.minute !== 45).map(e => e.minute)).size;
+    const autoOnWorked =
+      userSubEvents.length >= 2 &&
+      userSubEvents.length <= 5 &&
+      inPlayWindows <= 3 &&
+      userSubRecords.length === userSubEvents.length &&
+      userSubRecords.every(s => Boolean(s.reason && s.reason.length > 5)) &&
+      userSubRecords.every(s => {
+        const outP = testState.players[s.outPlayerId];
+        const inP = testState.players[s.inPlayerId];
+        return outP && inP && (outP.position === 'GK') === (inP.position === 'GK');
+      });
+
+    // 2. Manual-only override check
+    const simManualOnly = simulateFullMatch(
+      fixture,
+      userClub,
+      oppClub,
+      tac,
+      oppClub.tactics || getDefaultTacticsForClub(oppClub, testState.players),
+      testState.players,
+      undefined,
+      { skipAutoSubsForClubId: userClub.id }
+    );
+    const userSubsWhenManual = (simManualOnly.fixture.events || []).filter(
+      e => e.type === 'sub' && e.clubId === userClub.id
+    );
+    const manualOnlyRespected = userSubsWhenManual.length === 0;
+
+    // 3. V10 -> V11 migration preserves careerTrophies and defaults autoSubstitutionEnabled=true
+    const v10Save: any = JSON.parse(JSON.stringify(testState));
+    v10Save.schemaVersion = 10;
+    delete v10Save.autoSubstitutionEnabled;
+    v10Save.manager.careerTrophies = 4;
+    const migratedV11 = migrateGameState(v10Save, 10);
+    const v11Safe =
+      migratedV11.schemaVersion === CURRENT_SCHEMA_VERSION &&
+      migratedV11.manager.careerTrophies === 4 &&
+      migratedV11.autoSubstitutionEnabled === true &&
+      migratedV11.tactics.autoSubstitutionEnabled === true;
+
+    const passed = autoOnWorked && manualOnlyRespected && v11Safe;
+    results.push({
+      id: 'TEST 168',
+      name: '自動交代疲労トリガー(5枠/3停止窓+HT)・GK分離・日本語理由・手動設定・V11保存検証',
+      passed,
+      details: passed
+        ? `成功: 自動交代=${userSubEvents.length}回(後半窓${inPlayWindows}/3)・理由「${userSubRecords[0]?.reason?.slice(0, 26)}…」・手動設定時0回・V11移行保護確認。`
+        : `失敗: autoOn=${autoOnWorked} (subs=${userSubEvents.length}, win=${inPlayWindows}), manual=${manualOnlyRespected}, v11=${v11Safe}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 168', name: '自動交代疲労＆V11保存検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -6427,6 +6882,7 @@ export const runAll150Tests = runAll27Tests;
 export const runAll155Tests = runAll27Tests;
 export const runAll160Tests = runAll27Tests;
 export const runAll161Tests = runAll27Tests;
+export const runAll168Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

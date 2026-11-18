@@ -85,6 +85,34 @@ async function safeParseJsonResponse(res: Response): Promise<any | null> {
   }
 }
 
+async function fetchApiJson(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 12000
+): Promise<{
+  ok: boolean;
+  status: number;
+  data: any | null;
+  isStaticHostHtml: boolean;
+  isTimeout: boolean;
+}> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    const isJson = ct.includes('application/json');
+    const data = isJson ? await safeParseJsonResponse(res) : null;
+    const isStaticHostHtml = !isJson && ct.includes('text/html');
+    return { ok: res.ok && Boolean(data), status: res.status, data, isStaticHostHtml, isTimeout: false };
+  } catch (err) {
+    const isAbort = err instanceof Error && err.name === 'AbortError';
+    return { ok: false, status: 0, data: null, isStaticHostHtml: false, isTimeout: isAbort };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const SmartphoneModal: React.FC<Props> = ({
   state,
   onUpdateState,
@@ -139,48 +167,44 @@ export const SmartphoneModal: React.FC<Props> = ({
 
   const refreshAiStatus = async () => {
     const seqAtStart = switchSeqRef.current;
-    try {
-      const res = await fetch('/api/ai-status');
-      if (!res.ok) return;
-      const data = await safeParseJsonResponse(res);
-      if (!data || !data.providers) return;
-      // Ignore stale status fetch if user clicked a provider toggle while in flight
-      if (seqAtStart !== switchSeqRef.current || userTouchedProviderRef.current) {
-        setAiStatusState({ ...data, activeProvider: selectedProvider });
-        return;
-      }
+    const result = await fetchApiJson('/api/ai-status', { method: 'GET' }, 8000);
+    if (!result.ok || !result.data?.providers) return;
+    const data = result.data;
+    if (seqAtStart !== switchSeqRef.current || userTouchedProviderRef.current) {
+      setAiStatusState({ ...data, activeProvider: selectedProvider });
+      return;
+    }
 
-      const storedPref = readStoredAiProvider();
-      if (storedPref && data.activeProvider !== storedPref) {
-        // Re-sync server preference with user's saved browser choice
-        try {
-          const syncRes = await fetch('/api/ai-provider', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: storedPref })
-          });
-          if (syncRes.ok) {
-            const syncData = await safeParseJsonResponse(syncRes);
-            if (syncData && syncData.providers) {
-              setAiStatusState(syncData);
-              setSelectedProvider(storedPref);
-              return;
-            }
-          }
-        } catch {
-          // keep local selection even if sync fails
-        }
-        setAiStatusState({ ...data, activeProvider: storedPref });
+    const storedPref = readStoredAiProvider();
+    if (storedPref && data.activeProvider !== storedPref) {
+      const syncRes = await fetchApiJson(
+        '/api/ai-provider',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: storedPref })
+        },
+        8000
+      );
+      if (syncRes.ok && syncRes.data?.providers) {
+        setAiStatusState(syncRes.data);
         setSelectedProvider(storedPref);
         return;
       }
-
-      const nextProvider: AiProviderType = storedPref || data.activeProvider || 'gemini';
-      setAiStatusState(data);
-      setSelectedProvider(nextProvider);
-    } catch {
-      // Static hosting without backend API: keep stored/local provider selectable
+      setAiStatusState({ ...data, activeProvider: storedPref });
+      setSelectedProvider(storedPref);
+      return;
     }
+
+    let nextProvider: AiProviderType = storedPref || data.activeProvider || 'gemini';
+    if (!storedPref) {
+      const gemConf = Boolean(data.providers.gemini?.configured);
+      const oaiConf = Boolean(data.providers.openai?.configured);
+      if (!gemConf && oaiConf) nextProvider = 'openai';
+      else if (gemConf && !oaiConf) nextProvider = 'gemini';
+    }
+    setAiStatusState({ ...data, activeProvider: nextProvider });
+    setSelectedProvider(nextProvider);
   };
 
   useEffect(() => {
@@ -193,7 +217,6 @@ export const SmartphoneModal: React.FC<Props> = ({
     const nextSeq = ++switchSeqRef.current;
     userTouchedProviderRef.current = true;
 
-    // Immediately apply locally & persist so UI never appears stuck or unresponsive
     setSelectedProvider(provider);
     saveStoredAiProvider(provider);
     setAiStatusState(prev => (prev ? { ...prev, activeProvider: provider } : prev));
@@ -202,32 +225,34 @@ export const SmartphoneModal: React.FC<Props> = ({
     const providerLabel = provider === 'gemini' ? 'Gemini' : 'OpenAI (ChatGPT)';
 
     try {
-      const res = await fetch('/api/ai-provider', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider })
-      });
+      const result = await fetchApiJson(
+        '/api/ai-provider',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider })
+        },
+        8000
+      );
       if (nextSeq !== switchSeqRef.current) return;
 
-      const data = res.ok ? await safeParseJsonResponse(res) : null;
-      if (res.ok && data && data.providers) {
-        setAiStatusState(data);
-        const provConfigured = data.providers?.[provider]?.configured;
+      if (result.ok && result.data?.providers) {
+        setAiStatusState(result.data);
+        const provConfigured = result.data.providers?.[provider]?.configured;
         setAiTestFeedback(
           provConfigured
             ? `AIプロバイダーを ${providerLabel} に切り替えました。`
             : `AIプロバイダーを ${providerLabel} に切り替えました（※サーバー側APIキー未設定のためローカル分析フォールバックで動作します）。`
+        );
+      } else if (result.isStaticHostHtml) {
+        setAiTestFeedback(
+          `${providerLabel} を選択しました（※静的配信環境のためバックエンドAI APIが利用できずローカル戦力分析で動作します）。`
         );
       } else {
         setAiTestFeedback(
           `${providerLabel} を選択しました（※サーバーAPI未接続環境のためローカル戦力分析で動作します）。`
         );
       }
-    } catch {
-      if (nextSeq !== switchSeqRef.current) return;
-      setAiTestFeedback(
-        `${providerLabel} を選択しました（※サーバーAPI未接続のためローカル戦力分析で動作します）。`
-      );
     } finally {
       if (nextSeq === switchSeqRef.current) {
         setIsSwitchingAi(false);
@@ -240,20 +265,25 @@ export const SmartphoneModal: React.FC<Props> = ({
     setAiTestFeedback(null);
     try {
       const provider = effectiveActiveProvider;
-      const res = await fetch('/api/ai-test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider })
-      });
-      const data = res.ok ? await safeParseJsonResponse(res) : null;
-      if (res.ok && data) {
-        if (data.state) setAiStatusState({ ...data.state, activeProvider: provider });
-        setAiTestFeedback(data.message || data.statusLabel || '接続確認完了');
+      const result = await fetchApiJson(
+        '/api/ai-test',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider })
+        },
+        20000
+      );
+      if (result.ok && result.data) {
+        if (result.data.state) setAiStatusState({ ...result.data.state, activeProvider: provider });
+        setAiTestFeedback(result.data.message || result.data.statusLabel || '接続確認完了');
+      } else if (result.isStaticHostHtml) {
+        setAiTestFeedback('接続不可: 静的サイト配信（GitHub Pages等）では /api/* サーバーが動作しないためローカル戦力分析モードとなります。');
+      } else if (result.isTimeout) {
+        setAiTestFeedback('接続タイムアウト: サーバーの応答が20秒以内に返りませんでした。');
       } else {
-        setAiTestFeedback(`接続テスト不可 (HTTP ${res.status} / バックエンドAPI未応答)`);
+        setAiTestFeedback(`接続テスト不可 (HTTP ${result.status || '通信失敗'} / バックエンドAPI未応答)`);
       }
-    } catch {
-      setAiTestFeedback('通信エラー: サーバーの /api/ai-test に到達できませんでした。');
     } finally {
       setIsTestingAi(false);
     }
@@ -419,8 +449,9 @@ export const SmartphoneModal: React.FC<Props> = ({
     let connectionStatus: AiConnectionStatus | undefined = undefined;
     let errorDetail: string | undefined = undefined;
 
-    try {
-      const response = await fetch('/api/front-office-message', {
+    const result = await fetchApiJson(
+      '/api/front-office-message',
+      {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -445,24 +476,23 @@ export const SmartphoneModal: React.FC<Props> = ({
           marketTargets: foContext.marketTargets,
           threadHistory: threadHistorySummary
         })
-      });
+      },
+      22000
+    );
 
-      const data = response.ok ? await safeParseJsonResponse(response) : null;
-      if (response.ok && data) {
-        replyText = data.reply;
-        proposedAction = data.proposedAction;
-        analysisSummary = data.analysisSummary;
-        recommendations = Array.isArray(data.recommendations) ? data.recommendations : undefined;
-        modelUsed = data.modelUsed;
-        providerUsed = data.providerUsed || effectiveActiveProvider;
-        isAiGenerated = Boolean(data.isAiGenerated);
-        connectionStatus = data.connectionStatus;
-        errorDetail = data.errorDetail;
-        refreshAiStatus();
-      } else {
-        throw new Error(`HTTP ${response.status}`);
-      }
-    } catch {
+    if (result.ok && result.data) {
+      const data = result.data;
+      replyText = data.reply;
+      proposedAction = data.proposedAction;
+      analysisSummary = data.analysisSummary;
+      recommendations = Array.isArray(data.recommendations) ? data.recommendations : undefined;
+      modelUsed = data.modelUsed;
+      providerUsed = data.providerUsed || effectiveActiveProvider;
+      isAiGenerated = Boolean(data.isAiGenerated);
+      connectionStatus = data.connectionStatus;
+      errorDetail = data.errorDetail;
+      refreshAiStatus();
+    } else {
       const fallback = buildDeterministicFrontOfficeReply(withUserMsg, msgText);
       replyText = fallback.reply;
       analysisSummary = fallback.analysisSummary;
@@ -470,7 +500,11 @@ export const SmartphoneModal: React.FC<Props> = ({
       proposedAction = fallback.proposedAction;
       isAiGenerated = false;
       connectionStatus = 'network_error';
-      errorDetail = 'サーバーとの通信に失敗したためローカル戦力分析で応答しました。';
+      errorDetail = result.isStaticHostHtml
+        ? '静的ホスティング環境のためバックエンドAPIが未接続です。ローカル戦力分析で応答しました。'
+        : result.isTimeout
+          ? 'AI応答がタイムアウトしたためローカル戦力分析で応答しました。'
+          : `サーバーとの通信に失敗したためローカル戦力分析で応答しました (${result.status || 'network'})。`;
     }
 
     const foMsg: FrontOfficeMessageRecord = {
@@ -948,9 +982,8 @@ export const SmartphoneModal: React.FC<Props> = ({
                           key={prov}
                           type="button"
                           aria-pressed={active}
-                          disabled={isSwitchingAi}
                           onClick={() => handleSwitchAiProvider(prov)}
-                          className={`min-h-[30px] px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer disabled:opacity-70 ${
+                          className={`min-h-[36px] px-3 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
                             active
                               ? 'bg-indigo-500/30 border-indigo-400 text-indigo-100 shadow-sm'
                               : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'

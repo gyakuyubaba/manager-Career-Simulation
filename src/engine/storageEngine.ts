@@ -27,10 +27,11 @@ import { rebalanceExistingSaveClubBudgets } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
 import { generatePreSeasonInvitations } from './preSeasonEngine';
 import { GROUP_B_TOURNAMENT_CLUBS, resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
+import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 
-export const CURRENT_SCHEMA_VERSION = 10;
-export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V7_2026_11_16_UEFA108';
-export const APP_CODE_VERSION = '2026.2.5';
+export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V8_VERIFIED_2026_11';
+export const APP_CODE_VERSION = '2026.2.6';
 export const DB_NAME = 'FootballManager2026_CareerDB';
 export const DB_VERSION = 1;
 export const STORE_NAME = 'career_saves';
@@ -344,9 +345,11 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
   if (migrated.tactics) {
     migrated.tactics = {
       ...migrated.tactics,
-      placementMode: migrated.tactics.placementMode || 'formation'
+      placementMode: migrated.tactics.placementMode || 'formation',
+      autoSubstitutionEnabled: migrated.tactics.autoSubstitutionEnabled ?? migrated.autoSubstitutionEnabled ?? true
     };
   }
+  migrated.autoSubstitutionEnabled = migrated.autoSubstitutionEnabled ?? migrated.tactics?.autoSubstitutionEnabled ?? true;
   if (migrated.tournaments && migrated.clubs) {
     const resolvedEuro = resolveEuropeanParticipantIds(migrated.clubs, migrated.europeanQualifications);
     const compMap = {
@@ -385,6 +388,11 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
       if (pId === 'JP_J1_000277_A' || nextP.name.includes('サニブラウン')) {
         nextP.pace = 89;
       }
+      nextP.playstyle = normalizeCompatiblePlaystyle(nextP.position, nextP.playstyle);
+      if (nextP.isSpecialDesignated) {
+        nextP.isType2Registered = false;
+        nextP.isType2 = false;
+      }
       nextP.positionProficiency = calculatePlayerPositionProficiency(nextP);
       nextP = initializePlayerSkills(nextP);
       nextP = syncPlayerGkAttributes(nextP);
@@ -405,12 +413,12 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
   // 6. Ensure Smartphone Hub state exists cleanly without losing messages/offers
   migrated.smartphone = ensureSmartphoneState(migrated).smartphone;
 
-  // 7. Normalize inflated market values individually across existing save players (Schema V9)
-  if ((oldVersion < 9 || !migrated.marketValueNormalized2026) && migrated.players) {
+  // 7. Normalize inflated market values individually across existing save players (Schema V11 rebalance)
+  if ((oldVersion < 11 || !migrated.marketValueNormalized2026) && migrated.players) {
     const norm = normalizeAllPlayerMarketValues(
       migrated.players,
       migrated.currentDate || '2026-07-01',
-      '市場価値評価システム正規化'
+      '市場価値評価システム均衡化'
     );
     migrated.players = norm.players;
     migrated.marketValueNormalized2026 = true;
@@ -509,7 +517,7 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
         }),
         nationality: masterPlayer.nationality,
         shirtNumber: wasTransferredInGame ? existing.shirtNumber : masterPlayer.shirtNumber,
-        playstyle: masterPlayer.playstyle || existing.playstyle,
+        playstyle: normalizeCompatiblePlaystyle(masterPlayer.position, masterPlayer.playstyle || existing.playstyle),
         preferredFoot: masterPlayer.preferredFoot || existing.preferredFoot,
         pace: masterPlayer.id === 'JP_J1_000277_A' || masterPlayer.name.includes('サニブラウン') ? 89 : Math.max(existing.pace, masterPlayer.pace),
         ovr: Math.max(existing.ovr, masterPlayer.ovr),
@@ -518,6 +526,17 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
         potential: Math.max(existing.potential, masterPlayer.potential),
         birthDate: masterPlayer.birthDate || existing.birthDate,
         age: masterPlayer.age,
+        isSpecialDesignated: masterPlayer.isSpecialDesignated ?? existing.isSpecialDesignated,
+        specialDesignatedUniversity: masterPlayer.specialDesignatedUniversity ?? existing.specialDesignatedUniversity,
+        isType2Registered: (masterPlayer.isSpecialDesignated ?? existing.isSpecialDesignated)
+          ? false
+          : (masterPlayer.isType2Registered ?? existing.isType2Registered),
+        isType2: (masterPlayer.isSpecialDesignated ?? existing.isSpecialDesignated)
+          ? false
+          : (masterPlayer.isType2 ?? existing.isType2),
+        type2HighSchool: (masterPlayer.isSpecialDesignated ?? existing.isSpecialDesignated)
+          ? undefined
+          : (masterPlayer.type2HighSchool ?? existing.type2HighSchool),
         isVerified: true,
         verificationStatus: 'verified'
       };
@@ -525,7 +544,10 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
       updatedCount++;
     } else {
       // New official 2026/27 player not present in old save
-      nextPlayers[masterPlayer.id] = syncPlayerGkAttributes(initializePlayerSkills({ ...masterPlayer }));
+      nextPlayers[masterPlayer.id] = syncPlayerGkAttributes(initializePlayerSkills({
+        ...masterPlayer,
+        playstyle: normalizeCompatiblePlaystyle(masterPlayer.position, masterPlayer.playstyle)
+      }));
       addedCount++;
     }
   });
@@ -546,6 +568,7 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     if (
       p.isYouthRegen ||
       p.isType2Registered ||
+      p.isSpecialDesignated ||
       pId.startsWith('youth_') ||
       pId.startsWith('gen_') ||
       pId.startsWith('signed_') ||
@@ -666,10 +689,14 @@ export function merge2026_27MasterRosterIntoSave(savedState: GameWorldState): {
     ...savedState,
     season: '2026/27',
     rosterDataVersion: CURRENT_ROSTER_DATA_VERSION,
+    autoSubstitutionEnabled: savedState.autoSubstitutionEnabled ?? savedState.tactics?.autoSubstitutionEnabled ?? true,
     players: nextPlayers,
     clubs: nextClubs,
     standings: nextStandings,
-    tactics: nextTactics
+    tactics: {
+      ...nextTactics,
+      autoSubstitutionEnabled: nextTactics.autoSubstitutionEnabled ?? savedState.autoSubstitutionEnabled ?? true
+    }
   };
 
   const nextState: GameWorldState = {

@@ -1,16 +1,22 @@
 import React, { useState } from 'react';
-import { Player, Club } from '../types/game';
+import { Player, Club, LeagueKey, StandingsRow, TournamentCompetitionsState } from '../types/game';
 import { FatigueGauge, ConditionDot } from './common/FatigueGauge';
 import { PlayablePositionsMap } from './common/PlayablePositionsMap';
 import { PlayerGrowthView } from './common/PlayerGrowthView';
 import { useI18n } from '../i18n/LanguageContext';
 import { getSkillDefinition, SKILL_CATEGORY_LABELS } from '../engine/skillEngine';
 import { syncPlayerGkAttributes } from '../engine/valuationEngine';
+import { calculatePlayerInterestInUserClub } from '../engine/transferEngine';
 import { Shield, Heart, Zap, Award, AlertTriangle, Calendar, DollarSign, X, TrendingUp, UserCheck } from 'lucide-react';
 
 interface Props {
   player: Player | null;
   club: Club | null;
+  userClub?: Club | null;
+  manager?: { reputation: number };
+  standings?: Record<LeagueKey, StandingsRow[]>;
+  tournaments?: TournamentCompetitionsState;
+  clubs?: Record<string, Club>;
   isUserPlayer?: boolean;
   isShortlisted?: boolean;
   hasDeclaredInterest?: boolean;
@@ -27,6 +33,11 @@ interface Props {
 export const PlayerDetailModal: React.FC<Props> = ({ 
   player, 
   club, 
+  userClub = null,
+  manager,
+  standings,
+  tournaments,
+  clubs,
   isUserPlayer = false,
   isShortlisted = false,
   hasDeclaredInterest = false,
@@ -167,8 +178,17 @@ export const PlayerDetailModal: React.FC<Props> = ({
                 <div className="text-[11px] text-emerald-400 mt-1 font-semibold">{shirtMsg}</div>
               )}
 
-              <div className="text-xs text-slate-400 mt-1">
-                {player.age}歳 · {player.nationality} · 利き足: {player.preferredFoot} · 所属: <strong className="text-slate-200">{club?.name || 'フリー'}</strong>
+              <div className="text-xs text-slate-400 mt-1 flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                <span>{player.age}歳 · {player.nationality} · 利き足: {player.preferredFoot} · 所属: <strong className="text-slate-200">{club?.name || 'フリー'}</strong></span>
+                {player.isSpecialDesignated ? (
+                  <span className="text-cyan-300 font-semibold">
+                    · 特別指定選手{player.specialDesignatedUniversity ? ` (${player.specialDesignatedUniversity})` : ''}
+                  </span>
+                ) : player.isType2Registered ? (
+                  <span className="text-purple-300 font-semibold">
+                    · 2種登録選手{player.type2HighSchool ? ` (${player.type2HighSchool})` : ''}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -926,6 +946,28 @@ export const PlayerDetailModal: React.FC<Props> = ({
                 <span className="text-xs font-bold text-purple-300 mt-0.5 block">{player.personality}</span>
               </div>
             </div>
+
+            {player.isSpecialDesignated ? (
+              <div className="p-3.5 rounded-xl bg-cyan-950/25 border border-cyan-500/30 mb-4 text-xs text-cyan-200 space-y-1">
+                <div className="font-bold text-cyan-300">JFA・Jリーグ特別指定選手</div>
+                <div>
+                  所属元: <strong className="text-white">{player.specialDesignatedUniversity || '提携大学サッカー部'}</strong>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  大学サッカー部に所属したままJリーグ公式戦への出場資格が付与された特別指定選手です（高校生対象の2種登録選手とは別枠）。
+                </p>
+              </div>
+            ) : player.isType2Registered ? (
+              <div className="p-3.5 rounded-xl bg-purple-950/25 border border-purple-500/30 mb-4 text-xs text-purple-200 space-y-1">
+                <div className="font-bold text-purple-300">2種登録選手</div>
+                <div>
+                  登録区分: <strong className="text-white">{player.type2HighSchool || 'クラブU-18 / 提携高校'}</strong>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  ユース（U-18）または高校年代に在籍しながらトップチーム公式戦へ出場可能な2種登録選手です。高校公式戦重複日は出場できません。
+                </p>
+              </div>
+            ) : null}
           </>
         )}
 
@@ -1003,66 +1045,93 @@ export const PlayerDetailModal: React.FC<Props> = ({
           </div>
         )}
 
-        {/* External Player Operations: Interest Gauge & Shortlist / Declare Interest (Requirement 9) */}
-        {!isUserPlayer && (
-          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <span>🎯 自クラブへの加入関心度</span>
-              </span>
-              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                (player.clubInterestScore ?? 50) >= 70
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                  : (player.clubInterestScore ?? 50) >= 40
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-              }`}>
-                {(player.clubInterestScore ?? 50) >= 70 ? '非常に高い (好意的)' : (player.clubInterestScore ?? 50) >= 40 ? '普通 (条件次第)' : '低い (加入に消極的)'} ({player.clubInterestScore ?? 50}%)
-              </span>
-            </div>
+        {/* External Player Operations: 5-Tier Interest Gauge & Shortlist / Declare Interest */}
+        {!isUserPlayer && (() => {
+          const interest = calculatePlayerInterestInUserClub(
+            player,
+            userClub ?? null,
+            manager || { reputation: 50 },
+            hasDeclaredInterest,
+            { standings, tournaments, clubs }
+          );
+          const tierColorClass =
+            interest.level === '非常に高い'
+              ? 'text-emerald-400'
+              : interest.level === '高い'
+              ? 'text-cyan-400'
+              : interest.level === '普通'
+              ? 'text-blue-400'
+              : interest.level === '低い'
+              ? 'text-amber-400'
+              : 'text-rose-400';
+          const barColorClass =
+            interest.level === '非常に高い'
+              ? 'bg-emerald-500'
+              : interest.level === '高い'
+              ? 'bg-cyan-500'
+              : interest.level === '普通'
+              ? 'bg-blue-500'
+              : interest.level === '低い'
+              ? 'bg-amber-500'
+              : 'bg-rose-500';
 
-            {/* Interest Bar */}
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  (player.clubInterestScore ?? 50) >= 70
-                    ? 'bg-emerald-500'
-                    : (player.clubInterestScore ?? 50) >= 40
-                    ? 'bg-blue-500'
-                    : 'bg-rose-500'
-                }`}
-                style={{ width: `${Math.max(5, Math.min(100, player.clubInterestScore ?? 50))}%` }}
-              />
-            </div>
+          return (
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mb-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-white">自クラブへの加入関心度 (5段階)</span>
+                <div className="flex items-center gap-2 text-xs font-bold tabular-nums">
+                  <span className={tierColorClass}>{interest.level}</span>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-slate-300 font-mono">{interest.score}/100</span>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-slate-300 font-mono">獲得可能性 {interest.acquisitionProbability}%</span>
+                </div>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => onToggleShortlist && onToggleShortlist(player.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  isShortlisted
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                }`}
-              >
-                <span>{isShortlisted ? '★ 移籍リスト(お気に入り)から解除' : '☆ 移籍リスト(お気に入り)に追加'}</span>
-              </button>
+              {/* Interest Bar */}
+              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${barColorClass}`}
+                  style={{ width: `${Math.max(5, Math.min(100, interest.score))}%` }}
+                />
+              </div>
 
-              <button
-                type="button"
-                disabled={hasDeclaredInterest}
-                onClick={() => onDeclareInterest && onDeclareInterest(player.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  hasDeclaredInterest
-                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 cursor-default'
-                    : 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer shadow-xs'
-                }`}
-              >
-                <span>{hasDeclaredInterest ? '✓ 関心を表明済み (+15%好感度)' : '📢 獲得への関心を公に表明する'}</span>
-              </button>
+              <p className="text-[11px] text-slate-300 leading-relaxed">{interest.reason}</p>
+              {interest.reasons.length > 0 && (
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  主な判断材料: {interest.reasons.join(' · ')}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => onToggleShortlist && onToggleShortlist(player.id)}
+                  className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isShortlisted
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                  }`}
+                >
+                  <span>{isShortlisted ? '★ お気に入り登録中（解除）' : '☆ お気に入りリストに追加'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={hasDeclaredInterest}
+                  onClick={() => onDeclareInterest && onDeclareInterest(player.id)}
+                  className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    hasDeclaredInterest
+                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 cursor-default'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer'
+                  }`}
+                >
+                  <span>{hasDeclaredInterest ? '✓ 獲得関心を表明済み' : '獲得への関心を公に表明する'}</span>
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="text-right pt-2">
           <button

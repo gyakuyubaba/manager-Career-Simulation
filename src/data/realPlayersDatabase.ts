@@ -3,6 +3,51 @@ import { calculatePlayerPositionProficiency, deriveRealisticAltPositions } from 
 import { initializePlayerSkills } from '../engine/skillEngine';
 import { syncPlayerGkAttributes } from '../engine/valuationEngine';
 
+export function normalizeCompatiblePlaystyle(position: Position, rawPlaystyle?: PlayStyle | string): PlayStyle {
+  const allowedByPosition: Record<Position, PlayStyle[]> = {
+    GK: ['ショットストッパー', '守備的GK', 'ビルドアップ型GK'],
+    CB: ['ハードタックラー', 'ボール運べるCB'],
+    LB: ['攻撃的SB', '守備的SB', 'スピードスター', 'バランス型'],
+    RB: ['攻撃的SB', '守備的SB', 'スピードスター', 'バランス型'],
+    LWB: ['攻撃的SB', '守備的SB', 'スピードスター', 'バランス型'],
+    RWB: ['攻撃的SB', '守備的SB', 'スピードスター', 'バランス型'],
+    CDM: ['アンカー', 'ハードタックラー', 'ボックストゥボックス', 'チャンスメイカー', 'バランス型'],
+    CM: ['ボックストゥボックス', 'チャンスメイカー', 'アンカー', 'ハードタックラー', 'バランス型'],
+    CAM: ['チャンスメイカー', 'シャドーストライカー', '俊足ドリブラー', 'ボックストゥボックス', 'バランス型'],
+    LM: ['俊足ドリブラー', 'チャンスメイカー', 'スピードスター', 'ボックストゥボックス', 'バランス型'],
+    RM: ['俊足ドリブラー', 'チャンスメイカー', 'スピードスター', 'ボックストゥボックス', 'バランス型'],
+    LW: ['俊足ドリブラー', 'スピードスター', 'シャドーストライカー', 'チャンスメイカー', 'ゴールゲッター', 'バランス型'],
+    RW: ['俊足ドリブラー', 'スピードスター', 'シャドーストライカー', 'チャンスメイカー', 'ゴールゲッター', 'バランス型'],
+    CF: ['ゴールゲッター', 'ラインブレイカー', 'シャドーストライカー', 'チャンスメイカー', 'ターゲットマン', 'スピードスター', 'バランス型'],
+    ST: ['ゴールゲッター', 'ラインブレイカー', 'ターゲットマン', 'シャドーストライカー', 'スピードスター', 'チャンスメイカー', 'バランス型']
+  };
+  const allowed = allowedByPosition[position] || ['バランス型'];
+  if (rawPlaystyle && (allowed as string[]).includes(rawPlaystyle)) {
+    return rawPlaystyle as PlayStyle;
+  }
+  if (position === 'CB') {
+    if (rawPlaystyle === '守備的SB' || rawPlaystyle === 'ハードタックラー' || rawPlaystyle === 'アンカー') {
+      return 'ハードタックラー';
+    }
+    return 'ボール運べるCB';
+  }
+  if (['LB', 'RB', 'LWB', 'RWB'].includes(position)) {
+    if (rawPlaystyle === 'チャンスメイカー' || rawPlaystyle === 'ボール運べるCB') return '攻撃的SB';
+    if (rawPlaystyle === 'ハードタックラー' || rawPlaystyle === 'アンカー') return '守備的SB';
+    return '攻撃的SB';
+  }
+  if (['LM', 'RM'].includes(position)) {
+    if (rawPlaystyle === '攻撃的SB') return 'スピードスター';
+    if (rawPlaystyle === '守備的SB') return 'ボックストゥボックス';
+    return '俊足ドリブラー';
+  }
+  if (position === 'CM') {
+    if (rawPlaystyle === 'ボール運べるCB') return 'チャンスメイカー';
+    return 'ボックストゥボックス';
+  }
+  return allowed[0];
+}
+
 // Helper to construct fully structured real players
 export function makeRealPlayer(
   id: string,
@@ -22,6 +67,7 @@ export function makeRealPlayer(
   param15?: Position[] | PlayerPersonality,
   condition: PlayerCondition = 'yellow'
 ): Player {
+  const safePlaystyle = normalizeCompatiblePlaystyle(position, playstyle);
   const isGk = position === 'GK';
   const isDef = ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(position);
   const isMid = ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(position);
@@ -44,7 +90,7 @@ export function makeRealPlayer(
 
   // If no alternative positions provided, procedurally derive realistic ones
   if (resolvedAltPositions.length === 0) {
-    resolvedAltPositions = deriveRealisticAltPositions(position, preferredFoot, playstyle, name);
+    resolvedAltPositions = deriveRealisticAltPositions(position, preferredFoot, safePlaystyle, name);
   }
 
   // Derive realistic attributes from OVR and position
@@ -99,7 +145,7 @@ export function makeRealPlayer(
     clubId,
     squadRole: ovr >= 85 ? '絶対的主力' : ovr >= 78 ? '重要選手' : ovr >= 73 ? 'ローテーション' : '控え・バックアップ',
     isLoaned: false,
-    playstyle,
+    playstyle: safePlaystyle,
     personality: resolvedPersonality,
     managerTrust: 85,
     relationships: [],

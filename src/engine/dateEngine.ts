@@ -1,7 +1,7 @@
 import { GameWorldState, MatchFixture, MatchEvent, StandingsRow, LeagueKey, NewsItem, Player, Club, DEFAULT_DIFFICULTY_SETTINGS, PeriodSummary, SeasonStatsHistory, CompetitionCategory, PendingTransfer, PenaltyShootoutResult } from '../types/game';
 import { ENABLE_J_LEAGUE } from '../data/clubsData';
 import { simulateFullMatch, calculatePlayerInjuryRisk, INJURY_VARIETIES, getRandomWeightedInjury } from './matchEngine';
-import { simulateAITransfers } from './transferEngine';
+import { simulateAITransfers, processShortlistCompetingOffers } from './transferEngine';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
 import { generateSeasonFixtures } from './fixtureGenerator';
 import {
@@ -15,10 +15,11 @@ import { checkAndAdvanceBallonDor } from './ballonDorEngine';
 import { isType2PlayerUnavailableOnDate } from './scoutEngine';
 import { initializeTournamentCompetitions, populateEuropeanKnockoutFixtures, advanceEuropeanPlayoffWinnersToRoundOf16 } from './cupEngine';
 import { evaluateDailyUnexpectedEvent } from './unexpectedEventsEngine';
-import { processSkillDeclineCheck } from './skillEngine';
+import { processSkillDeclineCheck, initializePlayerSkills } from './skillEngine';
 import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
 import { processDailySmartphoneEvents, recordMatchSmartphoneUpdate } from './smartphoneEngine';
 import { EUROPEAN_GROUP_A_SLOT_COUNTS } from '../data/europeanCompetitionClubs2026';
+import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 
 // Get competition category for isolated disciplinary suspensions
 export function getCompetitionCategory(competition: string): CompetitionCategory {
@@ -936,8 +937,9 @@ export function advanceOneDay(
     state.news = [injuryNews, ...state.news];
   }
 
-  // Autonomous AI Transfers
+  // Autonomous AI Transfers & Shortlist-Only Competing Offers
   state = simulateAITransfers(state);
+  state = processShortlistCompetingOffers(state, nextDate);
 
   // Process Pending Transfers (Requirement 10)
   const pendingTransfers = state.pendingTransfers || [];
@@ -2721,8 +2723,10 @@ export function advanceDeadlineHours(
 
   // Accelerate transfer bids during deadline countdown
   state = simulateAITransfers(state);
+  state = processShortlistCompetingOffers(state, state.currentDate);
   if (remainingHours <= 6) {
     state = simulateAITransfers(state);
+    state = processShortlistCompetingOffers(state, state.currentDate);
   }
 
   const news: NewsItem[] = [...state.news];
@@ -2830,7 +2834,11 @@ export function generateAIClubsYouthPromotions(currentState: GameWorldState): Ga
         isType2: false
       };
 
-      players[regenId] = recalculateDynamicMarketValue(regenPlayer, state.currentDate, 'アカデミー昇格');
+      const initializedRegen = initializePlayerSkills({
+        ...regenPlayer,
+        playstyle: normalizeCompatiblePlaystyle(pos, regenPlayer.playstyle)
+      });
+      players[regenId] = recalculateDynamicMarketValue(initializedRegen, state.currentDate, 'アカデミー昇格');
       if (!club.playerIds.includes(regenId)) {
         club.playerIds = [...club.playerIds, regenId];
       }

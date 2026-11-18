@@ -65,43 +65,39 @@ function getOvrBandSpec(ovr: number): {
   bandMin: number;
   bandMax: number;
 } {
-  // Exact OVR-anchored valuation bands:
-  // <60: 0.05M - 0.2M | 60-64: 0.1M - 1M | 65-69: 0.5M - 3M | 70-74: 2M - 8M
-  // 75-79: 5M - 20M | 80-84: 15M - 40M | 85-87: 30M - 65M | 88-90: 45M - 90M
-  // 91-93: 70M - 120M | 94-96: 90M - 150M | 97+: 100M - 180M
   const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.max(0, Math.min(1, t));
 
   if (ovr < 60) {
-    return { mid: lerp(60000, 180000, (ovr - 50) / 9), bandMin: 50000, bandMax: 200000 };
+    return { mid: lerp(60000, 180000, (ovr - 50) / 9), bandMin: 50000, bandMax: 220000 };
   }
   if (ovr <= 64) {
-    return { mid: lerp(250000, 720000, (ovr - 60) / 4), bandMin: 100000, bandMax: 1000000 };
+    return { mid: lerp(250000, 750000, (ovr - 60) / 4), bandMin: 100000, bandMax: 1200000 };
   }
   if (ovr <= 69) {
-    return { mid: lerp(850000, 2300000, (ovr - 65) / 4), bandMin: 500000, bandMax: 3000000 };
+    return { mid: lerp(900000, 2500000, (ovr - 65) / 4), bandMin: 500000, bandMax: 4000000 };
   }
   if (ovr <= 74) {
-    return { mid: lerp(2700000, 6200000, (ovr - 70) / 4), bandMin: 2000000, bandMax: 8000000 };
+    return { mid: lerp(2800000, 7000000, (ovr - 70) / 4), bandMin: 2000000, bandMax: 10500000 };
   }
   if (ovr <= 79) {
-    return { mid: lerp(7000000, 15500000, (ovr - 75) / 4), bandMin: 5000000, bandMax: 20000000 };
+    return { mid: lerp(7500000, 18000000, (ovr - 75) / 4), bandMin: 5000000, bandMax: 28000000 };
   }
   if (ovr <= 84) {
-    return { mid: lerp(18000000, 33000000, (ovr - 80) / 4), bandMin: 15000000, bandMax: 40000000 };
+    return { mid: lerp(22000000, 40000000, (ovr - 80) / 4), bandMin: 18000000, bandMax: 80000000 };
   }
   if (ovr <= 87) {
-    return { mid: lerp(37000000, 54000000, (ovr - 85) / 2), bandMin: 30000000, bandMax: 65000000 };
+    return { mid: lerp(46000000, 68000000, (ovr - 85) / 2), bandMin: 35000000, bandMax: 115000000 };
   }
   if (ovr <= 90) {
-    return { mid: lerp(58000000, 78000000, (ovr - 88) / 2), bandMin: 45000000, bandMax: 90000000 };
+    return { mid: lerp(76000000, 102000000, (ovr - 88) / 2), bandMin: 55000000, bandMax: 165000000 };
   }
   if (ovr <= 93) {
-    return { mid: lerp(82000000, 108000000, (ovr - 91) / 2), bandMin: 70000000, bandMax: 120000000 };
+    return { mid: lerp(110000000, 142000000, (ovr - 91) / 2), bandMin: 85000000, bandMax: 175000000 };
   }
   if (ovr <= 96) {
-    return { mid: lerp(112000000, 138000000, (ovr - 94) / 2), bandMin: 90000000, bandMax: 150000000 };
+    return { mid: lerp(145000000, 168000000, (ovr - 94) / 2), bandMin: 105000000, bandMax: 180000000 };
   }
-  return { mid: lerp(142000000, 168000000, (ovr - 97) / 2), bandMin: 100000000, bandMax: 180000000 };
+  return { mid: lerp(165000000, 178000000, (ovr - 97) / 2), bandMin: 120000000, bandMax: 180000000 };
 }
 
 /**
@@ -122,20 +118,26 @@ export function recalculateDynamicMarketValue(
 
   const { mid: baseEur, bandMin, bandMax } = getOvrBandSpec(ovr);
 
-  // 1. Age & Potential Adjustment (bounded additive delta, clear aging curve after 29)
+  // 1. Age & Potential Adjustment (non-compounding; rewards young elite wonderkids fairly without inflating 26yo role players)
   let ageFactor = 0;
-  if (age <= 20) ageFactor = 0.08 + Math.min(0.12, potGap * 0.011);
-  else if (age <= 23) ageFactor = 0.06 + Math.min(0.09, potGap * 0.009);
-  else if (age <= 26) ageFactor = 0.03 + Math.min(0.04, potGap * 0.004);
-  else if (age <= 28) ageFactor = 0.0;
-  else if (age === 29) ageFactor = -0.10;
+  if (age <= 20) {
+    const eliteYouthBonus = potential >= 88 ? 0.14 + Math.min(0.56, potGap * 0.065) : Math.min(0.24, potGap * 0.025);
+    ageFactor = 0.08 + eliteYouthBonus;
+  } else if (age <= 23) {
+    const youngStarBonus = potential >= 88 ? 0.08 + Math.min(0.32, potGap * 0.045) : Math.min(0.16, potGap * 0.02);
+    ageFactor = 0.06 + youngStarBonus;
+  } else if (age <= 26) {
+    ageFactor = 0.03 + Math.min(0.08, potGap * 0.015);
+  } else if (age <= 28) {
+    ageFactor = 0.0;
+  } else if (age === 29) ageFactor = -0.10;
   else if (age === 30) ageFactor = -0.18;
-  else if (age === 31) ageFactor = -0.27;
-  else if (age === 32) ageFactor = -0.37;
-  else if (age === 33) ageFactor = -0.47;
-  else if (age === 34) ageFactor = -0.56;
-  else if (age === 35) ageFactor = -0.65;
-  else ageFactor = -0.74;
+  else if (age === 31) ageFactor = -0.28;
+  else if (age === 32) ageFactor = -0.38;
+  else if (age === 33) ageFactor = -0.48;
+  else if (age === 34) ageFactor = -0.58;
+  else if (age === 35) ageFactor = -0.68;
+  else ageFactor = -0.76;
 
   // 2. Position Market Demand Factor
   let posFactor = 0;
@@ -146,7 +148,7 @@ export function recalculateDynamicMarketValue(
   } else if (player.position === 'GK') {
     posFactor = -0.12;
   } else if (player.position === 'CB') {
-    posFactor = -0.04;
+    posFactor = -0.02;
   } else {
     posFactor = -0.02;
   }
@@ -194,16 +196,14 @@ export function recalculateDynamicMarketValue(
   const netOvrDelta = (player.exactOvr ?? ovr) - (player.initialOvr ?? ovr);
   const momentumFactor = Math.max(-0.05, Math.min(0.05, netOvrDelta * 0.012));
 
-  // Additive combination prevents 5x compounding inflation
+  // Additive combination prevents runaway compounding inflation while reflecting genuine wonderkid value
   const netAdjustment = Math.max(
     -0.80,
-    Math.min(0.28, ageFactor + posFactor + perfFactor + skillFactor + contractFactor + momentumFactor)
+    Math.min(0.95, ageFactor + posFactor + perfFactor + skillFactor + contractFactor + momentumFactor)
   );
 
   let rawValue = baseEur * (1 + netAdjustment);
 
-  // Enforce realistic OVR-band ceiling strictly across all players,
-  // and enforce band floor for non-aging contracted players (age <= 28, yearsLeft > 1, not free agent)
   rawValue = Math.min(bandMax, rawValue);
   if (age <= 28 && yearsLeft > 1 && player.clubId !== 'free_agent') {
     rawValue = Math.max(bandMin, rawValue);

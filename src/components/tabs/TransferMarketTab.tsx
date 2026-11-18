@@ -1,26 +1,26 @@
 import React, { useState, useMemo } from 'react';
-import { GameWorldState, Player, Position, TransferNegotiation, IncomingAIOffer, LeagueKey, Club } from '../../types/game';
+import { GameWorldState, Player, Position, TransferNegotiation, IncomingAIOffer, Club } from '../../types/game';
 import { 
   handleClubNegotiationStep, 
   handlePlayerNegotiationStep, 
   executeTransferCompletion,
-  evaluateAICounterProposal
+  evaluateAICounterProposal,
+  calculatePlayerInterestInUserClub,
+  calculatePlayerValuation,
+  createTransferNegotiation,
+  finalizeAgreedTransfer,
+  withdrawNegotiation
 } from '../../engine/transferEngine';
 import { 
   Search, 
-  Filter, 
-  DollarSign, 
   CheckCircle, 
   XCircle, 
   AlertTriangle, 
-  ArrowRight, 
-  Building,
-  UserCheck,
   SlidersHorizontal,
   RotateCcw,
   ChevronDown,
   ChevronUp,
-  Sparkles
+  Star
 } from 'lucide-react';
 
 interface Props {
@@ -99,9 +99,11 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
   const [sortBy, setSortBy] = useState<'ovr_desc' | 'ovr_asc' | 'pot_desc' | 'age_asc' | 'age_desc' | 'val_desc' | 'val_asc' | 'wage_desc'>('ovr_desc');
 
   // UI state
+  const [marketViewTab, setMarketViewTab] = useState<'market' | 'shortlist' | 'negotiations'>('market');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
   const [displayLimit, setDisplayLimit] = useState<number>(60);
   const [activeNegotiation, setActiveNegotiation] = useState<TransferNegotiation | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   // Negotiation input states
   const [negotiationType, setNegotiationType] = useState<'permanent' | 'loan' | 'buy_option' | 'dev_loan'>('permanent');
@@ -116,6 +118,58 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
   const [showSummaryModal, setShowSummaryModal] = useState<boolean>(false);
 
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
+
+  const shortlistSet = useMemo(() => {
+    const ids = new Set<string>(state.shortlistPlayerIds || []);
+    Object.values(state.players).forEach(p => {
+      if (p.isOnShortlist) ids.add(p.id);
+    });
+    return ids;
+  }, [state.shortlistPlayerIds, state.players]);
+
+  const shortlistPlayers = useMemo(() => {
+    return Array.from(shortlistSet)
+      .map(id => state.players[id])
+      .filter((p): p is Player => Boolean(p && p.clubId !== state.userClubId))
+      .sort((a, b) => b.ovr - a.ovr);
+  }, [shortlistSet, state.players, state.userClubId]);
+
+  const negotiationsList = useMemo(() => {
+    const statusOrder: Record<TransferNegotiation['status'], number> = {
+      terms_agreed: 0,
+      player_negotiating: 1,
+      club_agreed: 2,
+      club_negotiating: 3,
+      hijacked: 4,
+      collapsed: 5,
+      completed: 6
+    };
+    return Object.values(state.negotiations || {})
+      .filter((n): n is TransferNegotiation => Boolean(n && state.players[n.playerId]))
+      .sort((a, b) => {
+        const oa = statusOrder[a.status] ?? 9;
+        const ob = statusOrder[b.status] ?? 9;
+        if (oa !== ob) return oa - ob;
+        return (b.lastUpdatedDate || '').localeCompare(a.lastUpdatedDate || '');
+      });
+  }, [state.negotiations, state.players]);
+
+  const toggleShortlist = (playerId: string) => {
+    const currentList = state.shortlistPlayerIds || [];
+    const isCurrentlyIn = shortlistSet.has(playerId);
+    const nextList = isCurrentlyIn
+      ? currentList.filter(id => id !== playerId)
+      : Array.from(new Set([...currentList, playerId]));
+    const target = state.players[playerId];
+    const updatedPlayers = target
+      ? { ...state.players, [playerId]: { ...target, isOnShortlist: !isCurrentlyIn } }
+      : state.players;
+    onUpdateState({
+      ...state,
+      shortlistPlayerIds: nextList,
+      players: updatedPlayers
+    });
+  };
 
   const getCooldownDays = (playerId: string): number => {
     const neg = state.negotiations[playerId];
@@ -315,7 +369,11 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     nationalityFilter, 
     freeAgentOnly, 
     transferListedOnly, 
-    loanListedOnly, 
+    loanListedOnly,
+    shortlistOnly,
+    state.shortlistPlayerIds,
+    state.negotiations,
+    state.currentDate,
     expiringFilter, 
     affordableOnly, 
     affordableWageOnly, 
@@ -349,10 +407,62 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     setSortBy('ovr_desc');
   };
 
+  const persistNegotiationInState = (neg: TransferNegotiation, baseState: GameWorldState = state): GameWorldState => {
+    const nextState: GameWorldState = {
+      ...baseState,
+      negotiations: {
+        ...(baseState.negotiations || {}),
+        [neg.playerId]: neg
+      }
+    };
+    onUpdateState(nextState);
+    return nextState;
+  };
+
+  const syncInputsFromNegotiation = (neg: TransferNegotiation, targetPlayer: Player) => {
+    setNegotiationType(neg.negotiationType || (neg.isLoan ? 'loan' : 'permanent'));
+    setBuyOptionFee(neg.buyOptionFee ?? Math.round(targetPlayer.marketValue * 1.25));
+    setBidFee(neg.currentBidFee);
+    setWageOffer(neg.wageOffered);
+    setContractYears(neg.contractYearsOffered);
+    setSquadRole(neg.squadRoleOffered);
+    setSigningBonus(neg.signingBonusOffered);
+    setJoinTimingChoice(neg.joinTiming || (state.isTransferWindowOpen ? 'immediate' : 'next_window'));
+    setBudgetError(null);
+  };
+
   const startNegotiation = (targetPlayer: Player) => {
+    setActionFeedback(null);
+    const existing = state.negotiations?.[targetPlayer.id];
+    if (
+      existing &&
+      ['club_negotiating', 'club_agreed', 'player_negotiating', 'terms_agreed'].includes(existing.status)
+    ) {
+      // Refresh interest readout and resume persisted negotiation
+      const refreshedInterest = calculatePlayerInterestInUserClub(
+        targetPlayer,
+        userClub,
+        state.manager,
+        Boolean(targetPlayer.userDeclaredInterest || state.declaredInterestPlayerIds?.includes(targetPlayer.id)),
+        { standings: state.standings, tournaments: state.tournaments, clubs: state.clubs, currentDate: state.currentDate }
+      );
+      const resumed: TransferNegotiation = {
+        ...existing,
+        interestTier: refreshedInterest.level,
+        interestScore: refreshedInterest.score,
+        interestReasons: refreshedInterest.reasons
+      };
+      syncInputsFromNegotiation(resumed, targetPlayer);
+      setActiveNegotiation(resumed);
+      return;
+    }
+
     const cooldown = getCooldownDays(targetPlayer.id);
     if (cooldown > 0) {
-      alert(`この選手との交渉は、あと ${cooldown} 日間できません。`);
+      setActionFeedback({
+        type: 'error',
+        message: `${targetPlayer.name}との再交渉は10日間ルールによりあと ${cooldown} 日間待機が必要です。`
+      });
       return;
     }
 
@@ -361,83 +471,9 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     if (!userClub) return;
     if (!sellerClub && !isFreeAgent) return;
 
-    setNegotiationType('permanent');
-    setBuyOptionFee(Math.round(targetPlayer.marketValue * 1.3));
-    setBudgetError(null);
-
-    // Free Agent special immediate personal terms flow (Zero transfer fee)
-    if (isFreeAgent) {
-      const initialNegotiation: TransferNegotiation = {
-        id: `neg_fa_${Date.now()}`,
-        playerId: targetPlayer.id,
-        sellerClubId: 'free_agent',
-        buyerClubId: userClub.id,
-        status: 'player_negotiating',
-        isLoan: false,
-        negotiationType: 'permanent',
-        initialAskingPrice: 0,
-        currentBidFee: 0,
-        clubPatience: 3,
-        clubMessages: [
-          {
-            sender: 'ai',
-            text: `【フリーエージェント】${targetPlayer.name}は現在無所属のため、移籍金ゼロ（€0）で獲得可能です。選手代理人と直接個人条件（年俸・契約年数・起用役割）を交渉してください。`,
-            date: '今日'
-          }
-        ],
-        wageOffered: Math.round(targetPlayer.wage * 1.05),
-        wageDemanded: Math.round(targetPlayer.wage * 1.05),
-        contractYearsOffered: targetPlayer.age >= 38 ? 1 : 2,
-        squadRoleOffered: targetPlayer.ovr >= 84 ? '絶対的主力' : '重要選手',
-        signingBonusOffered: 1000000,
-        playerPatience: 3,
-        playerMessages: [
-          {
-            sender: 'agent',
-            text: `「${targetPlayer.name}（${targetPlayer.age}歳）の代理人です。当選手は現在無所属（フリーエージェント）のため、移籍金ゼロでの即時加入が可能です。提示週給や起用役割、契約年数をご提示ください。」`,
-            date: '今日'
-          }
-        ]
-      };
-
-      setBidFee(0);
-      setWageOffer(Math.round(targetPlayer.wage * 1.05));
-      setJoinTimingChoice(state.isTransferWindowOpen ? 'immediate' : 'next_window');
-      setActiveNegotiation(initialNegotiation);
-      return;
-    }
-
-    const initialBid = targetPlayer.marketValue;
-    const initialNegotiation: TransferNegotiation = {
-      id: `neg_${Date.now()}`,
-      playerId: targetPlayer.id,
-      sellerClubId: sellerClub.id,
-      buyerClubId: userClub.id,
-      status: 'club_negotiating',
-      isLoan: false,
-      negotiationType: 'permanent',
-      initialAskingPrice: Math.round(targetPlayer.marketValue * 1.15),
-      currentBidFee: initialBid,
-      clubPatience: 3,
-      clubMessages: [
-        {
-          sender: 'ai',
-          text: `「${sellerClub.name}の担当者です。${targetPlayer.name}（市場価値 €${(targetPlayer.marketValue / 1000000).toFixed(1)}M）の獲得オファーを受領しました。提示条件をご提示ください。」`,
-          date: '今日'
-        }
-      ],
-      wageOffered: Math.round(targetPlayer.wage * 1.2),
-      wageDemanded: Math.round(targetPlayer.wage * 1.2),
-      contractYearsOffered: 3,
-      squadRoleOffered: targetPlayer.ovr >= 85 ? '絶対的主力' : '重要選手',
-      signingBonusOffered: 500000,
-      playerPatience: 3,
-      playerMessages: []
-    };
-
-    setBidFee(initialBid);
-    setWageOffer(Math.round(targetPlayer.wage * 1.2));
-    setJoinTimingChoice(state.isTransferWindowOpen ? 'immediate' : 'next_window');
+    const initialNegotiation = createTransferNegotiation(state, targetPlayer);
+    syncInputsFromNegotiation(initialNegotiation, targetPlayer);
+    persistNegotiationInState(initialNegotiation);
     setActiveNegotiation(initialNegotiation);
   };
 
@@ -447,7 +483,6 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     const sellerClub = state.clubs[activeNegotiation.sellerClubId];
     if (!targetPlayer || !sellerClub) return;
 
-    // Budget check (Requirement 3)
     if (bidFee > userClub.transferBudget) {
       setBudgetError(`移籍予算が不足しています (所持予算: €${(userClub.transferBudget / 1000000).toFixed(1)}M / 提示額: €${(bidFee / 1000000).toFixed(1)}M)`);
       return;
@@ -462,33 +497,27 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     };
 
     const res = handleClubNegotiationStep(updatedWithMode, bidFee, sellerClub, targetPlayer, state.currentDate);
-    setActiveNegotiation(res.updatedNegotiation);
-
-    // Save cooldown in state if collapsed
-    if (res.isCollapsed && res.updatedNegotiation.cooldownUntil) {
-      onUpdateState({
-        ...state,
-        negotiations: {
-          ...state.negotiations,
-          [targetPlayer.id]: res.updatedNegotiation
-        }
-      });
-    }
 
     if (res.isAgreed) {
-      // Initialize player stage
       const updatedWithPlayerStage: TransferNegotiation = {
         ...res.updatedNegotiation,
         status: 'player_negotiating',
-        playerMessages: [
-          {
-            sender: 'agent',
-            text: `「${targetPlayer.name}の公認代理人です。クラブ間合意の報告を受けました。本人の希望条件は週給€${Math.round(targetPlayer.wage * 1.2).toLocaleString()}、複数年契約、および明確なチーム内役割です。」`,
-            date: '今日'
-          }
-        ]
+        playerMessages:
+          res.updatedNegotiation.playerMessages && res.updatedNegotiation.playerMessages.length > 0
+            ? res.updatedNegotiation.playerMessages
+            : [
+                {
+                  sender: 'agent',
+                  text: `「${targetPlayer.name}の公認代理人です。クラブ間合意の報告を受けました。本人の希望条件は週給€${Math.round((res.updatedNegotiation.wageDemanded || targetPlayer.wage * 1.15) / 1000)}k前後、契約年数、および明確なチーム内役割です。」`,
+                  date: state.currentDate
+                }
+              ]
       };
       setActiveNegotiation(updatedWithPlayerStage);
+      persistNegotiationInState(updatedWithPlayerStage);
+    } else {
+      setActiveNegotiation(res.updatedNegotiation);
+      persistNegotiationInState(res.updatedNegotiation);
     }
   };
 
@@ -497,7 +526,6 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     const targetPlayer = state.players[activeNegotiation.playerId];
     if (!targetPlayer) return;
 
-    // Wage budget check (Requirement 3)
     const availableWage = userClub.wageBudget - userClub.currentWageSpend;
     if (wageOffer > availableWage) {
       setBudgetError(`週給予算が不足しています (空き週給枠: €${(availableWage / 1000).toFixed(0)}k / 提示週給: €${(wageOffer / 1000).toFixed(0)}k)`);
@@ -516,32 +544,49 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
       state.currentDate
     );
 
-    setActiveNegotiation(res.updatedNegotiation);
+    const chosenTiming = state.isTransferWindowOpen
+      ? joinTimingChoice
+      : (joinTimingChoice === 'immediate' ? 'next_window' : joinTimingChoice);
 
-    if (res.isCollapsed && res.updatedNegotiation.cooldownUntil) {
-      onUpdateState({
-        ...state,
-        negotiations: {
-          ...state.negotiations,
-          [targetPlayer.id]: res.updatedNegotiation
-        }
+    const nextNegotiation: TransferNegotiation = {
+      ...res.updatedNegotiation,
+      joinTiming: chosenTiming
+    };
+
+    setActiveNegotiation(nextNegotiation);
+    persistNegotiationInState(nextNegotiation);
+
+    if (res.isTermsAgreed) {
+      setActionFeedback({
+        type: 'info',
+        message: `${targetPlayer.name}と個人条件に合意しました。内容を確認し「契約を最終確定する」を押すと入団が確定します。`
       });
     }
+  };
 
-    if (res.isCompleted) {
-      // Finalize transfer atomically with selected joinTiming
-      const chosenTiming = state.isTransferWindowOpen
-        ? joinTimingChoice
-        : (joinTimingChoice === 'immediate' ? 'next_window' : joinTimingChoice);
-
-      const finalNegotiation: TransferNegotiation = {
-        ...res.updatedNegotiation,
-        joinTiming: chosenTiming
-      };
-
-      const updatedState = executeTransferCompletion(state, finalNegotiation);
-      onUpdateState(updatedState);
+  const handleFinalizeNegotiation = (playerId: string, chosenTiming?: 'immediate' | 'next_window' | 'next_season') => {
+    const res = finalizeAgreedTransfer(state, playerId, chosenTiming);
+    if (!res.success) {
+      setBudgetError(res.message);
+      setActionFeedback({ type: 'error', message: res.message });
+      return;
     }
+    setBudgetError(null);
+    onUpdateState(res.updatedState);
+    const completedNeg = res.updatedState.negotiations?.[playerId] || null;
+    if (activeNegotiation?.playerId === playerId) {
+      setActiveNegotiation(completedNeg);
+    }
+    setActionFeedback({ type: 'success', message: res.message });
+  };
+
+  const handleWithdrawNegotiation = (playerId: string) => {
+    const nextState = withdrawNegotiation(state, playerId);
+    onUpdateState(nextState);
+    if (activeNegotiation?.playerId === playerId) {
+      setActiveNegotiation(null);
+    }
+    setActionFeedback({ type: 'info', message: '交渉リストから削除しました。' });
   };
 
   // Handle incoming AI offer action (Accept / Reject)
@@ -686,34 +731,94 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     <div className="space-y-5 pb-20">
       
       {/* Header & Market Status */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-white font-display">移籍市場 & スカウティング</h2>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
-              {state.isTransferWindowOpen ? `開口中 (残${state.transferWindowClosingDays}日)` : '閉塞中'}
-            </span>
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-xl font-bold text-white font-display">移籍市場 & スカウティング</h2>
+              <span className="text-xs font-semibold text-emerald-400 tabular-nums">
+                {state.isTransferWindowOpen ? `移籍期間開口中 (残${state.transferWindowClosingDays}日)` : '移籍期間外'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              世界各国の実在選手を検索し、お気に入り登録・クラブ間交渉・個人条件合意を経て最終契約を確定します。
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            世界各国の実在トップ選手を検索し、クラブ間交渉および本人・代理人との契約合意を経て獲得します。
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setShowSummaryModal(true)}
-            className="px-3.5 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 transition-colors"
-          >
-            📋 移籍市場まとめ
-          </button>
-          <div className="bg-slate-950/80 border border-slate-800 px-4 py-2 rounded-2xl text-right">
-            <div className="text-[11px] text-slate-400">使用可能 移籍予算</div>
-            <div className="text-base sm:text-lg font-bold text-emerald-400 font-mono">
-              €{((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowSummaryModal(true)}
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              移籍市場まとめ
+            </button>
+            <div className="bg-slate-950/80 border border-slate-800 px-4 py-2 rounded-xl text-right tabular-nums">
+              <div className="text-[11px] text-slate-400">使用可能 移籍予算</div>
+              <div className="text-base sm:text-lg font-bold text-emerald-400 font-mono">
+                €{((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Segmented Sub-Tabs: Market | Shortlist | Negotiation List */}
+        <div className="flex items-center gap-2 overflow-x-auto pt-2 border-t border-slate-800/80">
+          <button
+            type="button"
+            onClick={() => setMarketViewTab('market')}
+            className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+              marketViewTab === 'market'
+                ? 'bg-emerald-500 text-slate-950'
+                : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            移籍市場
+          </button>
+          <button
+            type="button"
+            onClick={() => setMarketViewTab('shortlist')}
+            className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-colors tabular-nums cursor-pointer ${
+              marketViewTab === 'shortlist'
+                ? 'bg-amber-400 text-slate-950'
+                : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            ★ お気に入りリスト ({shortlistPlayers.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMarketViewTab('negotiations')}
+            className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-colors tabular-nums cursor-pointer ${
+              marketViewTab === 'negotiations'
+                ? 'bg-blue-500 text-white'
+                : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            交渉リスト ({negotiationsList.length})
+          </button>
+        </div>
+
+        {actionFeedback && (
+          <div
+            className={`rounded-xl px-4 py-2.5 text-xs flex items-center justify-between gap-2 border ${
+              actionFeedback.type === 'success'
+                ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200'
+                : actionFeedback.type === 'error'
+                ? 'bg-rose-950/50 border-rose-500/40 text-rose-200'
+                : 'bg-blue-950/50 border-blue-500/40 text-blue-200'
+            }`}
+          >
+            <span>{actionFeedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setActionFeedback(null)}
+              className="text-slate-400 hover:text-white px-1 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* INCOMING AI OFFERS SECTION (Requirement 7) */}
@@ -1047,6 +1152,8 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
       })()}
 
       {/* Filter and Search Bar with 20-Criteria Capabilities */}
+      {marketViewTab === 'market' && (
+      <>
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-4">
         {/* Top Row: Search Term, Sort, Toggle Advanced, Reset */}
         <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
@@ -1464,6 +1571,19 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
             {allTargetPlayers.slice(0, displayLimit).map(p => {
               const club = state.clubs[p.clubId];
               const potentialVal = p.potential ?? (p.ovr + (p.age <= 21 ? 6 : p.age <= 26 ? 3 : 0));
+              const isShortlisted = shortlistSet.has(p.id);
+              const existingNeg = state.negotiations?.[p.id];
+              const interest = calculatePlayerInterestInUserClub(
+                p,
+                userClub,
+                state.manager,
+                Boolean(p.userDeclaredInterest || state.declaredInterestPlayerIds?.includes(p.id)),
+                { standings: state.standings, tournaments: state.tournaments, clubs: state.clubs, currentDate: state.currentDate }
+              );
+              const cooldownDays = getCooldownDays(p.id);
+              const isActiveNeg = existingNeg && ['club_negotiating', 'club_agreed', 'player_negotiating'].includes(existingNeg.status);
+              const isTermsAgreed = existingNeg?.status === 'terms_agreed';
+
               return (
                 <div 
                   key={p.id} 
@@ -1472,49 +1592,57 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                   {/* Left: Player identity */}
                   <div 
                     onClick={() => onSelectPlayer(p)}
-                    className="flex items-center gap-3 cursor-pointer"
+                    className="flex items-center gap-3 cursor-pointer min-w-0"
                   >
-                    <div className="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex flex-col items-center justify-center font-bold text-white shrink-0 font-mono shadow">
+                    <div className="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex flex-col items-center justify-center font-bold text-white shrink-0 font-mono tabular-nums">
                       <span className="text-sm font-black text-white">{p.ovr}</span>
                       <span className="text-[9px] text-cyan-400 font-semibold" title={`潜在ポテンシャル: ${potentialVal}`}>
                         P{potentialVal}
                       </span>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-sm text-white hover:text-emerald-300 transition-colors">
                           {p.name}
                         </span>
-                        <span className="px-1.5 py-0.2 rounded bg-blue-950/80 text-blue-300 font-mono text-[10px] font-bold border border-blue-800/60">
+                        <span className="text-xs font-mono font-bold text-blue-300">
                           {p.position}
                         </span>
                         {p.shirtNumber && (
-                          <span className="text-[10px] text-slate-500 font-mono font-bold">#{p.shirtNumber}</span>
+                          <span className="text-[11px] text-slate-500 font-mono tabular-nums">#{p.shirtNumber}</span>
                         )}
                         {p.transferListed && (
-                          <span className="px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 text-[9px] font-bold border border-amber-800">
-                            移籍リスト
-                          </span>
+                          <span className="text-[11px] text-amber-300 font-semibold">移籍リスト</span>
                         )}
                         {p.loanListed && (
-                          <span className="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 text-[9px] font-bold border border-purple-800">
-                            レンタル可
-                          </span>
+                          <span className="text-[11px] text-purple-300 font-semibold">レンタル可</span>
                         )}
                         {(p.clubId === 'free_agent' || !p.clubId) && (
-                          <span className="px-1.5 py-0.2 rounded bg-amber-950/90 text-amber-300 text-[9px] font-bold border border-amber-600/70 shadow-sm">
-                            ★ 無所属 (FREE)
-                          </span>
+                          <span className="text-[11px] text-amber-300 font-bold">無所属 (FREE)</span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        {p.age}歳 · {p.nationality} · {p.playstyle} · 所属: <strong className={p.clubId === 'free_agent' || !p.clubId ? 'text-amber-400 font-bold' : 'text-slate-300'}>{p.clubId === 'free_agent' || !p.clubId ? 'フリー (無所属)' : (club?.name || 'フリー')}</strong>
+                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        {p.age}歳 · {p.nationality} · {p.playstyle} · 所属:{' '}
+                        <strong className={p.clubId === 'free_agent' || !p.clubId ? 'text-amber-400 font-bold' : 'text-slate-300'}>
+                          {p.clubId === 'free_agent' || !p.clubId ? 'フリー (無所属)' : (club?.name || 'フリー')}
+                        </strong>
+                        {' · '}
+                        関心度:{' '}
+                        <span className={
+                          interest.level === '非常に高い' ? 'text-emerald-400 font-semibold'
+                          : interest.level === '高い' ? 'text-cyan-400 font-semibold'
+                          : interest.level === '普通' ? 'text-blue-400 font-semibold'
+                          : interest.level === '低い' ? 'text-amber-400 font-semibold'
+                          : 'text-rose-400 font-semibold'
+                        }>
+                          {interest.level} ({interest.score})
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Center: Attributes snapshot */}
-                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-center text-[10px] font-mono">
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-center text-[10px] font-mono tabular-nums">
                     <div className="bg-slate-950 px-2 py-1 rounded-lg">
                       <span className="text-slate-500 block">PAC</span>
                       <span className="font-bold text-white">{p.pace}</span>
@@ -1541,36 +1669,66 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                     </div>
                   </div>
 
-                  {/* Right: Valuation & Make Bid Button */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                    <div className="text-right">
+                  {/* Right: Valuation, Shortlist Star & Make Bid Button */}
+                  <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="text-right tabular-nums mr-1">
                       <div className="text-sm font-bold text-emerald-400 font-mono">
                         €{(p.marketValue / 1000000).toFixed(1)}M
                       </div>
                       <div className="text-[10px] text-slate-500">週給 €{(p.wage / 1000).toFixed(0)}k · 契{p.contractYears}年</div>
                     </div>
 
-                    {getCooldownDays(p.id) > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleShortlist(p.id)}
+                      title={isShortlisted ? 'お気に入りリストから解除' : 'お気に入りリストに追加'}
+                      aria-label={isShortlisted ? 'お気に入り解除' : 'お気に入り登録'}
+                      className={`min-h-[40px] min-w-[40px] px-2.5 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
+                        isShortlisted
+                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-amber-300'
+                      }`}
+                    >
+                      <Star className={`w-4 h-4 ${isShortlisted ? 'fill-amber-300' : ''}`} />
+                    </button>
+
+                    {cooldownDays > 0 ? (
                       <div className="flex flex-col items-end gap-1">
-                        <span className="text-[10px] text-amber-400 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 font-mono">
-                          あと {getCooldownDays(p.id)} 日
+                        <span className="text-[10px] text-amber-400 font-semibold font-mono tabular-nums">
+                          あと {cooldownDays} 日
                         </span>
                         <button
                           type="button"
                           disabled
-                          className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed opacity-60"
+                          className="min-h-[40px] px-3 py-1.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed opacity-60 whitespace-nowrap"
                         >
                           冷却期間中
                         </button>
                       </div>
+                    ) : isTermsAgreed ? (
+                      <button
+                        type="button"
+                        onClick={() => startNegotiation(p)}
+                        className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold transition-all bg-emerald-400 hover:bg-emerald-300 text-slate-950 whitespace-nowrap cursor-pointer"
+                      >
+                        契約確定へ
+                      </button>
+                    ) : isActiveNeg ? (
+                      <button
+                        type="button"
+                        onClick={() => startNegotiation(p)}
+                        className="min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold transition-all bg-blue-600 hover:bg-blue-500 text-white whitespace-nowrap cursor-pointer"
+                      >
+                        交渉を再開
+                      </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() => startNegotiation(p)}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer ${
+                        className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                           p.clubId === 'free_agent' || !p.clubId
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 shadow-amber-500/20'
-                            : 'bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 shadow-emerald-500/10'
+                            ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
                         }`}
                       >
                         {p.clubId === 'free_agent' || !p.clubId ? 'フリー獲得交渉' : '獲得交渉を開始'}
@@ -1589,13 +1747,275 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
             <button
               type="button"
               onClick={() => setDisplayLimit(prev => prev + 60)}
-              className="px-6 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 shadow cursor-pointer"
+              className="min-h-[40px] px-6 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 cursor-pointer"
             >
               さらに60名を表示する (残り {allTargetPlayers.length - displayLimit} 名)
             </button>
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {/* FAVORITES SHORTLIST TAB */}
+      {marketViewTab === 'shortlist' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-base font-bold text-white">お気に入りリスト ({shortlistPlayers.length}名)</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                登録中の注目選手は他クラブも動向を注視しており、移籍期間中は競合オファーや横取りオファーが発生する場合があります。
+              </p>
+            </div>
+          </div>
+
+          {shortlistPlayers.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-xs space-y-2">
+              <p className="text-sm font-bold text-slate-300">お気に入りリストに選手が登録されていません</p>
+              <p>移籍市場の選手行や選手詳細画面の「☆」ボタンから候補選手を登録できます。</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-800/80">
+              {shortlistPlayers.map(p => {
+                const club = state.clubs[p.clubId];
+                const neg = state.negotiations?.[p.id];
+                const interest = calculatePlayerInterestInUserClub(
+                  p,
+                  userClub,
+                  state.manager,
+                  Boolean(p.userDeclaredInterest || state.declaredInterestPlayerIds?.includes(p.id)),
+                  { standings: state.standings, tournaments: state.tournaments, clubs: state.clubs, currentDate: state.currentDate }
+                );
+                const askVal = club && club.id !== 'free_agent' ? calculatePlayerValuation(p, club, userClub?.id) : 0;
+                const competingCount = neg?.competingOffers?.length || 0;
+                const cooldownDays = getCooldownDays(p.id);
+
+                return (
+                  <div key={p.id} className="py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-2 hover:bg-slate-800/30 rounded-xl">
+                    <div onClick={() => onSelectPlayer(p)} className="flex items-start gap-3 cursor-pointer min-w-0 flex-1">
+                      <div className="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex flex-col items-center justify-center font-mono shrink-0 tabular-nums">
+                        <span className="text-sm font-black text-white">{p.ovr}</span>
+                        <span className="text-[9px] text-cyan-400">P{p.potential ?? p.ovr}</span>
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-sm text-white hover:text-emerald-300">{p.name}</span>
+                          <span className="text-xs font-mono font-bold text-blue-300">{p.position}</span>
+                          <span className="text-xs text-slate-400 tabular-nums">{p.age}歳 · {club?.name || 'フリー'}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 tabular-nums">
+                          関心度: <strong className="text-slate-200">{interest.level} ({interest.score}/100)</strong>
+                          {' · '}
+                          獲得可能性 <strong className="text-emerald-400">{interest.acquisitionProbability}%</strong>
+                          {' · '}
+                          市場価値 €{(p.marketValue / 1000000).toFixed(1)}M
+                          {askVal > 0 && ` · 予想要求額 €${(askVal / 1000000).toFixed(1)}M`}
+                        </div>
+                        {competingCount > 0 && (
+                          <div className="text-[11px] text-amber-300 font-semibold">
+                            競合オファーあり ({competingCount}クラブ): {neg!.competingOffers!.map(o => `${o.clubName}(€${(o.offeredFee / 1000000).toFixed(1)}M)`).join(' · ')}
+                          </div>
+                        )}
+                        {neg?.outcomeReason && (
+                          <div className="text-[11px] text-slate-300">{neg.outcomeReason}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      {cooldownDays > 0 ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold cursor-not-allowed whitespace-nowrap"
+                        >
+                          冷却中 (残{cooldownDays}日)
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => startNegotiation(p)}
+                          className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold whitespace-nowrap cursor-pointer"
+                        >
+                          {neg?.status === 'terms_agreed'
+                            ? '契約確定へ進む'
+                            : neg && ['club_negotiating', 'club_agreed', 'player_negotiating'].includes(neg.status)
+                            ? '交渉を再開'
+                            : '獲得交渉を開始'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleShortlist(p.id)}
+                        className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-bold whitespace-nowrap cursor-pointer"
+                      >
+                        ★ お気に入り解除
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PERSISTENT NEGOTIATION LIST TAB */}
+      {marketViewTab === 'negotiations' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-base font-bold text-white">交渉リスト ({negotiationsList.length}件)</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                進行中の交渉は日付を進めても維持され、条件改善・最終契約確定・取り下げ・再交渉をここから操作できます。
+              </p>
+            </div>
+          </div>
+
+          {negotiationsList.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-xs space-y-2">
+              <p className="text-sm font-bold text-slate-300">現在進行中または履歴の交渉はありません</p>
+              <p>移籍市場またはお気に入りリストから「獲得交渉を開始」を押すと、ここに交渉が保存されます。</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {negotiationsList.map(neg => {
+                const player = state.players[neg.playerId];
+                if (!player) return null;
+                const currentClub = state.clubs[player.clubId];
+                const interest = calculatePlayerInterestInUserClub(
+                  player,
+                  userClub,
+                  state.manager,
+                  Boolean(player.userDeclaredInterest || state.declaredInterestPlayerIds?.includes(player.id)),
+                  {
+                    standings: state.standings,
+                    tournaments: state.tournaments,
+                    clubs: state.clubs,
+                    offeredWage: neg.wageOffered,
+                    offeredRole: neg.squadRoleOffered,
+                    offeredYears: neg.contractYearsOffered,
+                    currentDate: state.currentDate
+                  }
+                );
+                const cooldownDays = getCooldownDays(player.id);
+                const statusLabel =
+                  neg.status === 'terms_agreed'
+                    ? '個人条件合意済（最終確定待ち）'
+                    : neg.status === 'player_negotiating'
+                    ? '個人条件交渉中'
+                    : neg.status === 'club_agreed'
+                    ? 'クラブ間合意済'
+                    : neg.status === 'club_negotiating'
+                    ? 'クラブ間交渉中'
+                    : neg.status === 'hijacked'
+                    ? `横取り移籍により不成立 (${neg.hijackedByClubName || '競合クラブ'})`
+                    : neg.status === 'collapsed'
+                    ? '交渉破談'
+                    : '契約完了';
+
+                const statusTextColor =
+                  neg.status === 'terms_agreed' || neg.status === 'completed'
+                    ? 'text-emerald-400'
+                    : neg.status === 'hijacked' || neg.status === 'collapsed'
+                    ? 'text-rose-400'
+                    : 'text-blue-400';
+
+                const isOngoing = ['club_negotiating', 'club_agreed', 'player_negotiating', 'terms_agreed'].includes(neg.status);
+
+                return (
+                  <div key={neg.id} className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                      <div onClick={() => onSelectPlayer(player)} className="cursor-pointer min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-white hover:text-emerald-300">{player.name}</span>
+                          <span className="text-xs font-mono text-blue-300 font-bold">{player.position} · OVR {player.ovr}</span>
+                          <span className={`text-xs font-bold ${statusTextColor}`}>{statusLabel}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5 tabular-nums">
+                          現所属: {currentClub?.name || 'フリー'}
+                          {' · '}
+                          関心度: {neg.interestTier || interest.level}
+                          {' · '}
+                          獲得可能性: <strong className="text-slate-200">{neg.acquisitionProbability ?? interest.acquisitionProbability}%</strong>
+                          {neg.negotiationDeadline && ` · 交渉期限: ${neg.negotiationDeadline}`}
+                        </div>
+                      </div>
+
+                      <div className="text-xs font-mono text-slate-300 tabular-nums shrink-0">
+                        提示: €{(neg.currentBidFee / 1000000).toFixed(1)}M · 週給 €{Math.round(neg.wageOffered / 1000)}k · {neg.contractYearsOffered}年 · {neg.squadRoleOffered}
+                      </div>
+                    </div>
+
+                    {neg.competingOffers && neg.competingOffers.length > 0 && (
+                      <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-2.5 text-[11px] text-amber-200 space-y-1 tabular-nums">
+                        <div className="font-bold">競合クラブからの獲得オファー（お気に入り競合）:</div>
+                        {neg.competingOffers.map(co => (
+                          <div key={co.id}>
+                            {co.clubName} ({co.clubTier}) — 移籍金 €{(co.offeredFee / 1000000).toFixed(1)}M · 週給 €{Math.round(co.wageOffered / 1000)}k · {co.squadRoleOffered}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {neg.outcomeReason && (
+                      <div className="text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
+                        結果理由: {neg.outcomeReason}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {neg.status === 'terms_agreed' && (
+                        <button
+                          type="button"
+                          onClick={() => handleFinalizeNegotiation(player.id, neg.joinTiming)}
+                          className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold whitespace-nowrap cursor-pointer"
+                        >
+                          契約を最終確定する
+                        </button>
+                      )}
+
+                      {isOngoing && (
+                        <button
+                          type="button"
+                          onClick={() => startNegotiation(player)}
+                          className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold whitespace-nowrap cursor-pointer"
+                        >
+                          {neg.status === 'terms_agreed' ? '条件を確認・変更' : '交渉を開く / 条件改善'}
+                        </button>
+                      )}
+
+                      {neg.status === 'collapsed' && (
+                        cooldownDays > 0 ? (
+                          <span className="text-xs text-amber-400 font-mono tabular-nums px-2">
+                            あと {cooldownDays} 日で再交渉可
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startNegotiation(player)}
+                            className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold whitespace-nowrap cursor-pointer"
+                          >
+                            再交渉を試みる
+                          </button>
+                        )
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleWithdrawNegotiation(player.id)}
+                        className="min-h-[40px] px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold whitespace-nowrap cursor-pointer"
+                      >
+                        {isOngoing ? '交渉取り下げ' : '履歴から削除'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 2-STAGE TRANSFER NEGOTIATION MODAL (Smartphone Messaging Chat UI) */}
       {activeNegotiation && targetPlayerInNeg && sellerClubInNeg && (
@@ -2016,6 +2436,68 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                 </div>
               )}
 
+              {/* TERMS AGREED - WAITING FOR EXPLICIT FINALIZATION */}
+              {activeNegotiation.status === 'terms_agreed' && (
+                <div className="space-y-4 py-2">
+                  <div className="bg-emerald-950/35 border border-emerald-500/40 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
+                      <CheckCircle className="w-5 h-5 shrink-0" />
+                      <span>個人条件合意完了 — 最終契約確定待ち</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      クラブ間条件および個人契約条件の双方が合意に達しました。以下の契約内容を確認し、「最終契約を確定して獲得する」を押すことで正式加入が確定します。
+                    </p>
+                  </div>
+
+                  {activeNegotiation.competingOffers && activeNegotiation.competingOffers.length > 0 && (
+                    <div className="bg-amber-950/35 border border-amber-500/40 rounded-2xl p-3 text-xs text-amber-200 space-y-1">
+                      <div className="font-bold">競合注意（お気に入り登録選手の横取りリスク）</div>
+                      <div>
+                        {activeNegotiation.competingOffers.map(co => `${co.clubName} (€${(co.offeredFee / 1000000).toFixed(1)}M / 週給€${Math.round(co.wageOffered / 1000)}k)`).join(' · ')}
+                        が並行オファーを提示しています。確定を先延ばしにすると横取りされる可能性があります。
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs tabular-nums">
+                    <div>
+                      <span className="text-slate-400 block">合意移籍金</span>
+                      <span className="font-mono font-bold text-white">€{(activeNegotiation.currentBidFee / 1000000).toFixed(1)}M</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">提示週給</span>
+                      <span className="font-mono font-bold text-emerald-400">€{Math.round(activeNegotiation.wageOffered / 1000)}k /週</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">契約年数 / 役割</span>
+                      <span className="font-bold text-white">{activeNegotiation.contractYearsOffered}年 · {activeNegotiation.squadRoleOffered}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">推定成立確率</span>
+                      <span className="font-mono font-bold text-cyan-400">{activeNegotiation.acquisitionProbability ?? 85}%</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveNegotiation(null)}
+                      className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                    >
+                      後で確定する（交渉リストに保存）
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleFinalizeNegotiation(activeNegotiation.playerId, joinTimingChoice)}
+                      className="min-h-[44px] px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold cursor-pointer"
+                    >
+                      最終契約を確定して獲得する
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* COMPLETED SUCCESS */}
               {activeNegotiation.status === 'completed' && (
                 <div className="text-center py-6 space-y-4">
@@ -2026,15 +2508,37 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                     TRANSFER COMPLETED!
                   </h3>
                   <p className="text-sm text-slate-300 max-w-md mx-auto">
-                    {targetPlayerInNeg.name} が正式に {userClub?.name} の一員となりました！
+                    {targetPlayerInNeg.name} の契約手続きが完了しました！
                     背番号やスタメン起用は「戦術・編成」タブにて設定可能です。
                   </p>
                   <button
                     type="button"
                     onClick={() => setActiveNegotiation(null)}
-                    className="min-h-[44px] px-8 py-3 rounded-2xl bg-emerald-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 cursor-pointer"
+                    className="min-h-[44px] px-8 py-3 rounded-2xl bg-emerald-500 text-slate-950 font-bold text-sm cursor-pointer"
                   >
                     完了してスカッドを確認する
+                  </button>
+                </div>
+              )}
+
+              {/* HIJACKED BY RIVAL CLUB */}
+              {activeNegotiation.status === 'hijacked' && (
+                <div className="text-center py-6 space-y-4">
+                  <div className="w-16 h-16 rounded-full bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center mx-auto text-rose-400">
+                    <AlertTriangle className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-white font-display">
+                    他クラブへ電撃移籍成立（ハイジャック）
+                  </h3>
+                  <p className="text-sm text-slate-300 max-w-md mx-auto">
+                    {activeNegotiation.outcomeReason || `${activeNegotiation.hijackedByClubName || '競合クラブ'}がより魅力的なオファーを提示し、契約が成立しました。`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveNegotiation(null)}
+                    className="min-h-[44px] px-6 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs cursor-pointer"
+                  >
+                    閉じる
                   </button>
                 </div>
               )}
@@ -2049,8 +2553,7 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
                     交渉破談 (NEGOTIATION FAILED)
                   </h3>
                   <p className="text-sm text-slate-400 max-w-md mx-auto">
-                    提示条件が相手側の許容水準を満たさず、交渉は打ち切られました。
-                    10日間ルールにより、この選手・クラブとの再交渉は10日間凍結されます。
+                    {activeNegotiation.outcomeReason || '提示条件が相手側の許容水準を満たさず、交渉は打ち切られました。10日間ルールにより、この選手・クラブとの再交渉は10日間凍結されます。'}
                   </p>
                   <button
                     type="button"

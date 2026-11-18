@@ -1,4 +1,17 @@
-import { Player, Club, TransferNegotiation, NewsItem, GameWorldState, IncomingAIOffer, PendingTransfer } from '../types/game';
+import {
+  Player,
+  Club,
+  TransferNegotiation,
+  NewsItem,
+  GameWorldState,
+  IncomingAIOffer,
+  PendingTransfer,
+  PlayerInterestTier,
+  CompetingOffer,
+  LeagueKey,
+  StandingsRow,
+  TournamentCompetitionsState
+} from '../types/game';
 import { addDays, isTransferWindow } from './dateEngine';
 
 // Realistic Derby & Direct Rivalry Mapping across all 6 leagues
@@ -91,36 +104,225 @@ export function isRivalClub(clubAId: string, clubBId: string): boolean {
   return rivalsA.includes(clubBId) || rivalsB.includes(clubAId);
 }
 
-// Realistic transfer valuation calculation
+export function getLeaguePrestigeScore(league: LeagueKey | string): number {
+  switch (league) {
+    case 'premier-league': return 96;
+    case 'laliga': return 93;
+    case 'bundesliga': return 89;
+    case 'serie-a': return 88;
+    case 'ligue-1': return 84;
+    case 'primeira-liga': return 79;
+    case 'eredivisie': return 78;
+    case 'pro-league': return 75;
+    case 'super-lig': return 76;
+    case 'championship': return 75;
+    case 'j1-league': return 74;
+    case '2-bundesliga':
+    case 'segunda-division':
+    case 'serie-b':
+    case 'ligue-2': return 69;
+    case 'j2-league': return 65;
+    case 'j3-league': return 58;
+    default: return 68;
+  }
+}
+
+export function isClubInEuropeanComp(
+  club: Club,
+  tournaments?: TournamentCompetitionsState
+): 'ucl' | 'uel' | 'uecl' | null {
+  if (tournaments) {
+    if (tournaments.ucl?.participantClubIds?.includes(club.id)) return 'ucl';
+    if (tournaments.uel?.participantClubIds?.includes(club.id)) return 'uel';
+    if (tournaments.uecl?.participantClubIds?.includes(club.id)) return 'uecl';
+  }
+  if (club.europeanFixedComp === 'ucl' || club.europeanFixedComp === 'uel' || club.europeanFixedComp === 'uecl') {
+    return club.europeanFixedComp;
+  }
+  return null;
+}
+
+// Realistic transfer valuation (seller club's asking evaluation, intentionally decoupled from base marketValue)
 export function calculatePlayerValuation(player: Player, club: Club, buyerClubId?: string): number {
-  const baseValue = player.marketValue;
-  let multiplier = 1.0;
-  
+  const baseValue = Math.max(250000, player.marketValue || 500000);
+  let multiplier = 1.04;
+
+  // Squad importance at current club: key players command strong markup, listed players get discount
+  if (player.isTransferListed || player.transferListed) {
+    multiplier *= 0.78;
+  } else if (player.squadRole === '絶対的主力') {
+    multiplier *= 1.24;
+  } else if (player.squadRole === '重要選手') {
+    multiplier *= 1.12;
+  } else if (player.squadRole === '控え・バックアップ') {
+    multiplier *= 0.90;
+  }
+
   // Contract remaining multiplier
-  if (player.contractYears <= 1) {
-    multiplier *= 0.75; // Bargain territory
-  } else if (player.contractYears >= 4) {
-    multiplier *= 1.25; // Long term security premium
+  const contractYears = player.contractYears ?? 3;
+  if (contractYears <= 1) {
+    multiplier *= 0.72; // Expiring bargain
+  } else if (contractYears >= 4) {
+    multiplier *= 1.18; // Long term security premium
   }
 
   // Potential and age
-  if (player.age <= 21 && player.potential >= 85) {
-    multiplier *= 1.35; // Wonderkid tax
+  if (player.age <= 21 && (player.potential || player.ovr) >= 85) {
+    multiplier *= 1.24; // Wonderkid premium
   } else if (player.age >= 33) {
-    multiplier *= 0.65; // Veteran discount
+    multiplier *= 0.68; // Veteran discount
   }
 
-  // Club reputation & financial status
+  // Club reputation & financial leverage
   if (club.tier === 'Elite') {
-    multiplier *= 1.15; // Elite club surcharge
+    multiplier *= 1.12;
+  } else if (club.tier === 'Lower') {
+    multiplier *= 0.94;
   }
 
-  // RIVALRY PENALTY: Asking price is +45% higher if negotiating with a rival!
+  // RIVALRY PENALTY: Asking price is higher when negotiating with a direct rival
   if (buyerClubId && isRivalClub(club.id, buyerClubId)) {
-    multiplier *= 1.45;
+    multiplier *= 1.38;
   }
 
-  return Math.round(baseValue * multiplier);
+  const rawFee = baseValue * multiplier;
+  const step = rawFee >= 5000000 ? 500000 : 100000;
+  return Math.max(250000, Math.round(rawFee / step) * step);
+}
+
+export function createTransferNegotiation(
+  state: GameWorldState,
+  targetPlayer: Player,
+  options?: {
+    negotiationType?: 'permanent' | 'loan' | 'buy_option' | 'dev_loan';
+    bidFee?: number;
+    buyOptionFee?: number;
+    wageOffer?: number;
+    contractYears?: number;
+    squadRole?: Player['squadRole'];
+    signingBonus?: number;
+    joinTiming?: 'immediate' | 'next_window' | 'next_season';
+  }
+): TransferNegotiation {
+  const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
+  const isFreeAgent = targetPlayer.clubId === 'free_agent' || targetPlayer.clubId === '';
+  const sellerClub = state.clubs[targetPlayer.clubId] || state.clubs['free_agent'];
+  const currentDate = state.currentDate || '2026-07-01';
+  const negotiationType = options?.negotiationType || 'permanent';
+  const isLoan = negotiationType !== 'permanent';
+  const valuation = isFreeAgent || !sellerClub
+    ? 0
+    : calculatePlayerValuation(targetPlayer, sellerClub, userClub?.id);
+
+  const defaultBid = isFreeAgent
+    ? 0
+    : isLoan
+      ? Math.round(valuation * (negotiationType === 'dev_loan' ? 0.08 : 0.12))
+      : valuation;
+
+  const initialBid = options?.bidFee ?? defaultBid;
+  const defaultWage = options?.wageOffer ?? Math.round((targetPlayer.wage || 10000) * (isFreeAgent ? 1.05 : 1.15));
+  const defaultRole = options?.squadRole ?? (targetPlayer.ovr >= 85 ? '絶対的主力' : '重要選手');
+  const defaultYears = options?.contractYears ?? (isLoan ? 1 : targetPlayer.age >= 36 ? 2 : 3);
+  const interest = calculatePlayerInterestInUserClub(
+    targetPlayer,
+    userClub,
+    state.manager,
+    Boolean(targetPlayer.userDeclaredInterest || state.declaredInterestPlayerIds?.includes(targetPlayer.id)),
+    {
+      standings: state.standings,
+      tournaments: state.tournaments,
+      clubs: state.clubs,
+      offeredWage: defaultWage,
+      offeredRole: defaultRole,
+      offeredYears: defaultYears,
+      currentDate
+    }
+  );
+
+  const deadlineDate = addDays(currentDate, 14);
+
+  if (isFreeAgent) {
+    return {
+      id: `neg_fa_${Date.now()}_${targetPlayer.id}`,
+      playerId: targetPlayer.id,
+      sellerClubId: 'free_agent',
+      buyerClubId: userClub?.id || '',
+      status: 'player_negotiating',
+      isLoan: false,
+      negotiationType: 'permanent',
+      createdDate: currentDate,
+      lastUpdatedDate: currentDate,
+      negotiationDeadline: deadlineDate,
+      interestTier: interest.level,
+      interestScore: interest.score,
+      interestReasons: interest.reasons,
+      acquisitionProbability: interest.acquisitionProbability,
+      competingOffers: [],
+      initialAskingPrice: 0,
+      currentBidFee: 0,
+      clubAgreedFee: 0,
+      clubPatience: 3,
+      clubMessages: [
+        {
+          sender: 'ai',
+          text: `【フリーエージェント】${targetPlayer.name}は現在無所属のため、移籍金ゼロ（€0）で獲得可能です。代理人と個人条件（週給・契約年数・役割）を交渉してください。`,
+          date: currentDate
+        }
+      ],
+      wageOffered: defaultWage,
+      wageDemanded: Math.round((targetPlayer.wage || 10000) * 1.05),
+      contractYearsOffered: targetPlayer.age >= 38 ? 1 : 2,
+      squadRoleOffered: defaultRole,
+      signingBonusOffered: options?.signingBonus ?? 500000,
+      playerPatience: 3,
+      playerMessages: [
+        {
+          sender: 'agent',
+          text: `「${targetPlayer.name}の代理人です。移籍金ゼロでの獲得交渉が可能です。提示週給・起用役割・契約年数をお知らせください。」`,
+          date: currentDate
+        }
+      ],
+      joinTiming: options?.joinTiming || (state.isTransferWindowOpen ? 'immediate' : 'next_window')
+    };
+  }
+
+  return {
+    id: `neg_${Date.now()}_${targetPlayer.id}`,
+    playerId: targetPlayer.id,
+    sellerClubId: sellerClub?.id || targetPlayer.clubId,
+    buyerClubId: userClub?.id || '',
+    status: 'club_negotiating',
+    isLoan,
+    negotiationType,
+    buyOptionFee: options?.buyOptionFee ?? (negotiationType === 'buy_option' ? Math.round(valuation * 1.25) : undefined),
+    createdDate: currentDate,
+    lastUpdatedDate: currentDate,
+    negotiationDeadline: deadlineDate,
+    interestTier: interest.level,
+    interestScore: interest.score,
+    interestReasons: interest.reasons,
+    acquisitionProbability: interest.acquisitionProbability,
+    competingOffers: [],
+    initialAskingPrice: valuation,
+    currentBidFee: initialBid,
+    clubPatience: 3,
+    clubMessages: [
+      {
+        sender: 'ai',
+        text: `「${sellerClub?.name || '所属クラブ'}の強化担当です。${targetPlayer.name}（推定市場価値 €${(targetPlayer.marketValue / 1000000).toFixed(1)}M / クラブ査定額 €${(valuation / 1000000).toFixed(1)}M）の交渉を開始します。」`,
+        date: currentDate
+      }
+    ],
+    wageOffered: defaultWage,
+    wageDemanded: Math.round((targetPlayer.wage || 10000) * 1.15),
+    contractYearsOffered: defaultYears,
+    squadRoleOffered: defaultRole,
+    signingBonusOffered: options?.signingBonus ?? 500000,
+    playerPatience: 3,
+    playerMessages: [],
+    joinTiming: options?.joinTiming || (state.isTransferWindowOpen ? 'immediate' : 'next_window')
+  };
 }
 
 export function handleClubNegotiationStep(
@@ -136,22 +338,37 @@ export function handleClubNegotiationStep(
   isCollapsed: boolean;
 } {
   const isRival = isRivalClub(sellerClub.id, negotiation.buyerClubId);
-  const valuation = calculatePlayerValuation(player, sellerClub, negotiation.buyerClubId);
-  
-  // Acceptable fee threshold
-  const minAcceptableFee = Math.round(valuation * (isRival ? 0.98 : 0.92));
-  const askingPrice = Math.round(valuation * (isRival ? 1.20 : 1.12));
+  const fullValuation = calculatePlayerValuation(player, sellerClub, negotiation.buyerClubId);
+  const isLoan = !!negotiation.isLoan;
+  const loanRatio = negotiation.negotiationType === 'dev_loan' ? 0.08 : negotiation.negotiationType === 'buy_option' ? 0.14 : 0.12;
+  const targetValuation = isLoan ? Math.max(100000, Math.round(fullValuation * loanRatio)) : fullValuation;
+  const dateLabel = currentDate || negotiation.lastUpdatedDate || '今日';
 
-  const updated = { ...negotiation, currentBidFee: userOfferedFee };
+  const minAcceptableFee = Math.round(targetValuation * (isRival ? 0.98 : 0.90));
+  const askingPrice = Math.round(targetValuation * (isRival ? 1.18 : 1.08));
 
-  // Check if offer is high enough
+  const updated: TransferNegotiation = {
+    ...negotiation,
+    currentBidFee: userOfferedFee,
+    lastUpdatedDate: dateLabel,
+    clubMessages: [
+      ...(negotiation.clubMessages || []),
+      {
+        sender: 'user',
+        text: `${isLoan ? 'レンタル料' : '移籍金'} €${(userOfferedFee / 1000000).toFixed(2)}M を正式提示しました。`,
+        date: dateLabel
+      }
+    ]
+  };
+
   if (userOfferedFee >= minAcceptableFee) {
     updated.status = 'club_agreed';
-    const msg = isRival 
-      ? `【ライバル間合意！】${sellerClub.name}は猛反発を覚悟の上で、提示された巨額の移籍金 €${(userOfferedFee / 1000000).toFixed(1)}M を受け入れました。選手本人との個人条件交渉に進んでください。`
-      : `【合意】${sellerClub.name}の提示条件を満たしました。移籍金 €${(userOfferedFee / 1000000).toFixed(1)}M でクラブ間合意に達しました。選手本人・代理人との契約交渉に進んでください。`;
-    
-    updated.clubMessages.push({ sender: 'ai', text: msg, date: '今日' });
+    updated.clubAgreedFee = userOfferedFee;
+    const msg = isRival
+      ? `【ライバル間合意】${sellerClub.name}は提示額 €${(userOfferedFee / 1000000).toFixed(1)}M を受諾しました。選手本人・代理人との契約条件交渉に進んでください。`
+      : `【クラブ間合意】${sellerClub.name}と移籍金 €${(userOfferedFee / 1000000).toFixed(1)}M で合意に達しました。続いて個人条件の交渉へ進んでください。`;
+
+    updated.clubMessages.push({ sender: 'ai', text: msg, date: dateLabel });
     return {
       updatedNegotiation: updated,
       responseMessage: msg,
@@ -160,40 +377,37 @@ export function handleClubNegotiationStep(
     };
   }
 
-  // If offer is insulting (< 65% of valuation, or < 75% for rivals)
-  const insultThreshold = isRival ? valuation * 0.75 : valuation * 0.65;
+  const insultThreshold = isRival ? targetValuation * 0.72 : targetValuation * 0.62;
   const isInsulting = userOfferedFee < insultThreshold;
 
   if (isInsulting) {
-    // Rivals lose patience faster!
     updated.clubPatience -= isRival ? 2 : 1;
     if (updated.clubPatience <= 0) {
       updated.status = 'collapsed';
-      // 10-day renegotiation ban (Requirement 4)
       updated.cooldownUntil = addDays(currentDate || '2026-07-01', 10);
+      updated.outcomeReason = `移籍金提示（€${(userOfferedFee / 1000000).toFixed(1)}M）が${sellerClub.name}の評価額を大きく下回り決裂`;
       const msg = isRival
-        ? `「宿敵クラブからのこのような不敬な低額オファーは断じて受け入れられない。交渉を即時打ち切る！」(${sellerClub.name}との交渉は10日間凍結されます)`
-        : `「これ以上、非現実的なオファーが続く場合、交渉を打ち切りますとお伝えしました。今回の交渉は完全に終了します。」(${sellerClub.name}との交渉は10日間凍結されます)`;
-      
-      updated.clubMessages.push({ sender: 'ai', text: msg, date: '今日' });
+        ? `「ライバルクラブからの低額オファーは到底受け入れられません。今回の交渉は打ち切ります。」(10日間再交渉不可)`
+        : `「評価額との乖離が大きく、これ以上の協議は困難と判断しました。交渉を打ち切ります。」(10日間再交渉不可)`;
+
+      updated.clubMessages.push({ sender: 'ai', text: msg, date: dateLabel });
       return { updatedNegotiation: updated, responseMessage: msg, isAgreed: false, isCollapsed: true };
     } else {
       const msg = isRival
-        ? `「我々はライバル関係にあるクラブです。サポーターの反発を押し切って売却するには、通常を遥かに上回る提示が必要です。(残忍耐度: ${updated.clubPatience})」`
-        : `「このオファーでは交渉を進めることはできません。依然として評価額を大きく下回っています。これ以上、敬意を欠く低額オファーが続く場合、交渉を打ち切ります。(残忍耐度: ${updated.clubPatience})」`;
-      
-      updated.clubMessages.push({ sender: 'ai', text: msg, date: '今日' });
+        ? `「宿敵への売却には相場以上の条件が不可欠です。再提示をお願いします。(残忍耐度: ${updated.clubPatience})」`
+        : `「提示額はクラブ査定を下回っています。より誠意ある条件の提示をお願いします。(残忍耐度: ${updated.clubPatience})」`;
+
+      updated.clubMessages.push({ sender: 'ai', text: msg, date: dateLabel });
       return { updatedNegotiation: updated, responseMessage: msg, isAgreed: false, isCollapsed: false };
     }
   }
 
-  // Counter offer scenario
-  const counterFee = Math.round(askingPrice - (userOfferedFee * 0.15));
+  const counterFee = Math.max(minAcceptableFee, Math.round((askingPrice - userOfferedFee * 0.12) / 100000) * 100000);
   const msg = isRival
-    ? `「宿敵への移籍にはサポーターへの説明責任が生じる。妥協はできない。€${(counterFee / 1000000).toFixed(1)}M であれば売却を正式承認する。」`
-    : `「提示額は考慮に値しますが、${player.name}のクラブにおける価値を考慮すると不十分です。€${(counterFee / 1000000).toFixed(1)}M であれば即座に合意します。」`;
-  
-  updated.clubMessages.push({ sender: 'ai', text: msg, date: '今日' });
+    ? `「€${(counterFee / 1000000).toFixed(1)}M であれば宿敵への移籍であっても承認せざるを得ません。」`
+    : `「${player.name}の価値を踏まえ、€${(counterFee / 1000000).toFixed(1)}M であればクラブ間合意が可能です。」`;
+
+  updated.clubMessages.push({ sender: 'ai', text: msg, date: dateLabel });
   return { updatedNegotiation: updated, responseMessage: msg, isAgreed: false, isCollapsed: false };
 }
 
@@ -210,79 +424,199 @@ export function handlePlayerNegotiationStep(
   updatedNegotiation: TransferNegotiation;
   responseMessage: string;
   isCompleted: boolean;
+  isTermsAgreed: boolean;
   isCollapsed: boolean;
 } {
-  // Requirement 4: Reject loan contract years > 1 year on engine data level
   if (negotiation.isLoan && contractYears > 1) {
     return {
       updatedNegotiation: negotiation,
       responseMessage: '期限付き移籍（レンタル）の期間は最長1シーズン（半年または1年）までに制限されています。2年以上の契約は選択できません。',
       isCompleted: false,
+      isTermsAgreed: false,
       isCollapsed: false
     };
   }
 
+  const dateLabel = currentDate || negotiation.lastUpdatedDate || '今日';
   const isRival = isRivalClub(player.clubId, buyerClub.id);
-  const updated = {
+  const interestScore = negotiation.interestScore ?? 55;
+  const updated: TransferNegotiation = {
     ...negotiation,
     wageOffered,
     contractYearsOffered: contractYears,
     squadRoleOffered: role,
-    signingBonusOffered: bonus
+    signingBonusOffered: bonus,
+    lastUpdatedDate: dateLabel,
+    playerMessages: [
+      ...(negotiation.playerMessages || []),
+      {
+        sender: 'user',
+        text: `週給 €${Math.round(wageOffered / 1000)}k · 契約 ${contractYears}年 · 役割「${role}」· 契約金 €${(bonus / 1000000).toFixed(1)}M を提示しました。`,
+        date: dateLabel
+      }
+    ]
   };
 
-  // Base wage demand
-  let wageDemand = Math.round(player.wage * 1.15);
-  if (role === '絶対的主力') wageDemand = Math.round(wageDemand * 1.1);
+  // Base wage demand adjusted by player's interest in buyerClub
+  let wageDemand = Math.round((player.wage || 10000) * 1.12);
+  if (role === '絶対的主力') wageDemand = Math.round(wageDemand * 1.06);
+  if (interestScore < 35) wageDemand = Math.round(wageDemand * 1.20);
+  else if (interestScore >= 78) wageDemand = Math.round(wageDemand * 0.95);
 
-  // Rival club hesitation: Player demands 25% higher wage unless expiring contract or ambitious
-  if (isRival) {
-    if (player.contractYears > 1 && player.personality !== '野心的') {
-      wageDemand = Math.round(wageDemand * 1.25);
-    }
+  if (isRival && player.contractYears > 1 && player.personality !== '野心的') {
+    wageDemand = Math.round(wageDemand * 1.22);
   }
+  updated.wageDemanded = wageDemand;
 
-  // Check acceptance
-  const isWageOk = wageOffered >= wageDemand * 0.95;
-  const isRoleOk = role === '絶対的主力' || role === '重要選手' || (player.age >= 33 && role === 'ローテーション');
-  const isBonusOk = isRival ? bonus >= player.marketValue * 0.05 : bonus >= 0;
+  // Very low interest blocks weak roles or lowball wages
+  const isWageOk = wageOffered >= wageDemand * 0.94;
+  const isRoleOk =
+    interestScore < 25
+      ? role === '絶対的主力'
+      : role === '絶対的主力' || role === '重要選手' || (player.age >= 33 && role === 'ローテーション');
+  const isBonusOk = isRival ? bonus >= Math.min(2500000, player.marketValue * 0.04) : bonus >= 0;
 
   if (isWageOk && isRoleOk && isBonusOk) {
-    updated.status = 'completed';
+    // Transition to 'terms_agreed' — explicit user finalization required to complete joining!
+    updated.status = 'terms_agreed';
+    updated.acquisitionProbability = Math.min(
+      97,
+      Math.max(60, Math.round(72 + (interestScore - 50) * 0.35 - (updated.competingOffers?.length || 0) * 12))
+    );
     const msg = isRival
-      ? `【ライバル移籍成立！】「ライバルクラブへの移籍には大きな覚悟が必要でしたが、監督の熱烈な信頼と素晴らしい提示条件に心を打たれました。新天地で全力を尽くします！」`
-      : `【合意・契約締結】「条件に満足しています。この偉大なクラブの一員になれることを光栄に思います。早くピッチでファンに勝利を届けたいです！」`;
+      ? `【個人条件合意（最終確定待ち）】「ライバルクラブからのオファーでしたが、提示条件に納得しました。交渉リストから「最終確定」を押して契約を完了してください。」`
+      : `【個人条件合意（最終確定待ち）】「提示いただいた年俸・役割・契約年数に合意しました。交渉リストまたは本画面の「契約を最終確定」ボタンで入団手続きが完了します。」`;
 
-    updated.playerMessages.push({ sender: 'agent', text: msg, date: '今日' });
+    updated.playerMessages.push({ sender: 'agent', text: msg, date: dateLabel });
     return {
       updatedNegotiation: updated,
       responseMessage: msg,
       isCompleted: true,
+      isTermsAgreed: true,
       isCollapsed: false
     };
   }
 
-  // Not satisfied
   updated.playerPatience -= isRival ? 2 : 1;
   if (updated.playerPatience <= 0) {
     updated.status = 'collapsed';
-    // 10-day renegotiation ban (Requirement 4)
     updated.cooldownUntil = addDays(currentDate || '2026-07-01', 10);
+    updated.outcomeReason = !isRoleOk
+      ? `希望する起用役割（${role}）やクラブ関心度の不足により個人条件交渉が決裂`
+      : `提示週給（€${Math.round(wageOffered / 1000)}k）が要求水準（€${Math.round(wageDemand / 1000)}k）に達せず決裂`;
     const msg = isRival
-      ? `「宿敵クラブへの移籍というリスクを冒すには、提示された条件はあまりにも不十分です。この話は白紙に戻させていただきます。」(選手代理人が交渉を打ち切りました。10日間再交渉不可)`
-      : `「提示された年俸および待遇は、当選手の市場価値と自負を満たしていません。交渉を終了させていただきます。」(選手代理人が交渉を打ち切りました。10日間再交渉不可)`;
+      ? `「ライバル移籍のリスクに見合う条件ではないと判断しました。交渉を終了します。」(10日間再交渉不可)`
+      : `「希望する待遇・起用方針と乖離しているため、今回の移籍は見送らせていただきます。」(10日間再交渉不可)`;
 
-    updated.playerMessages.push({ sender: 'agent', text: msg, date: '今日' });
-    return { updatedNegotiation: updated, responseMessage: msg, isCompleted: false, isCollapsed: true };
+    updated.playerMessages.push({ sender: 'agent', text: msg, date: dateLabel });
+    return {
+      updatedNegotiation: updated,
+      responseMessage: msg,
+      isCompleted: false,
+      isTermsAgreed: false,
+      isCollapsed: true
+    };
   }
 
   const counterWage = Math.round(wageDemand * 1.05);
+  const roleHint = !isRoleOk ? '「絶対的主力」など主力級の起用確約と、' : '';
   const msg = isRival
-    ? `「ライバルクラブへの移籍には相当な覚悟が要ります。週給 €${(counterWage / 1000).toFixed(0)}k および十分な契約金を用意していただけない限り、首を縦に振ることはできません。(残忍耐度: ${updated.playerPatience})」`
-    : `「提示額はまだ希望に届いていません。週給 €${(counterWage / 1000).toFixed(0)}k 程度を想定しています。再考をお願いします。(残忍耐度: ${updated.playerPatience})」`;
+    ? `「ライバル移籍のため${roleHint}週給 €${Math.round(counterWage / 1000)}k 以上・契約金を希望しています。(残忍耐度: ${updated.playerPatience})」`
+    : `「${roleHint}週給 €${Math.round(counterWage / 1000)}k 程度の条件をご検討いただけますか？(残忍耐度: ${updated.playerPatience})」`;
 
-  updated.playerMessages.push({ sender: 'agent', text: msg, date: '今日' });
-  return { updatedNegotiation: updated, responseMessage: msg, isCompleted: false, isCollapsed: false };
+  updated.playerMessages.push({ sender: 'agent', text: msg, date: dateLabel });
+  return {
+    updatedNegotiation: updated,
+    responseMessage: msg,
+    isCompleted: false,
+    isTermsAgreed: false,
+    isCollapsed: false
+  };
+}
+
+export function finalizeAgreedTransfer(
+  state: GameWorldState,
+  playerId: string,
+  joinTiming?: 'immediate' | 'next_window' | 'next_season'
+): { success: boolean; message: string; updatedState: GameWorldState } {
+  const neg = state.negotiations?.[playerId];
+  const player = state.players[playerId];
+  const buyerClub = state.userClubId ? state.clubs[state.userClubId] : null;
+  if (!neg || !player || !buyerClub) {
+    return { success: false, message: '対象の交渉データまたは選手が見つかりません。', updatedState: state };
+  }
+  if (neg.status === 'hijacked') {
+    return {
+      success: false,
+      message: `${player.name}は他クラブ（${neg.hijackedByClubName || '競合クラブ'}）へ横取り移籍したため確定できません。`,
+      updatedState: state
+    };
+  }
+  if (neg.status !== 'terms_agreed') {
+    return {
+      success: false,
+      message: 'クラブ間合意と個人条件合意の両方が完了してから最終確定できます。',
+      updatedState: state
+    };
+  }
+  if (player.clubId === buyerClub.id) {
+    return { success: false, message: `${player.name}は既に自クラブに所属しています。`, updatedState: state };
+  }
+  const transferFee = neg.sellerClubId === 'free_agent' ? 0 : neg.currentBidFee;
+  if (buyerClub.transferBudget < transferFee) {
+    return {
+      success: false,
+      message: `移籍予算が不足しています (必要: €${(transferFee / 1000000).toFixed(1)}M / 現在: €${(buyerClub.transferBudget / 1000000).toFixed(1)}M)`,
+      updatedState: state
+    };
+  }
+  const availableWage = buyerClub.wageBudget - buyerClub.currentWageSpend;
+  if (neg.wageOffered > availableWage) {
+    return {
+      success: false,
+      message: `週給予算枠が不足しています (空き: €${Math.round(availableWage / 1000)}k / 提示: €${Math.round(neg.wageOffered / 1000)}k)`,
+      updatedState: state
+    };
+  }
+
+  const chosenTiming = state.isTransferWindowOpen
+    ? (joinTiming || neg.joinTiming || 'immediate')
+    : ((joinTiming || neg.joinTiming) === 'next_season' ? 'next_season' : 'next_window');
+
+  const finalizedNeg: TransferNegotiation = {
+    ...neg,
+    status: 'completed',
+    joinTiming: chosenTiming,
+    lastUpdatedDate: state.currentDate,
+    outcomeReason: chosenTiming === 'immediate' ? '契約締結・即戦力合流完了' : '契約締結・合流日確定済み'
+  };
+
+  const completedState = executeTransferCompletion(state, finalizedNeg);
+  const updatedNegotiations = {
+    ...(completedState.negotiations || {}),
+    [playerId]: finalizedNeg
+  };
+
+  return {
+    success: true,
+    message: `${player.name}の契約手続きを最終確定しました！`,
+    updatedState: {
+      ...completedState,
+      negotiations: updatedNegotiations
+    }
+  };
+}
+
+export function withdrawNegotiation(
+  state: GameWorldState,
+  playerId: string
+): GameWorldState {
+  const nextNegotiations = { ...(state.negotiations || {}) };
+  delete nextNegotiations[playerId];
+  return {
+    ...state,
+    negotiations: nextNegotiations
+  };
 }
 
 export function calculateJoinDate(currentDate: string, timing: 'immediate' | 'next_window' | 'next_season'): string {
@@ -821,68 +1155,510 @@ export function rejectIncomingOffer(
 }
 
 /**
- * Requirement 9: Calculate player interest level in user's club (0 - 100)
+ * Calculate 5-tier player interest level in user's club (0 - 100)
  */
 export function calculatePlayerInterestInUserClub(
   player: Player,
   userClub: Club | null,
   manager: { reputation: number },
-  isDeclaredInterest?: boolean
-): { score: number; level: '低い' | '普通' | '高い' | '非常に高い'; reason: string } {
+  isDeclaredInterest?: boolean,
+  context?: {
+    standings?: Record<LeagueKey, StandingsRow[]>;
+    tournaments?: TournamentCompetitionsState;
+    clubs?: Record<string, Club>;
+    offeredWage?: number;
+    offeredRole?: Player['squadRole'];
+    offeredYears?: number;
+    currentDate?: string;
+  }
+): {
+  score: number;
+  level: PlayerInterestTier;
+  reason: string;
+  reasons: string[];
+  acquisitionProbability: number;
+} {
   if (!userClub) {
-    return { score: 35, level: '普通', reason: '所属クラブ未定' };
+    return {
+      score: 35,
+      level: '低い',
+      reason: '所属クラブ未定',
+      reasons: ['監督クラブ未決定'],
+      acquisitionProbability: 25
+    };
   }
 
-  let score = 50;
+  const reasons: string[] = [];
+  let score = 46;
   const userRep = userClub.reputation || 50;
-  score += Math.round((userRep - 55) * 0.35);
+  const repBonus = Math.round((userRep - 58) * 0.42);
+  score += repBonus;
 
-  if (userClub.tier === 'Elite') score += 20;
-  else if (userClub.tier === 'Upper') score += 10;
-  else if (userClub.tier === 'Lower') score -= 15;
+  if (userClub.tier === 'Elite') {
+    score += 18;
+    reasons.push('トップクラブ（Elite）のブランド力');
+  } else if (userClub.tier === 'Upper') {
+    score += 9;
+    reasons.push('上位クラブのプロジェクト');
+  } else if (userClub.tier === 'Lower') {
+    score -= 14;
+    reasons.push('クラブ規模への慎重姿勢');
+  }
 
+  // League prestige contrast
+  const targetLeaguePrestige = getLeaguePrestigeScore(userClub.league);
+  const currentClub = context?.clubs?.[player.clubId];
+  const currentLeaguePrestige = currentClub ? getLeaguePrestigeScore(currentClub.league) : 65;
+  if (player.clubId === 'free_agent' || !player.clubId) {
+    score += 14;
+    reasons.push('フリーエージェントのため新天地を歓迎');
+  } else {
+    const prestigeDiff = targetLeaguePrestige - currentLeaguePrestige;
+    if (prestigeDiff >= 10) {
+      score += 12;
+      reasons.push('より競争レベルの高いリーグへのステップアップ');
+    } else if (prestigeDiff <= -12 && player.ovr >= 78) {
+      score -= 14;
+      reasons.push('現在の所属リーグ水準との格差');
+    }
+  }
+
+  // European competition prestige
+  const euroComp = isClubInEuropeanComp(userClub, context?.tournaments);
+  if (euroComp === 'ucl') {
+    score += 11;
+    reasons.push('UCL出場権の魅力');
+  } else if (euroComp === 'uel') {
+    score += 5;
+    reasons.push('UEL出場による国際舞台');
+  } else if (player.ovr >= 85 && !euroComp) {
+    score -= 8;
+    reasons.push('欧州CL舞台へのこだわり');
+  }
+
+  // Current league standing position
+  const leagueTable = context?.standings?.[userClub.league];
+  if (leagueTable && leagueTable.length >= 8) {
+    const sorted = [...leagueTable].sort((a, b) => (b.points - a.points) || (b.goalDiff - a.goalDiff));
+    const rank = sorted.findIndex(r => r.clubId === userClub.id) + 1;
+    if (rank >= 1 && rank <= 4 && sorted[0].played >= 3) {
+      score += 6;
+      reasons.push(`好調なリーグ順位（現在${rank}位）`);
+    } else if (rank >= sorted.length - 3 && sorted[0].played >= 5) {
+      score -= 8;
+      reasons.push(`降格圏付近の順位リスク（現在${rank}位）`);
+    }
+  }
+
+  // Positional competition & playing time expectation
+  if (context?.offeredRole === '絶対的主力') {
+    score += 7;
+    reasons.push('絶対的主力としての起用約束');
+  } else if (context?.offeredRole === '控え・バックアップ' && player.ovr >= 76) {
+    score -= 14;
+    reasons.push('出場機会減少への懸念');
+  }
+
+  // Offered wage comparison
+  if (context?.offeredWage && player.wage > 0) {
+    const wageRatio = context.offeredWage / player.wage;
+    if (wageRatio >= 1.25) {
+      score += 8;
+      reasons.push('現行を上回る好待遇オファー');
+    } else if (wageRatio < 0.95) {
+      score -= 10;
+      reasons.push('現行給与を下回る提示');
+    }
+  }
+
+  // Personality & club loyalty
   if (player.personality === '野心的') {
-    if (userClub.tier === 'Elite' || userClub.tier === 'Upper') score += 15;
-    else score -= 15;
+    if (userClub.tier === 'Elite' || userClub.tier === 'Upper') score += 12;
+    else score -= 12;
   } else if (player.personality === 'タイトル至上主義') {
-    if (userRep >= 80) score += 15;
-    else score -= 10;
+    if (userRep >= 80 || euroComp === 'ucl') score += 12;
+    else score -= 11;
   } else if (player.personality === 'クラブ愛') {
-    score -= 22;
+    score -= 18;
+    reasons.push('現所属クラブへの強い愛着');
   } else if (player.personality === '出場機会重視') {
     if (player.squadRole === '控え・バックアップ' || player.squadRole === 'ローテーション') {
-      score += 15;
+      score += 12;
+      reasons.push('出場機会増加への強い意欲');
     }
   } else if (player.personality === '給与重視') {
-    if (userClub.wageBudget > 1000000) score += 12;
+    if (userClub.wageBudget > 1000000) score += 10;
   }
 
-  score += Math.round(((manager?.reputation || 50) - 50) * 0.2);
+  // Age & OVR vs Club Gap
+  if (player.ovr - userRep >= 14 && userClub.tier !== 'Elite') {
+    score -= 14;
+    reasons.push('選手の格と現在クラブ評価のギャップ');
+  }
+
+  // Rivalry resistance
+  if (currentClub && isRivalClub(currentClub.id, userClub.id)) {
+    score -= 16;
+    reasons.push('ライバルクラブ間移籍への慎重姿勢');
+  }
+
+  // Manager reputation
+  score += Math.round(((manager?.reputation || 50) - 50) * 0.18);
 
   if (isDeclaredInterest || player.userDeclaredInterest) {
     score += 12;
+    reasons.push('監督からの熱烈な獲得関心表明');
   }
+
+  // Subtle deterministic variation per player + month
+  const monthSeed = (context?.currentDate || '2026-07-01').slice(0, 7);
+  let seedHash = 0;
+  const seedStr = `${player.id}_${userClub.id}_${monthSeed}`;
+  for (let i = 0; i < seedStr.length; i++) {
+    seedHash = ((seedHash * 31) + seedStr.charCodeAt(i)) | 0;
+  }
+  score += (Math.abs(seedHash) % 7) - 3; // -3 to +3
 
   score = Math.max(5, Math.min(98, score));
 
-  let level: '低い' | '普通' | '高い' | '非常に高い' = '普通';
+  let level: PlayerInterestTier = '普通';
   let reason = '';
 
-  if (score >= 76) {
+  if (score >= 78) {
     level = '非常に高い';
-    reason = `${userClub.name}でのプレーを強く熱望しており、移籍に極めて前向きです。`;
-  } else if (score >= 51) {
+    reason = `${userClub.name}への加入を強く熱望しており、交渉に極めて前向きです。`;
+  } else if (score >= 60) {
     level = '高い';
-    reason = `好条件や魅力的なプロジェクトが提示されれば移籍に前向きな姿勢です。`;
-  } else if (score >= 30) {
+    reason = `${userClub.name}のプロジェクトに関心を示しており、条件次第で合意可能性が高い状態です。`;
+  } else if (score >= 42) {
     level = '普通';
-    reason = `現在の環境にも一定の満足を感じており、条件次第での検討姿勢です。`;
-  } else {
+    reason = `現環境との比較検討中であり、待遇・起用役割の提示次第で交渉が動きます。`;
+  } else if (score >= 24) {
     level = '低い';
-    reason = `現所属クラブへの愛着や格差等により、現時点では移籍への関心は薄いです。`;
+    reason = `現時点では移籍に消極的です。納得できる好条件や起用約束が必要になります。`;
+  } else {
+    level = '非常に低い';
+    reason = `現所属への愛着やクラブ格差等により移籍への関心は極めて低く、大幅な条件上乗せが必要です。`;
   }
 
-  return { score, level, reason };
+  const acquisitionProbability = Math.max(8, Math.min(96, Math.round(score * 0.92)));
+
+  return {
+    score,
+    level,
+    reason,
+    reasons: reasons.slice(0, 4),
+    acquisitionProbability
+  };
+}
+
+/**
+ * Computes comprehensive holistic transfer package attractiveness score
+ * used when comparing competing AI club offers vs user club offer for shortlisted players.
+ */
+export function evaluateTransferPackageScore(params: {
+  player: Player;
+  club: Club;
+  fee: number;
+  weeklyWage: number;
+  contractYears: number;
+  squadRole: Player['squadRole'];
+  standings?: Record<LeagueKey, StandingsRow[]>;
+  tournaments?: TournamentCompetitionsState;
+}): number {
+  const { player, club, fee, weeklyWage, contractYears, squadRole, standings, tournaments } = params;
+  const valuation = Math.max(500000, player.marketValue || 1000000);
+  const feeRatio = fee / valuation;
+  const wageRatio = weeklyWage / Math.max(5000, player.wage || 10000);
+
+  let score = 0;
+  score += Math.min(30, feeRatio * 22);
+  score += Math.min(30, wageRatio * 18);
+  score += Math.min(8, Math.max(1, contractYears) * 1.8);
+  score += (club.reputation || 65) * 0.28;
+  score += getLeaguePrestigeScore(club.league) * 0.22;
+
+  const euroComp = isClubInEuropeanComp(club, tournaments);
+  if (euroComp === 'ucl') score += 9;
+  else if (euroComp === 'uel') score += 4.5;
+  else if (euroComp === 'uecl') score += 2;
+
+  if (squadRole === '絶対的主力') score += 8;
+  else if (squadRole === '重要選手') score += 4;
+  else if (squadRole === '控え・バックアップ') score -= 6;
+
+  if (club.tier === 'Elite') score += 6;
+  else if (club.tier === 'Upper') score += 3;
+
+  const leagueTable = standings?.[club.league];
+  if (leagueTable && leagueTable.length > 0 && leagueTable[0].played >= 3) {
+    const sorted = [...leagueTable].sort((a, b) => (b.points - a.points) || (b.goalDiff - a.goalDiff));
+    const rank = sorted.findIndex(r => r.clubId === club.id) + 1;
+    if (rank >= 1 && rank <= 3) score += 4;
+  }
+
+  return Math.round(score * 10) / 10;
+}
+
+/**
+ * Generates competing AI offers STRICTLY & EXCLUSIVELY for players in user's Favorites Shortlist (`shortlistPlayerIds`).
+ * Non-shortlisted players never receive shortlist competing offers or post-agreement hijacks.
+ */
+export function processShortlistCompetingOffers(
+  state: GameWorldState,
+  currentDate: string
+): GameWorldState {
+  const shortlistIds = state.shortlistPlayerIds || [];
+  if (shortlistIds.length === 0) {
+    return state;
+  }
+
+  let updatedState: GameWorldState = {
+    ...state,
+    negotiations: { ...(state.negotiations || {}) }
+  };
+
+  // First clean up overdue deadlines on any non-completed active negotiations
+  Object.entries(updatedState.negotiations!).forEach(([pId, neg]) => {
+    if (
+      neg &&
+      ['club_negotiating', 'club_agreed', 'player_negotiating', 'terms_agreed'].includes(neg.status) &&
+      neg.negotiationDeadline &&
+      currentDate > neg.negotiationDeadline
+    ) {
+      updatedState.negotiations![pId] = {
+        ...neg,
+        status: 'collapsed',
+        lastUpdatedDate: currentDate,
+        outcomeReason: `交渉期限（${neg.negotiationDeadline}）までに契約が確定しなかったため破談となりました`
+      };
+    }
+  });
+
+  if (!updatedState.isTransferWindowOpen) {
+    return updatedState;
+  }
+
+  const candidateAIClubs = Object.values(updatedState.clubs).filter(
+    c =>
+      c.id !== updatedState.userClubId &&
+      c.id !== 'free_agent' &&
+      !c.isTournamentOnly &&
+      (c.league as string) !== 'uefa-tournament' &&
+      (c.playerIds?.length || 0) < 34
+  );
+  if (candidateAIClubs.length === 0) return updatedState;
+
+  const userClub = updatedState.userClubId ? updatedState.clubs[updatedState.userClubId] : null;
+  const hijackNews: NewsItem[] = [];
+
+  for (const playerId of shortlistIds) {
+    const player = updatedState.players[playerId];
+    if (!player || player.clubId === updatedState.userClubId) continue;
+
+    const existingNeg = updatedState.negotiations![playerId];
+    if (existingNeg && (existingNeg.status === 'completed' || existingNeg.status === 'hijacked')) {
+      continue;
+    }
+
+    // Only shortlisted players attract active AI rivals (higher chance if user has an open deal or terms_agreed!)
+    const triggerChance = existingNeg?.status === 'terms_agreed'
+      ? 0.45
+      : existingNeg
+        ? 0.36
+        : 0.18;
+    if (Math.random() > triggerChance) continue;
+
+    const affordableBuyers = candidateAIClubs.filter(c => {
+      if (c.id === player.clubId) return false;
+      if (isRivalClub(c.id, player.clubId)) return false;
+      const estimatedFee = player.clubId === 'free_agent' ? 0 : player.marketValue;
+      if (c.transferBudget < estimatedFee * 1.05) return false;
+      const availWage = Math.max(0, c.wageBudget - c.currentWageSpend);
+      if (availWage < Math.max(10000, player.wage * 1.1)) return false;
+      // Match club ambition with player OVR
+      if (player.ovr >= 82 && c.tier !== 'Elite' && c.tier !== 'Upper') return false;
+      return true;
+    });
+
+    if (affordableBuyers.length === 0) continue;
+
+    // Pick strongest realistic competing club
+    const rankedBuyers = [...affordableBuyers].sort((a, b) => (b.reputation || 70) - (a.reputation || 70));
+    const rivalClub = rankedBuyers[Math.floor(Math.random() * Math.min(4, rankedBuyers.length))];
+
+    const aiFee = player.clubId === 'free_agent'
+      ? 0
+      : Math.min(
+          Math.floor(rivalClub.transferBudget * 0.85),
+          Math.round(player.marketValue * (1.08 + Math.random() * 0.22))
+        );
+    const aiWage = Math.round(
+      Math.max(player.wage * 1.25, existingNeg ? existingNeg.wageOffered * 1.12 : player.wage * 1.25)
+    );
+    const aiRole: Player['squadRole'] = player.ovr >= (rivalClub.reputation || 75) ? '絶対的主力' : '重要選手';
+    const aiYears = player.age >= 34 ? 2 : 4;
+
+    const aiPackageScore = evaluateTransferPackageScore({
+      player,
+      club: rivalClub,
+      fee: aiFee,
+      weeklyWage: aiWage,
+      contractYears: aiYears,
+      squadRole: aiRole,
+      standings: updatedState.standings,
+      tournaments: updatedState.tournaments
+    });
+
+    const rivalEuroComp = isClubInEuropeanComp(rivalClub, updatedState.tournaments);
+    const newCompetingOffer: CompetingOffer = {
+      id: `comp_${Date.now()}_${rivalClub.id}_${player.id}`,
+      clubId: rivalClub.id,
+      clubName: rivalClub.name,
+      clubTier: rivalClub.tier,
+      leagueKey: rivalClub.league,
+      leagueName: rivalClub.league,
+      hasEuropeanFootball: Boolean(rivalEuroComp),
+      europeanCompetition: rivalEuroComp === 'ucl' ? 'UCL' : rivalEuroComp === 'uel' ? 'UEL' : rivalEuroComp === 'uecl' ? 'UECL' : 'NONE',
+      offeredFee: aiFee,
+      wageOffered: aiWage,
+      contractYearsOffered: aiYears,
+      squadRoleOffered: aiRole,
+      totalPackageScore: aiPackageScore,
+      submittedDate: currentDate,
+      status: 'active'
+    };
+
+    const userPackageScore = existingNeg && userClub
+      ? evaluateTransferPackageScore({
+          player,
+          club: userClub,
+          fee: existingNeg.currentBidFee,
+          weeklyWage: existingNeg.wageOffered,
+          contractYears: existingNeg.contractYearsOffered,
+          squadRole: existingNeg.squadRoleOffered,
+          standings: updatedState.standings,
+          tournaments: updatedState.tournaments
+        })
+      : 0;
+
+    // Check if competing club beats user package sufficiently to hijack!
+    const daysOpen = existingNeg?.createdDate
+      ? Math.max(0, Math.round((new Date(currentDate).getTime() - new Date(existingNeg.createdDate).getTime()) / (1000 * 3600 * 24)))
+      : 0;
+    const isHijackWorthy =
+      existingNeg &&
+      ['club_negotiating', 'club_agreed', 'player_negotiating', 'terms_agreed'].includes(existingNeg.status) &&
+      (aiPackageScore > userPackageScore * 1.03 || (existingNeg.status === 'terms_agreed' && daysOpen >= 2 && aiPackageScore >= userPackageScore * 0.98));
+
+    if (isHijackWorthy && existingNeg) {
+      newCompetingOffer.status = 'accepted_by_player';
+
+      // Explain precisely WHY rival won
+      const reasonParts: string[] = [];
+      if (aiWage > existingNeg.wageOffered) {
+        reasonParts.push(`より高額な週給条件（€${Math.round(aiWage / 1000)}k vs €${Math.round(existingNeg.wageOffered / 1000)}k）`);
+      }
+      if (aiFee > existingNeg.currentBidFee) {
+        reasonParts.push(`売主提示移籍金の優位（€${(aiFee / 1000000).toFixed(1)}M vs €${(existingNeg.currentBidFee / 1000000).toFixed(1)}M）`);
+      }
+      if (isClubInEuropeanComp(rivalClub, updatedState.tournaments) === 'ucl' && (!userClub || isClubInEuropeanComp(userClub, updatedState.tournaments) !== 'ucl')) {
+        reasonParts.push('UCL出場権の魅力');
+      }
+      if ((rivalClub.reputation || 70) > ((userClub?.reputation || 70) + 4)) {
+        reasonParts.push(`${rivalClub.name}のクラブ格・国際的実績`);
+      }
+      const hijackReasonText = `${rivalClub.name}が横取り移籍を成立させました（決定要因: ${
+        reasonParts.length > 0 ? reasonParts.join('、') : '総合パッケージ評価で優位'
+      }）。`;
+
+      const aiTransferNeg: TransferNegotiation = {
+        id: `hijack_ai_${Date.now()}_${player.id}`,
+        playerId: player.id,
+        sellerClubId: player.clubId,
+        buyerClubId: rivalClub.id,
+        status: 'completed',
+        isLoan: false,
+        initialAskingPrice: player.marketValue,
+        currentBidFee: aiFee,
+        clubPatience: 3,
+        clubMessages: [],
+        wageOffered: aiWage,
+        wageDemanded: aiWage,
+        contractYearsOffered: aiYears,
+        squadRoleOffered: aiRole,
+        signingBonusOffered: 1000000,
+        playerPatience: 3,
+        playerMessages: []
+      };
+
+      updatedState = executeTransferCompletion(updatedState, aiTransferNeg);
+      updatedState.negotiations![playerId] = {
+        ...existingNeg,
+        status: 'hijacked',
+        lastUpdatedDate: currentDate,
+        hijackedByClubId: rivalClub.id,
+        hijackedByClubName: rivalClub.name,
+        acquisitionProbability: 0,
+        outcomeReason: hijackReasonText,
+        competingOffers: [...(existingNeg.competingOffers || []).filter(o => o.clubId !== rivalClub.id), newCompetingOffer]
+      };
+
+      hijackNews.push({
+        id: `news_hijack_${Date.now()}_${player.id}`,
+        date: currentDate,
+        headline: `【電撃ハイジャック】${rivalClub.name}が${player.name}を横取り獲得！`,
+        body: `お気に入り登録および獲得交渉が進んでいた${player.name}について、${rivalClub.name}がより好条件（移籍金€${(aiFee / 1000000).toFixed(1)}M・週給€${Math.round(aiWage / 1000)}k）を提示して逆転合意に至りました。`,
+        category: 'transfer',
+        relatedClubId: rivalClub.id,
+        relatedPlayerId: player.id,
+        importance: 'high'
+      });
+    } else if (existingNeg) {
+      // Update competingOffers & reduce user's acquisitionProbability
+      const existingList = (existingNeg.competingOffers || []).filter(o => o.clubId !== rivalClub.id);
+      const nextOffers = [...existingList, newCompetingOffer].slice(-4);
+      const gapPenalty = Math.max(8, Math.round((aiPackageScore - userPackageScore) * 1.4));
+      const baseProb = existingNeg.acquisitionProbability ?? 70;
+      updatedState.negotiations![playerId] = {
+        ...existingNeg,
+        lastUpdatedDate: currentDate,
+        competingOffers: nextOffers,
+        acquisitionProbability: Math.max(10, Math.min(95, baseProb - gapPenalty))
+      };
+    } else if (Math.random() < 0.25 && player.squadRole !== '絶対的主力') {
+      // Shortlisted player not yet negotiated by user may still be snapped up by rival AI club!
+      const aiTransferNeg: TransferNegotiation = {
+        id: `shortlist_ai_${Date.now()}_${player.id}`,
+        playerId: player.id,
+        sellerClubId: player.clubId,
+        buyerClubId: rivalClub.id,
+        status: 'completed',
+        isLoan: false,
+        initialAskingPrice: player.marketValue,
+        currentBidFee: aiFee,
+        clubPatience: 3,
+        clubMessages: [],
+        wageOffered: aiWage,
+        wageDemanded: aiWage,
+        contractYearsOffered: aiYears,
+        squadRoleOffered: aiRole,
+        signingBonusOffered: 500000,
+        playerPatience: 3,
+        playerMessages: []
+      };
+      updatedState = executeTransferCompletion(updatedState, aiTransferNeg);
+    }
+  }
+
+  if (hijackNews.length > 0) {
+    updatedState = {
+      ...updatedState,
+      news: [...hijackNews, ...(updatedState.news || [])]
+    };
+  }
+
+  return updatedState;
 }
 
 // AI clubs autonomous transfer simulation during window
@@ -890,13 +1666,18 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
   if (!state.isTransferWindowOpen) return state;
 
   let updatedState = { ...state };
+  const shortlistSet = new Set(updatedState.shortlistPlayerIds || []);
+  const activeNegSet = new Set(
+    Object.values(updatedState.negotiations || {})
+      .filter(n => n && ['club_negotiating', 'club_agreed', 'player_negotiating', 'terms_agreed'].includes(n.status))
+      .map(n => n.playerId)
+  );
 
   // 1. Generate incoming AI offers to User's club (Requirements 7, 16 & 17)
   if (updatedState.userClubId && Math.random() < 0.35) {
     const userClub = updatedState.clubs[updatedState.userClubId];
     if (userClub && userClub.playerIds.length > 15) {
       const userPlayers = userClub.playerIds.map(id => updatedState.players[id]).filter(Boolean);
-      // Prioritize listed players, but unlisted players also get realistic offers!
       const listed = userPlayers.filter(p => p.isTransferListed || p.isLoanListed);
       let targetPlayer: Player | null = null;
       if (listed.length > 0 && Math.random() < 0.60) {
@@ -913,10 +1694,8 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
         const aiBuyers = Object.values(updatedState.clubs).filter(c => {
           if (c.id === userClub.id || c.id === 'free_agent' || c.isTournamentOnly || (c.league as string) === 'uefa-tournament') return false;
           if (c.transferBudget <= targetPlayer.marketValue * 0.85) return false;
-          // Requirement 7: 30-day cooldown prevents same AI club from repeating offers
           const key = `${c.id}_${targetPlayer.id}`;
           if (cooldowns[key] && cooldowns[key] > updatedState.currentDate) return false;
-          // Skip if there is already an active pending offer
           const hasPending = (updatedState.incomingOffers || []).some(
             o => o.buyerClubId === c.id && o.playerId === targetPlayer.id && o.status === 'pending'
           );
@@ -928,7 +1707,6 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
           const buyer = aiBuyers[Math.floor(Math.random() * aiBuyers.length)];
           const isLoanOffer = targetPlayer.isLoanListed || (!targetPlayer.isTransferListed && targetPlayer.age <= 22 && Math.random() < 0.40);
           
-          // Realistic valuation check & Budget limit (Requirement 16: 相手クラブが支払える金額にする)
           const contractFactor = targetPlayer.contractYears <= 1 ? 0.85 : 1.10;
           const feeMultiplier = (0.95 + Math.random() * 0.25) * contractFactor;
           const maxAffordableByBuyer = Math.max(500000, Math.floor(buyer.transferBudget * 0.90));
@@ -984,7 +1762,7 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
     }
   }
 
-  // 2. AI to AI clubs autonomous transfer market (Requirements 8 & 27: 25% chance per day during transfer window)
+  // 2. AI to AI clubs autonomous transfer market (skips active user negotiations and non-user shortlist targets handled separately)
   if (Math.random() < 0.25) {
     const allClubs = Object.values(updatedState.clubs).filter(c => c.id !== updatedState.userClubId && c.id !== 'free_agent' && !c.isTournamentOnly && (c.league as string) !== 'uefa-tournament' && c.transferBudget > 15000000);
     if (allClubs.length >= 2) {
@@ -993,10 +1771,9 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
       if (sellerClubCandidates.length > 0) {
         const sellerClub = sellerClubCandidates[Math.floor(Math.random() * sellerClubCandidates.length)];
 
-        // AI identifies position need & target
         const candidatePlayers = sellerClub.playerIds
           .map(id => updatedState.players[id])
-          .filter(p => p && p.squadRole !== '絶対的主力' && p.marketValue < buyerClub.transferBudget * 0.65 && p.ovr >= 75);
+          .filter(p => p && !activeNegSet.has(p.id) && !shortlistSet.has(p.id) && p.squadRole !== '絶対的主力' && p.marketValue < buyerClub.transferBudget * 0.65 && p.ovr >= 75);
 
         if (candidatePlayers.length > 0) {
           const targetPlayer = candidatePlayers[Math.floor(Math.random() * candidatePlayers.length)];
@@ -1028,20 +1805,17 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
     }
   }
 
-  // 3. AI Clubs Autonomous Free Agent Signing (User Requirement: 他クラブがフリーエージェント選手を獲得する可能性)
-  // Check available free agents (clubId === 'free_agent' or '')
+  // 3. AI Clubs Autonomous Free Agent Signing (skipping active user negotiations)
   const availableFreeAgents = Object.values(updatedState.players).filter(p => 
-    p.clubId === 'free_agent' || p.clubId === ''
+    (p.clubId === 'free_agent' || p.clubId === '') && !activeNegSet.has(p.id) && !shortlistSet.has(p.id)
   );
 
   if (availableFreeAgents.length > 0 && Math.random() < 0.22) {
     const sortedCandidates = [...availableFreeAgents].sort((a, b) => b.ovr - a.ovr);
-    // High chance to target top superstars (Messi, Ronaldo, Neymar, etc.)
     const targetFA = (sortedCandidates.length >= 3 && Math.random() < 0.70)
       ? sortedCandidates[Math.floor(Math.random() * Math.min(3, sortedCandidates.length))]
       : sortedCandidates[Math.floor(Math.random() * sortedCandidates.length)];
 
-    // Find AI clubs that can afford this free agent's wage and have squad space
     const eligibleClubs = Object.values(updatedState.clubs).filter(c => 
       c.id !== updatedState.userClubId && 
       c.id !== 'free_agent' &&
@@ -1052,7 +1826,6 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
     );
 
     if (eligibleClubs.length > 0) {
-      // For superstars (OVR >= 84), prefer Elite or Upper tier clubs
       const topClubs = eligibleClubs.filter(c => c.tier === 'Elite' || c.tier === 'Upper');
       const buyerClub = (targetFA.ovr >= 84 && topClubs.length > 0)
         ? topClubs[Math.floor(Math.random() * topClubs.length)]

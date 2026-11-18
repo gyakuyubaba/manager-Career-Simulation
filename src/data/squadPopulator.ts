@@ -3,7 +3,8 @@ import { ALL_CLUBS, ALL_116_CLUBS, ENABLE_J_LEAGUE } from './clubsData';
 import { CURATED_REAL_SQUADS } from './squadsCatalog';
 import { ADDITIONAL_CLUB_SEEDS } from './allClubsSquads';
 import { EUROPEAN_MAJOR_CLUBS_2026_SEEDS } from './europeanMajorClubsRosters';
-import { makeRealPlayer } from './realPlayersDatabase';
+import { makeRealPlayer, normalizeCompatiblePlaystyle } from './realPlayersDatabase';
+import { initializePlayerSkills } from '../engine/skillEngine';
 import {
   areAllowedDistinctHomonyms,
   checkPlayerDataIntegrity,
@@ -906,7 +907,7 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
           : (club.tier === 'Elite' ? 55000 : club.tier === 'Upper' ? 30000 : 12000),
         26 + ((i * 3) % 65),
         i % 3 === 0 ? '左' : '右',
-        pos === 'CB' ? 'ボール運べるCB' : 'チャンスメイカー'
+        normalizeCompatiblePlaystyle(pos)
       );
       player.isVerified = false;
       player.verificationStatus = 'unconfirmed';
@@ -917,9 +918,11 @@ export function buildCompletePlayersRegistry(): Record<string, Player> {
     }
   });
 
-  // Normalize every player's initial market value to eliminate legacy static over/under-valuation
+  // Normalize every player's playstyle, skills, and initial market value across the entire registry
   Object.entries(baseRegistry).forEach(([pId, p]) => {
-    baseRegistry[pId] = recalculateDynamicMarketValue(p);
+    const fixedPlaystyle = normalizeCompatiblePlaystyle(p.position, p.playstyle);
+    const withSkills = initializePlayerSkills({ ...p, playstyle: fixedPlaystyle });
+    baseRegistry[pId] = recalculateDynamicMarketValue(withSkills);
   });
 
   return baseRegistry;
@@ -1014,12 +1017,19 @@ export function populateClubsWithDefaultSquads(
         isJapan ? 11000 : 20000,
         28 + (i % 60),
         i % 3 === 0 ? '左' : '右',
-        'チャンスメイカー'
+        normalizeCompatiblePlaystyle(pos)
       );
       outfieldPlayer.isVerified = false;
       outfieldPlayer.verificationStatus = 'unconfirmed';
-      cleanPlayers[pId] = recalculateDynamicMarketValue(outfieldPlayer);
+      cleanPlayers[pId] = recalculateDynamicMarketValue(initializePlayerSkills(outfieldPlayer));
       club.playerIds.push(pId);
+    }
+  });
+
+  Object.entries(cleanPlayers).forEach(([pId, p]) => {
+    const safeStyle = normalizeCompatiblePlaystyle(p.position, p.playstyle);
+    if (safeStyle !== p.playstyle || !p.skills || p.skills.length === 0) {
+      cleanPlayers[pId] = initializePlayerSkills({ ...p, playstyle: safeStyle });
     }
   });
 

@@ -570,18 +570,55 @@ export const TacticsSquadTab: React.FC<Props> = ({ state, onUpdateTactics, onSel
             </div>
           </div>
 
-          {/* Team Hub + Formation dropdown */}
+          {/* Team Hub + Auto-Sub Toggle + Formation dropdown */}
           <div className="flex flex-wrap items-center gap-2">
             {onOpenTeamHub && (
               <button
                 type="button"
                 onClick={onOpenTeamHub}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/50 text-sky-200 font-bold text-xs sm:text-sm transition-all cursor-pointer shrink-0"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/50 text-sky-200 font-bold text-xs sm:text-sm transition-all cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <Users className="w-4 h-4 text-sky-400" />
                 <span>チームハブ</span>
               </button>
             )}
+            {(() => {
+              const isAutoSubOn = state.autoSubstitutionEnabled ?? tactics.autoSubstitutionEnabled ?? true;
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !isAutoSubOn;
+                    const nextTactics: TeamTactics = {
+                      ...tactics,
+                      autoSubstitutionEnabled: nextVal
+                    };
+                    onUpdateTactics(nextTactics);
+                    if (onUpdateState) {
+                      onUpdateState({
+                        ...state,
+                        tactics: nextTactics,
+                        autoSubstitutionEnabled: nextVal
+                      });
+                    }
+                    setToastMessage(
+                      nextVal
+                        ? '試合中の自動交代を ON にしました（疲労・警告時に自動で最適選手を交代します）'
+                        : '試合中の自動交代を OFF（手動交代のみ）に設定しました'
+                    );
+                    setTimeout(() => setToastMessage(null), 3500);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl border font-bold text-xs transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                    isAutoSubOn
+                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/50 text-emerald-300'
+                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                  }`}
+                  title="試合中の疲労・イエローカードに応じた自動交代の有効/無効を切り替えます"
+                >
+                  <span>{isAutoSubOn ? '自動交代: ON' : '自動交代: 手動のみ'}</span>
+                </button>
+              );
+            })()}
             <span className="text-xs font-semibold text-slate-400 shrink-0">フォーメーション:</span>
             <select
               value={tactics.formation}

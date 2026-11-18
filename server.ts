@@ -34,7 +34,8 @@ interface AiDiagnosticLog {
   message: string;
 }
 
-const GEMINI_MODEL = 'gemini-4-hydrogen';
+const GEMINI_MODEL = (process.env.GEMINI_MODEL || 'gemini-4-hydrogen').trim() || 'gemini-4-hydrogen';
+const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
 const getOpenAIModel = () => (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim() || 'gpt-4o-mini';
 
 const PLACEHOLDER_KEYS = new Set([
@@ -84,10 +85,12 @@ function sanitizeErrorMessage(err: unknown, keysToMask: Array<string | null>): s
 }
 
 function classifyProviderError(err: unknown): AiConnectionStatus {
+  const name = err instanceof Error ? err.name.toLowerCase() : '';
   const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
   if (
     msg.includes('api key') ||
     msg.includes('apikey') ||
+    msg.includes('invalid_api_key') ||
     msg.includes('401') ||
     msg.includes('403') ||
     msg.includes('unauthorized') ||
@@ -96,6 +99,8 @@ function classifyProviderError(err: unknown): AiConnectionStatus {
     return 'connection_failed';
   }
   if (
+    name.includes('abort') ||
+    name.includes('timeout') ||
     msg.includes('fetch failed') ||
     msg.includes('enotfound') ||
     msg.includes('etimedout') ||
@@ -133,6 +138,7 @@ function getOpenAIKey(): string | null {
 }
 
 // Runtime AI admin preference & sanitized diagnostics
+let providerExplicitlySelected = false;
 let activeProvider: AiProviderType = getGeminiClient().key
   ? 'gemini'
   : getOpenAIKey()
@@ -186,6 +192,14 @@ function buildAiStatusPayload() {
   const gKey = resolveServerKey(process.env.GEMINI_API_KEY);
   const oKey = resolveServerKey(process.env.OPENAI_API_KEY);
 
+  if (!providerExplicitlySelected) {
+    if (!gKey && oKey) {
+      activeProvider = 'openai';
+    } else if (gKey && !oKey) {
+      activeProvider = 'gemini';
+    }
+  }
+
   if (!gKey) {
     providerRuntimeState.gemini.status = 'api_key_missing';
     providerRuntimeState.gemini.statusLabel = getStatusLabel('api_key_missing');
@@ -222,22 +236,69 @@ function buildAiStatusPayload() {
   };
 }
 
+async function callGeminiWithTimeout(
+  geminiClient: GoogleGenAI,
+  requestParams: Omit<Parameters<GoogleGenAI['models']['generateContent']>[0], 'model'>,
+  timeoutMs: number = 20000
+): Promise<{ text: string; modelUsed: string }> {
+  const runWithModel = async (model: string) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Gemini request timed out after ${timeoutMs}ms`)), timeoutMs);
+      });
+      const response = await Promise.race([
+        geminiClient.models.generateContent({
+          ...requestParams,
+          model
+        }),
+        timeoutPromise
+      ]);
+      const text = (response.text || '').trim();
+      if (!text) {
+        throw new Error('Empty response from Gemini');
+      }
+      return { text, modelUsed: model };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  try {
+    return await runWithModel(GEMINI_MODEL);
+  } catch (err) {
+    const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+    if (
+      GEMINI_MODEL !== GEMINI_FALLBACK_MODEL &&
+      (msg.includes('404') || msg.includes('not found') || msg.includes('is not supported') || msg.includes('invalid argument'))
+    ) {
+      return await runWithModel(GEMINI_FALLBACK_MODEL);
+    }
+    throw err;
+  }
+}
+
 async function callOpenAIChatCompletion(
   systemInstruction: string,
   userPrompt: string,
   expectJson: boolean = true
-): Promise<string> {
+): Promise<{ text: string; modelUsed: string }> {
   const openAiKey = getOpenAIKey();
   if (!openAiKey) {
     throw new Error('OPENAI_API_KEY is missing');
   }
 
+  const primaryModel = getOpenAIModel();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
   try {
-    const makeBody = (useCompletionTokens: boolean): Record<string, unknown> => {
+    const makeBody = (
+      modelName: string,
+      useCompletionTokens: boolean,
+      withResponseFormat: boolean
+    ): Record<string, unknown> => {
       const p: Record<string, unknown> = {
-        model: getOpenAIModel(),
+        model: modelName,
         messages: [
           { role: 'system', content: systemInstruction },
           { role: 'user', content: userPrompt }
@@ -248,7 +309,7 @@ async function callOpenAIChatCompletion(
       } else {
         p.max_tokens = 1200;
       }
-      if (expectJson) {
+      if (withResponseFormat) {
         p.response_format = { type: 'json_object' };
       }
       return p;
@@ -265,19 +326,42 @@ async function callOpenAIChatCompletion(
         signal: controller.signal
       });
 
-    let res = await sendReq(makeBody(true));
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      if (res.status === 400 && errText.includes('max_completion_tokens')) {
-        res = await sendReq(makeBody(false));
-      } else {
-        throw new Error(`OpenAI API HTTP ${res.status}: ${errText.slice(0, 160)}`);
-      }
-    }
+    let activeModel = primaryModel;
+    let useCompletionTokens = true;
+    let withResponseFormat = expectJson;
+    let res = await sendReq(makeBody(activeModel, useCompletionTokens, withResponseFormat));
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`OpenAI API HTTP ${res.status}: ${errText.slice(0, 160)}`);
+      let errText = await res.text().catch(() => '');
+      if (res.status === 400 && errText.includes('max_completion_tokens')) {
+        useCompletionTokens = false;
+        res = await sendReq(makeBody(activeModel, useCompletionTokens, withResponseFormat));
+        if (!res.ok) errText = await res.text().catch(() => '');
+      }
+      if (!res.ok && res.status === 400 && withResponseFormat && errText.includes('response_format')) {
+        withResponseFormat = false;
+        res = await sendReq(makeBody(activeModel, useCompletionTokens, withResponseFormat));
+        if (!res.ok) errText = await res.text().catch(() => '');
+      }
+      if (
+        !res.ok &&
+        activeModel !== 'gpt-4o-mini' &&
+        (res.status === 404 || errText.toLowerCase().includes('model_not_found') || errText.toLowerCase().includes('does not exist'))
+      ) {
+        activeModel = 'gpt-4o-mini';
+        res = await sendReq(makeBody(activeModel, useCompletionTokens, withResponseFormat));
+        if (!res.ok) errText = await res.text().catch(() => '');
+      }
+      if (!res.ok) {
+        let parsedErrMsg = errText.slice(0, 160);
+        try {
+          const parsedErr = JSON.parse(errText);
+          if (parsedErr?.error?.message) parsedErrMsg = String(parsedErr.error.message).slice(0, 160);
+        } catch {
+          // keep text slice
+        }
+        throw new Error(`OpenAI API HTTP ${res.status}: ${parsedErrMsg}`);
+      }
     }
 
     const data = (await res.json()) as {
@@ -287,7 +371,7 @@ async function callOpenAIChatCompletion(
     if (!content || typeof content !== 'string') {
       throw new Error('OpenAI returned empty response');
     }
-    return content.trim();
+    return { text: content.trim(), modelUsed: activeModel };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -300,7 +384,16 @@ function parseJsonObjectSafe(rawText: string): any {
     .replace(/^```\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim();
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const startIdx = cleaned.indexOf('{');
+    const endIdx = cleaned.lastIndexOf('}');
+    if (startIdx >= 0 && endIdx > startIdx) {
+      return JSON.parse(cleaned.slice(startIdx, endIdx + 1));
+    }
+    throw new Error('Failed to parse JSON response from AI');
+  }
 }
 
 // GET /api/ai-status
@@ -315,6 +408,7 @@ app.post('/api/ai-provider', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'provider must be "gemini" or "openai"' });
   }
   const providerKey: AiProviderType = requested;
+  providerExplicitlySelected = true;
   activeProvider = providerKey;
   const gKey = resolveServerKey(process.env.GEMINI_API_KEY);
   const oKey = getOpenAIKey();
@@ -353,22 +447,22 @@ app.post('/api/ai-test', async (req: Request, res: Response) => {
       });
     }
     try {
-      const response = await geminiClient.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: '接続テストです。「OK」とだけ短く返答してください。'
-      });
-      const text = (response.text || '').trim();
+      const { text, modelUsed: actualModel } = await callGeminiWithTimeout(
+        geminiClient,
+        { contents: '接続テストです。「OK」とだけ短く返答してください。' },
+        15000
+      );
       if (!text) {
         throw new Error('Empty response from Gemini');
       }
-      recordDiagnostic('gemini', '/api/ai-test', 'connected', `Gemini (${GEMINI_MODEL}) 疎通確認完了`);
+      recordDiagnostic('gemini', '/api/ai-test', 'connected', `Gemini (${actualModel}) 疎通確認完了`);
       return res.json({
         ok: true,
         provider: 'gemini',
-        model: GEMINI_MODEL,
+        model: actualModel,
         status: 'connected',
         statusLabel: getStatusLabel('connected'),
-        message: `Gemini (${GEMINI_MODEL}) への接続と応答生成に成功しました。`,
+        message: `Gemini (${actualModel}) への接続と応答生成に成功しました。`,
         state: buildAiStatusPayload()
       });
     } catch (err) {
@@ -399,7 +493,7 @@ app.post('/api/ai-test', async (req: Request, res: Response) => {
       });
     }
     try {
-      const text = await callOpenAIChatCompletion(
+      const { text, modelUsed: actualModel } = await callOpenAIChatCompletion(
         'Reply strictly with "OK".',
         'Connection check.',
         false
@@ -407,15 +501,14 @@ app.post('/api/ai-test', async (req: Request, res: Response) => {
       if (!text) {
         throw new Error('Empty response from OpenAI');
       }
-      const model = getOpenAIModel();
-      recordDiagnostic('openai', '/api/ai-test', 'connected', `OpenAI (${model}) 疎通確認完了`);
+      recordDiagnostic('openai', '/api/ai-test', 'connected', `OpenAI (${actualModel}) 疎通確認完了`);
       return res.json({
         ok: true,
         provider: 'openai',
-        model,
+        model: actualModel,
         status: 'connected',
         statusLabel: getStatusLabel('connected'),
-        message: `OpenAI (${model}) への接続と応答生成に成功しました。`,
+        message: `OpenAI (${actualModel}) への接続と応答生成に成功しました。`,
         state: buildAiStatusPayload()
       });
     } catch (err) {
@@ -475,7 +568,7 @@ tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | 
 
   try {
     if (chosenProvider === 'openai' && oKey) {
-      const raw = await callOpenAIChatCompletion(
+      const { text: raw } = await callOpenAIChatCompletion(
         'あなたは日本語スポーツメディアの記者です。必ず指定JSONオブジェクトのみで回答してください。',
         prompt,
         true
@@ -486,14 +579,16 @@ tone は "positive" | "tactical" | "protective" | "ambitious" | "accountable" | 
         return res.json({ ok: true, questions: parsed.questions.slice(0, 3) });
       }
     } else if (chosenProvider === 'gemini' && geminiClient) {
-      const response = await geminiClient.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
-      const text = response.text;
+      const { text } = await callGeminiWithTimeout(
+        geminiClient,
+        {
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        },
+        18000
+      );
       if (text) {
         const parsed = parseJsonObjectSafe(text);
         if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
@@ -550,7 +645,7 @@ ${formattedQaList ? `【質疑応答ログ】\n${formattedQaList}` : `・記者�
 
   if (chosenProvider === 'openai' && oKey) {
     try {
-      const raw = await callOpenAIChatCompletion(
+      const { text: raw } = await callOpenAIChatCompletion(
         'あなたは日本語スポーツメディアの記者です。必ず指定されたJSON形式のみで回答してください。',
         prompt,
         true
@@ -564,27 +659,29 @@ ${formattedQaList ? `【質疑応答ログ】\n${formattedQaList}` : `・記者�
     }
   } else if (chosenProvider === 'gemini' && geminiClient) {
     try {
-      const response = await geminiClient.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              headline: { type: Type.STRING, description: 'スポーツ新聞の目を引く見出し' },
-              article: { type: Type.STRING, description: '記者会見の様子と発言を引用した150〜200文字の本文記事' },
-              fanReaction: { type: Type.STRING, description: 'サポーターSNSや現地のファンの声（肯定・疑問・熱狂など）' },
-              playerTrustDelta: { type: Type.INTEGER, description: '選手からの信頼度変化 (-5から+5の整数)' },
-              boardConfidenceDelta: { type: Type.INTEGER, description: 'フロント・理事会からの評価変化 (-5から+5の整数)' },
-              mediaGrade: { type: Type.STRING, description: 'メディアによる会見評価 (A+, A, B, C, Dなど)' }
-            },
-            required: ['headline', 'article', 'fanReaction', 'playerTrustDelta', 'boardConfidenceDelta', 'mediaGrade']
+      const { text } = await callGeminiWithTimeout(
+        geminiClient,
+        {
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                headline: { type: Type.STRING, description: 'スポーツ新聞の目を引く見出し' },
+                article: { type: Type.STRING, description: '記者会見の様子と発言を引用した150〜200文字の本文記事' },
+                fanReaction: { type: Type.STRING, description: 'サポーターSNSや現地のファンの声（肯定・疑問・熱狂など）' },
+                playerTrustDelta: { type: Type.INTEGER, description: '選手からの信頼度変化 (-5から+5の整数)' },
+                boardConfidenceDelta: { type: Type.INTEGER, description: 'フロント・理事会からの評価変化 (-5から+5の整数)' },
+                mediaGrade: { type: Type.STRING, description: 'メディアによる会見評価 (A+, A, B, C, Dなど)' }
+              },
+              required: ['headline', 'article', 'fanReaction', 'playerTrustDelta', 'boardConfidenceDelta', 'mediaGrade']
+            }
           }
-        }
-      });
+        },
+        18000
+      );
 
-      const text = response.text;
       if (text) {
         const parsed = parseJsonObjectSafe(text);
         recordDiagnostic('gemini', '/api/press-conference', 'connected', '会見記事生成成功');
@@ -1064,49 +1161,48 @@ ${historyText || '（初回相談）'}
     }
 
     try {
-      const response = await geminiClient.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              reply: { type: Type.STRING, description: 'フロント強化責任者からの返信メッセージ本文' },
-              analysisSummary: { type: Type.STRING, description: '現在の戦力・予算・成績に基づく短い現状分析' },
-              recommendations: {
-                type: Type.ARRAY,
-                description: '具体的な提案カード（1〜3件）',
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING, description: 'reinforce, squad, finance, tactical のいずれか' },
-                    title: { type: Type.STRING, description: '短い見出し' },
-                    detail: { type: Type.STRING, description: '数値や実在選手名に基づく提案内容' },
-                    targetPlayerId: { type: Type.STRING, description: '関連する選手ID（任意）' },
-                    targetPlayerName: { type: Type.STRING, description: '関連する選手名（任意）' }
-                  },
-                  required: ['category', 'title', 'detail']
-                }
+      const { text, modelUsed: actualModel } = await callGeminiWithTimeout(
+        geminiClient,
+        {
+          contents: prompt,
+          config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                reply: { type: Type.STRING, description: 'フロント強化責任者からの返信メッセージ本文' },
+                analysisSummary: { type: Type.STRING, description: '現在の戦力・予算・成績に基づく短い現状分析' },
+                recommendations: {
+                  type: Type.ARRAY,
+                  description: '具体的な提案カード（1〜3件）',
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      category: { type: Type.STRING, description: 'reinforce, squad, finance, tactical のいずれか' },
+                      title: { type: Type.STRING, description: '短い見出し' },
+                      detail: { type: Type.STRING, description: '数値や実在選手名に基づく提案内容' },
+                      targetPlayerId: { type: Type.STRING, description: '関連する選手ID（任意）' },
+                      targetPlayerName: { type: Type.STRING, description: '関連する選手名（任意）' }
+                    },
+                    required: ['category', 'title', 'detail']
+                  }
+                },
+                actionType: { type: Type.STRING, description: 'none, transfer_list, loan_list, または budget_rebalance' },
+                targetPlayerId: { type: Type.STRING, description: '対象選手ID（該当する場合のみ）' },
+                targetPlayerName: { type: Type.STRING, description: '対象選手名（該当する場合のみ）' },
+                actionSummary: { type: Type.STRING, description: '承認ボタン表示用の短い提案要約' }
               },
-              actionType: { type: Type.STRING, description: 'none, transfer_list, loan_list, または budget_rebalance' },
-              targetPlayerId: { type: Type.STRING, description: '対象選手ID（該当する場合のみ）' },
-              targetPlayerName: { type: Type.STRING, description: '対象選手名（該当する場合のみ）' },
-              actionSummary: { type: Type.STRING, description: '承認ボタン表示用の短い提案要約' }
-            },
-            required: ['reply', 'analysisSummary', 'recommendations', 'actionType']
+              required: ['reply', 'analysisSummary', 'recommendations', 'actionType']
+            }
           }
-        }
-      });
+        },
+        20000
+      );
 
-      const text = response.text;
-      if (!text) {
-        throw new Error('Empty response from Gemini');
-      }
       const parsed = parseJsonObjectSafe(text);
-      const formatted = formatSuccessResponse(parsed, 'gemini', GEMINI_MODEL);
-      recordDiagnostic('gemini', '/api/front-office-message', 'connected', `Gemini (${GEMINI_MODEL}) 回答生成成功`);
+      const formatted = formatSuccessResponse(parsed, 'gemini', actualModel);
+      recordDiagnostic('gemini', '/api/front-office-message', 'connected', `Gemini (${actualModel}) 回答生成成功`);
       return res.json(formatted);
     } catch (err) {
       const status = classifyProviderError(err);
@@ -1156,10 +1252,10 @@ ${historyText || '（初回相談）'}
     }
 
     try {
-      const text = await callOpenAIChatCompletion(systemInstruction, prompt, true);
+      const { text, modelUsed: actualModel } = await callOpenAIChatCompletion(systemInstruction, prompt, true);
       const parsed = parseJsonObjectSafe(text);
-      const formatted = formatSuccessResponse(parsed, 'openai', modelUsed);
-      recordDiagnostic('openai', '/api/front-office-message', 'connected', `OpenAI (${modelUsed}) 回答生成成功`);
+      const formatted = formatSuccessResponse(parsed, 'openai', actualModel);
+      recordDiagnostic('openai', '/api/front-office-message', 'connected', `OpenAI (${actualModel}) 回答生成成功`);
       return res.json(formatted);
     } catch (err) {
       const status = classifyProviderError(err);
@@ -1189,6 +1285,10 @@ ${historyText || '（初回相談）'}
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true });
+});
+
+app.use('/api/*', (_req: Request, res: Response) => {
+  res.status(404).json({ ok: false, error: 'API endpoint not found' });
 });
 
 async function startServer() {

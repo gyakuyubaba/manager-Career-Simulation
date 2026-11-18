@@ -20,6 +20,13 @@ interface ReserveSeed {
   preferredFoot?: '右' | '左' | '両足';
   playstyle?: string;
   isLoaned?: boolean;
+  altPositions?: Position[];
+  birthDate?: string;
+  potential?: number;
+  isType2Registered?: boolean;
+  type2HighSchool?: string;
+  isSpecialDesignated?: boolean;
+  specialDesignatedUniversity?: string;
 }
 
 function normalizePlayStyle(raw: string | undefined, position: Position): PlayStyle {
@@ -89,9 +96,15 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
   ],
   'avispa-fukuoka': [
     { name: 'ウェリック・ポポ (Werik Popó)', position: 'ST', age: 25, nationality: 'ブラジル', ovr: 72, shirtNumber: 9, preferredFoot: '右', playstyle: 'ラインブレイカー' },
-    { name: '藤本 一輝', position: 'LW', age: 28, nationality: '日本', ovr: 71, shirtNumber: 19, preferredFoot: '右', playstyle: 'ドリブラー' },
-    { name: '佐藤 颯之介', position: 'RB', age: 23, nationality: '日本', ovr: 67, shirtNumber: 26, preferredFoot: '右', playstyle: 'オーバーラップSB' },
-    { name: 'サニブラウン・アブデルハナン', position: 'ST', age: 20, nationality: '日本', ovr: 66, shirtNumber: 32, preferredFoot: '右', playstyle: 'ターゲットマン' }
+    { name: '藤本 一輝', position: 'LW', age: 28, nationality: '日本', ovr: 71, shirtNumber: 19, preferredFoot: '右', playstyle: '俊足ドリブラー' },
+    { name: '佐藤 颯之介', position: 'RB', age: 23, nationality: '日本', ovr: 67, shirtNumber: 26, preferredFoot: '右', playstyle: '攻撃的SB' },
+    { name: 'サニブラウン・アブデルハナン', position: 'ST', age: 20, nationality: '日本', ovr: 66, shirtNumber: 32, preferredFoot: '右', playstyle: 'ターゲットマン' },
+    { name: '橋本 悠', position: 'RB', age: 23, nationality: '日本', ovr: 67, potential: 75, shirtNumber: 47, preferredFoot: '右', playstyle: '攻撃的SB', altPositions: ['LB', 'RWB'] },
+    { name: '福島 和毅', position: 'CM', age: 18, nationality: '日本', ovr: 63, potential: 78, shirtNumber: 46, preferredFoot: '右', playstyle: 'チャンスメイカー', altPositions: ['CAM'] },
+    { name: '武本 匠平', position: 'CM', age: 18, birthDate: '2008-05-26', nationality: '日本', ovr: 62, potential: 80, shirtNumber: 52, preferredFoot: '右', playstyle: 'チャンスメイカー', altPositions: ['CAM', 'CDM'], isType2Registered: true, type2HighSchool: 'アビスパ福岡U-18' },
+    { name: '前田 快', position: 'CM', age: 22, birthDate: '2004-07-01', nationality: '日本', ovr: 63, potential: 77, shirtNumber: 55, preferredFoot: '左', playstyle: 'ボックストゥボックス', altPositions: ['CAM', 'LW'], isSpecialDesignated: true, specialDesignatedUniversity: '神奈川大学', isType2Registered: false },
+    { name: '坂井 悠飛', position: 'CB', age: 21, nationality: '日本', ovr: 62, potential: 76, shirtNumber: 56, preferredFoot: '右', playstyle: 'ハードタックラー', altPositions: ['RB'], isSpecialDesignated: true, specialDesignatedUniversity: '福岡大学', isType2Registered: false },
+    { name: '藤川 虎三', position: 'CB', age: 17, nationality: '日本', ovr: 60, potential: 77, shirtNumber: 58, preferredFoot: '右', playstyle: 'ハードタックラー', isType2Registered: true, type2HighSchool: 'アビスパ福岡U-18' }
   ],
   'kashima-antlers': [
     { name: 'マテウス・ブエノ (Matheus Bueno)', position: 'CM', age: 28, nationality: 'ブラジル', ovr: 73, shirtNumber: 8, preferredFoot: '右', playstyle: 'ボックストゥボックス' },
@@ -235,9 +248,13 @@ const VERIFIED_RESERVE_POOL: Record<string, ReserveSeed[]> = {
     { name: 'Kaden Braithwaite', position: 'CB', age: 18, nationality: 'イングランド', ovr: 67, shirtNumber: 61, preferredFoot: '左', playstyle: 'ボール運べるCB' }
   ],
   'chelsea': [
+    { name: 'Tosin Adarabioyo', position: 'CB', age: 28, nationality: 'イングランド', ovr: 79, potential: 80, shirtNumber: 4, preferredFoot: '右', playstyle: 'ハードタックラー', altPositions: [] },
     { name: 'Aaron Anselmino', position: 'CB', age: 21, nationality: 'アルゼンチン', ovr: 75, shirtNumber: 30, preferredFoot: '右', playstyle: 'ハードタックラー' },
     { name: 'Kendry Páez', position: 'CAM', age: 19, nationality: 'エクアドル', ovr: 76, shirtNumber: 37, preferredFoot: '左', playstyle: 'チャンスメイカー' },
     { name: 'Deivid Washington', position: 'ST', age: 21, nationality: 'ブラジル', ovr: 73, shirtNumber: 36, preferredFoot: '右', playstyle: 'ラインブレイカー' },
+    { name: 'Shumaira Mheuka', position: 'ST', age: 18, nationality: 'イングランド', ovr: 68, potential: 82, shirtNumber: 62, preferredFoot: '右', playstyle: 'ゴールゲッター', altPositions: ['RW', 'CF'] },
+    { name: 'Harrison Murray-Campbell', position: 'CB', age: 19, nationality: 'イングランド', ovr: 67, potential: 79, shirtNumber: 58, preferredFoot: '右', playstyle: 'ボール運べるCB', altPositions: ['RB'] },
+    { name: 'Kiano Dyer', position: 'CM', age: 19, nationality: 'イングランド', ovr: 68, potential: 80, shirtNumber: 64, preferredFoot: '右', playstyle: 'ボックストゥボックス', altPositions: ['CDM', 'CAM'] },
     { name: 'Reggie Walsh', position: 'CM', age: 18, nationality: 'イングランド', ovr: 68, shirtNumber: 46, preferredFoot: '右', playstyle: 'ボックストゥボックス' }
   ],
   'tottenham': [
@@ -550,11 +567,11 @@ export function applyVerified2026_27RosterUpdates(
   const movePlayer = (
     id: string,
     targetClubId: string,
-    updates?: Partial<Pick<Player, 'name' | 'shirtNumber' | 'isLoaned' | 'loanFromClubId' | 'parentClubId' | 'ovr' | 'age' | 'position' | 'playstyle' | 'nationality' | 'gk' | 'defending' | 'pace' | 'birthDate' | 'altPositions' | 'secondaryPositions' | 'positionProficiency'>>
+    updates?: Partial<Pick<Player, 'name' | 'shirtNumber' | 'isLoaned' | 'loanFromClubId' | 'parentClubId' | 'ovr' | 'potential' | 'age' | 'position' | 'playstyle' | 'nationality' | 'gk' | 'defending' | 'pace' | 'birthDate' | 'altPositions' | 'secondaryPositions' | 'positionProficiency' | 'isType2Registered' | 'isType2' | 'type2HighSchool' | 'isSpecialDesignated' | 'specialDesignatedUniversity'>>
   ) => {
     const p = registry[id];
     if (!p || !clubsMap.has(targetClubId)) return;
-    registry[id] = {
+    const merged: Player = {
       ...p,
       ...updates,
       clubId: targetClubId,
@@ -562,6 +579,10 @@ export function applyVerified2026_27RosterUpdates(
       isVerified: true,
       verificationStatus: 'verified'
     };
+    if (updates?.altPositions || updates?.position) {
+      merged.positionProficiency = calculatePlayerPositionProficiency(merged);
+    }
+    registry[id] = merged;
   };
 
   const addVerifiedIfAbsent = (clubId: string, seed: ReserveSeed, tag: string) => {
@@ -592,11 +613,13 @@ export function applyVerified2026_27RosterUpdates(
       ? (seed.ovr >= 74 ? 28000 : seed.ovr >= 69 ? 15000 : 7500)
       : (seed.ovr >= 82 ? 140000 : seed.ovr >= 76 ? 55000 : 18000);
 
-    const potential = seed.age <= 21
-      ? Math.min(92, seed.ovr + 7)
-      : seed.age <= 25
-        ? Math.min(90, seed.ovr + 3)
-        : seed.ovr;
+    const potential = seed.potential ?? (
+      seed.age <= 21
+        ? Math.min(92, seed.ovr + 7)
+        : seed.age <= 25
+          ? Math.min(90, seed.ovr + 3)
+          : seed.ovr
+    );
 
     const player = makeRealPlayer(
       pId,
@@ -611,9 +634,30 @@ export function applyVerified2026_27RosterUpdates(
       wageMult,
       seed.shirtNumber,
       seed.preferredFoot || '右',
-      normalizePlayStyle(seed.playstyle, seed.position)
+      normalizePlayStyle(seed.playstyle, seed.position),
+      seed.altPositions
     );
 
+    if (seed.birthDate) {
+      player.birthDate = seed.birthDate;
+    }
+    if (seed.altPositions && seed.altPositions.length > 0) {
+      player.altPositions = seed.altPositions;
+      player.secondaryPositions = seed.altPositions;
+      player.positionProficiency = calculatePlayerPositionProficiency(player);
+    }
+    if (seed.isSpecialDesignated) {
+      player.isSpecialDesignated = true;
+      player.specialDesignatedUniversity = seed.specialDesignatedUniversity;
+      player.isType2Registered = false;
+      player.isType2 = false;
+      player.type2HighSchool = undefined;
+    } else if (seed.isType2Registered) {
+      player.isType2Registered = true;
+      player.isType2 = true;
+      player.type2HighSchool = seed.type2HighSchool;
+      player.isSpecialDesignated = false;
+    }
     player.isVerified = true;
     player.verificationStatus = 'verified';
     if (seed.isLoaned) {
@@ -756,6 +800,50 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('krc_genk_new26_1_mikepender', 'chelsea', { shirtNumber: 39, ovr: 76 });
   movePlayer('bha_pedro', 'chelsea', { shirtNumber: 20, ovr: 82 });
   movePlayer('aston_villa_11_morganroge', 'chelsea', { shirtNumber: 27, ovr: 80 });
+  removePlayer('che_felix'); // Departed Chelsea
+  removePlayer('che_sancho'); // Departed Chelsea
+  movePlayer('chelsea_eng26_5_carneychuk', 'dortmund', { shirtNumber: 17 });
+  movePlayer('chelsea_eng26_4_cesarecasa', 'torino', { shirtNumber: 22 });
+  if (registry['che_palmer']) {
+    registry['che_palmer'] = {
+      ...registry['che_palmer'],
+      shirtNumber: 10
+    };
+  }
+  if (
+    clubsMap.has('chelsea') &&
+    !Object.values(registry).some(p => normalizePlayerNameKey(p.name).includes('estevao'))
+  ) {
+    const estevaoBase = makeRealPlayer(
+      'chelsea_v26_estevao',
+      'Estêvão Willian',
+      'chelsea',
+      'RW',
+      19,
+      'ブラジル',
+      81,
+      92,
+      48000000,
+      95000,
+      41,
+      '左',
+      '俊足ドリブラー',
+      ['CAM', 'LW']
+    );
+    estevaoBase.birthDate = '2007-04-24';
+    estevaoBase.age = 19;
+    estevaoBase.ovr = 81;
+    estevaoBase.exactOvr = 81;
+    estevaoBase.potential = 92;
+    estevaoBase.isVerified = true;
+    estevaoBase.verificationStatus = 'verified';
+    estevaoBase.positionProficiency = calculatePlayerPositionProficiency(estevaoBase);
+    registry[estevaoBase.id] = recalculateDynamicMarketValue(
+      syncPlayerGkAttributes(initializePlayerSkills(estevaoBase)),
+      '2026-07-01',
+      '2026/27公式登録'
+    );
+  }
 
   movePlayer('royal_antwerp_new26_1_sennelamme', 'man_united', { shirtNumber: 1, ovr: 81 });
   movePlayer('leeds_united_eng26_2_karldarlow', 'man_united', { shirtNumber: 26, ovr: 72 });
@@ -962,7 +1050,7 @@ export function applyVerified2026_27RosterUpdates(
     };
   }
 
-  // Avispa Fukuoka verified 2026/27 rebuild
+  // Avispa Fukuoka verified 2026/27 rebuild & shirt numbers
   movePlayer('JP_J1_000267_A', 'fc-machida-zelvia', { shirtNumber: 16 });
   movePlayer('JP_J1_000269_A', 'kawasaki-frontale', { shirtNumber: 17 });
   movePlayer('JP_J1_000271_A', 'matsumoto-yamaga', { shirtNumber: 9 });
@@ -972,16 +1060,20 @@ export function applyVerified2026_27RosterUpdates(
   movePlayer('girona_eur26_7_oriolromeu', 'avispa-fukuoka', { shirtNumber: 21, ovr: 76, name: 'オリオール・ロメウ (Oriol Romeu)' });
   movePlayer('JP_J1_000115', 'avispa-fukuoka', { shirtNumber: 23 });
   movePlayer('JP_000069', 'avispa-fukuoka', {
-    shirtNumber: 11,
+    shirtNumber: 13,
     playstyle: 'シャドーストライカー',
     altPositions: ['CF', 'CAM'],
     secondaryPositions: ['CF', 'CAM'],
     positionProficiency: { ST: 1.0, CF: 1.0, CAM: 0.96 }
   });
   movePlayer('JP_000202', 'avispa-fukuoka', { shirtNumber: 20 });
-  movePlayer('JP_J1_000227_N', 'avispa-fukuoka', { shirtNumber: 8 });
-  movePlayer('JP_000142', 'avispa-fukuoka', { shirtNumber: 15 });
-  movePlayer('JP_J1_000107', 'avispa-fukuoka', { shirtNumber: 10 });
+  movePlayer('JP_J1_000227_N', 'avispa-fukuoka', { shirtNumber: 34 });
+  movePlayer('JP_000142', 'avispa-fukuoka', { shirtNumber: 4 });
+  movePlayer('JP_J1_000107', 'avispa-fukuoka', { shirtNumber: 11 });
+  movePlayer('JP_J1_000263_A', 'avispa-fukuoka', { shirtNumber: 37 });
+  movePlayer('JP_J1_000275_A', 'avispa-fukuoka', { shirtNumber: 38 });
+  movePlayer('JP_J1_000268_A', 'avispa-fukuoka', { shirtNumber: 6 });
+  movePlayer('JP_J1_000280_A', 'avispa-fukuoka', { shirtNumber: 18 });
   movePlayer('JP_SEN_02', 'avispa-fukuoka', { shirtNumber: 24 });
   movePlayer('JP_JEF_01', 'avispa-fukuoka', { shirtNumber: 41 });
   movePlayer('JP_J1_000071', 'avispa-fukuoka', {
@@ -990,13 +1082,32 @@ export function applyVerified2026_27RosterUpdates(
     secondaryPositions: ['CF', 'ST'],
     positionProficiency: { CAM: 1.0, CF: 0.96, ST: 1.0, CM: 0.92 }
   });
-  movePlayer('JP_J1_000455', 'avispa-fukuoka', { shirtNumber: 6 });
+  movePlayer('JP_J1_000455', 'avispa-fukuoka', { shirtNumber: 8 });
   movePlayer('JP_VNG_07', 'avispa-fukuoka', { shirtNumber: 17 });
+  movePlayer('tegevajaro-miyazaki_j26_21_', 'avispa-fukuoka', {
+    shirtNumber: 15,
+    ovr: 68,
+    potential: 74,
+    playstyle: 'ハードタックラー'
+  });
+  movePlayer('JP_J1_000199', 'avispa-fukuoka', {
+    shirtNumber: 16,
+    playstyle: 'ボール運べるCB'
+  });
+  movePlayer('giravanz-kitakyushu_j26_5_', 'avispa-fukuoka', {
+    shirtNumber: 33,
+    position: 'LB',
+    ovr: 68,
+    potential: 73,
+    playstyle: '攻撃的SB',
+    altPositions: ['RB', 'LWB'],
+    secondaryPositions: ['RB', 'LWB']
+  });
   movePlayer('oita-trinita_j26_4_', 'st_pauli', { shirtNumber: 25 }); // 安藤 智哉 -> FC St. Pauli
   movePlayer('JP_J1_000279_A', 'v-varen-nagasaki', { shirtNumber: 18 }); // 岩崎 悠人 -> V-Varen Nagasaki
   removePlayer('JP_J1_000272_A'); // 金森 健志 -> Melbourne City FC (outside 17 leagues)
   movePlayer('JP_J1_000261_A', 'kyoto-sanga', { shirtNumber: 21 }); // 村上 昌謙 -> Kyoto Sanga F.C.
-  movePlayer('kataller-toyama_j26_3_', 'avispa-fukuoka', { shirtNumber: 27 });
+  movePlayer('kataller-toyama_j26_3_', 'avispa-fukuoka', { shirtNumber: 7 });
 
   // Other J1 / J2 / J3 verified Nov 2026 moves
   movePlayer('consadole-sapporo_j26_2_', 'sanfrecce-hiroshima', { shirtNumber: 18, ovr: 73 });

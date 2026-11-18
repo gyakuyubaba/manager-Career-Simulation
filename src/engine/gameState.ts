@@ -29,6 +29,7 @@ import { calculateCalibratedClubTransferBudget } from './clubBudgetEngine';
 import { ensureSmartphoneState } from './smartphoneEngine';
 import { GROUP_B_TOURNAMENT_CLUBS } from '../data/europeanCompetitionClubs2026';
 import { initializeTournamentCompetitions } from './cupEngine';
+import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 import { 
   saveGameToStorage, 
   loadGameFromStorage, 
@@ -297,6 +298,7 @@ export function createNewGameWorld(
   const initialTactics: TeamTactics = {
     formation: '4-3-3',
     placementMode: 'formation',
+    autoSubstitutionEnabled: true,
     customPositions: {},
     lineup: { starters: [], bench: [], reserves: [] },
     instructions: {
@@ -371,6 +373,7 @@ export function createNewGameWorld(
     fanApproval: 75,
     consecutiveLosses: 0,
     isSacked: false,
+    autoSubstitutionEnabled: true,
     difficultySettings: difficultySettings || { ...DEFAULT_DIFFICULTY_SETTINGS },
     clubs,
     players: (() => {
@@ -378,6 +381,7 @@ export function createNewGameWorld(
         if (p.birthDate) {
           p.age = calculateAge(p.birthDate, initialDate);
         }
+        p.playstyle = normalizeCompatiblePlaystyle(p.position, p.playstyle);
         if (!p.initialOvr) p.initialOvr = p.ovr;
         if (!p.exactOvr) p.exactOvr = p.ovr;
         if (!p.altPositions || p.altPositions.length === 0) {

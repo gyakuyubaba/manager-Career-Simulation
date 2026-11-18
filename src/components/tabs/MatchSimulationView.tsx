@@ -118,6 +118,14 @@ export const MatchSimulationView: React.FC<Props> = ({
   // Track players who have already been subbed off to strictly forbid re-entry
   const [subbedOutPlayerIds, setSubbedOutPlayerIds] = useState<string[]>([]);
 
+  // Persisted Auto-Substitution toggle (default ON)
+  const [autoSubEnabled, setAutoSubEnabled] = useState<boolean>(
+    () => state.autoSubstitutionEnabled ?? state.tactics?.autoSubstitutionEnabled ?? true
+  );
+  const autoSubEnabledRef = useRef<boolean>(autoSubEnabled);
+  const getSkipAutoSubsClubId = (enabled: boolean = autoSubEnabledRef.current): string | undefined =>
+    !enabled ? (state.userClubId || undefined) : undefined;
+
   // Helper: Deep clone TeamTactics so match-only mutations (B) NEVER touch permanent club tactics (A)
   const cloneTacticsDeep = (src: TeamTactics): TeamTactics => ({
     ...src,
@@ -240,7 +248,7 @@ export const MatchSimulationView: React.FC<Props> = ({
         state.players,
         undefined,
         {
-          skipAutoSubsForClubId: state.userClubId || undefined,
+          skipAutoSubsForClubId: getSkipAutoSubsClubId(),
           initialHomeStarterIds: initialHomeStarterIdsRef.current,
           initialAwayStarterIds: initialAwayStarterIdsRef.current
         }
@@ -341,7 +349,7 @@ export const MatchSimulationView: React.FC<Props> = ({
       awayLiveTacticsRef.current,
       state.players,
       {
-        skipAutoSubsForClubId: state.userClubId || undefined,
+        skipAutoSubsForClubId: getSkipAutoSubsClubId(),
         subbedOutPlayerIds: subbedOutPlayerIdsRef.current,
         initialHomeStarterIds: initialHomeStarterIdsRef.current,
         initialAwayStarterIds: initialAwayStarterIdsRef.current
@@ -540,7 +548,7 @@ export const MatchSimulationView: React.FC<Props> = ({
     const awayTac = awayLiveTacticsRef.current;
 
     const result = simulateFullMatch(fixture, homeClub, awayClub, homeTac, awayTac, state.players, undefined, {
-      skipAutoSubsForClubId: state.userClubId || undefined,
+      skipAutoSubsForClubId: getSkipAutoSubsClubId(),
       initialHomeStarterIds: initialHomeStarterIdsRef.current,
       initialAwayStarterIds: initialAwayStarterIdsRef.current
     });
@@ -792,7 +800,7 @@ export const MatchSimulationView: React.FC<Props> = ({
         state.players,
         undefined,
         {
-          skipAutoSubsForClubId: state.userClubId || undefined,
+          skipAutoSubsForClubId: getSkipAutoSubsClubId(),
           initialHomeStarterIds: initialHomeStarterIdsRef.current,
           initialAwayStarterIds: initialAwayStarterIdsRef.current
         }
@@ -964,8 +972,9 @@ export const MatchSimulationView: React.FC<Props> = ({
 
     const homeTac = homeLiveTacticsRef.current;
     const awayTac = awayLiveTacticsRef.current;
-    // 即時スキップ時は自クラブにもAI自動交代（疲労・警告・適性考慮・最大5枠）を有効化
+    // スキップ時も設定（自動交代 ON / 手動のみ）に連動させる
     const ffOptions = {
+      skipAutoSubsForClubId: getSkipAutoSubsClubId(),
       initialHomeStarterIds: initialHomeStarterIdsRef.current,
       initialAwayStarterIds: initialAwayStarterIdsRef.current,
       subbedOutPlayerIds: subbedOutPlayerIdsRef.current,
@@ -1617,12 +1626,63 @@ export const MatchSimulationView: React.FC<Props> = ({
               </button>
             )}
 
+            {/* Auto-Substitution Persisted Toggle */}
+            {matchPhase !== 'finished' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !autoSubEnabled;
+                  autoSubEnabledRef.current = nextVal;
+                  setAutoSubEnabled(nextVal);
+                  const nextPersistentTac: TeamTactics = {
+                    ...state.tactics,
+                    autoSubstitutionEnabled: nextVal
+                  };
+                  if (onUpdateTactics) {
+                    onUpdateTactics(cloneTacticsDeep(nextPersistentTac));
+                  }
+                  if (matchPhase === 'pre' && homeClub && awayClub) {
+                    const nextRes = simulateFullMatch(
+                      fixture,
+                      homeClub,
+                      awayClub,
+                      homeLiveTacticsRef.current,
+                      awayLiveTacticsRef.current,
+                      state.players,
+                      undefined,
+                      {
+                        skipAutoSubsForClubId: getSkipAutoSubsClubId(nextVal),
+                        initialHomeStarterIds: initialHomeStarterIdsRef.current,
+                        initialAwayStarterIds: initialAwayStarterIdsRef.current
+                      }
+                    );
+                    simulatedResultRef.current = nextRes;
+                    setSimulatedResult(nextRes);
+                  } else if (minute < 90) {
+                    triggerRemainingResim(minute, revealedEventsRef.current, scoreRef.current);
+                  }
+                  setInMatchTacticsToast(
+                    nextVal ? '自動交代: ON（疲労・警告時に自動交代）' : '自動交代: OFF（手動交代のみ）'
+                  );
+                  setTimeout(() => setInMatchTacticsToast(null), 2600);
+                }}
+                className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold cursor-pointer border whitespace-nowrap shrink-0 transition-colors ${
+                  autoSubEnabled
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                }`}
+                title="自クラブの自動交代のON/OFFを切り替えます"
+              >
+                {autoSubEnabled ? '自動交代: ON' : '自動交代: 手動のみ'}
+              </button>
+            )}
+
             {/* Instant Skip Button */}
             {matchPhase !== 'finished' && (
               <button
                 type="button"
                 onClick={handleInstantSkip}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer border border-slate-700 flex items-center gap-1.5"
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer border border-slate-700 flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 title="即時シミュレーション"
               >
                 <FastForward className="w-3.5 h-3.5 text-blue-400" />
@@ -4604,7 +4664,7 @@ export const MatchSimulationView: React.FC<Props> = ({
                 const homeTac = isUserHome ? newTactics : awayLiveTacticsRef.current;
                 const awayTac = !isUserHome ? newTactics : homeLiveTacticsRef.current;
                 const newRes = simulateFullMatch(fixture, homeClub, awayClub, isUserHome ? newTactics : homeLiveTacticsRef.current, !isUserHome ? newTactics : awayLiveTacticsRef.current, updatedPlayers, undefined, {
-                  skipAutoSubsForClubId: state.userClubId || undefined,
+                  skipAutoSubsForClubId: getSkipAutoSubsClubId(),
                   initialHomeStarterIds: initialHomeStarterIdsRef.current,
                   initialAwayStarterIds: initialAwayStarterIdsRef.current
                 });

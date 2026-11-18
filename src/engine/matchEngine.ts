@@ -1125,7 +1125,8 @@ export function finalizeMatchResultAndPlayerStats(params: {
           outPlayerId: outId,
           outPlayerName: e.subOutPlayerName || e.playerName || playersRegistry[outId]?.name || '',
           inPlayerId: inId,
-          inPlayerName: e.subInPlayerName || playersRegistry[inId]?.name || ''
+          inPlayerName: e.subInPlayerName || playersRegistry[inId]?.name || '',
+          reason: e.reason || e.description
         });
       }
       return;
@@ -1833,9 +1834,14 @@ export function simulateFullMatch(
     }
   });
 
-  const subCheckpoints = (options?.forcedSubMinutes || [52, 58, 65, 71, 77, 83, 87]).slice().sort((a, b) => a - b);
-  let homeSubCount = events.filter(e => e.type === 'sub' && e.clubId === homeClub.id).length;
-  let awaySubCount = events.filter(e => e.type === 'sub' && e.clubId === awayClub.id).length;
+  const subCheckpoints = (options?.forcedSubMinutes || [45, 58, 69, 79, 86]).slice().sort((a, b) => a - b);
+  const existingHomeSubs = events.filter(e => e.type === 'sub' && e.clubId === homeClub.id);
+  const existingAwaySubs = events.filter(e => e.type === 'sub' && e.clubId === awayClub.id);
+  let homeSubCount = existingHomeSubs.length;
+  let awaySubCount = existingAwaySubs.length;
+  // Count distinct in-play second-half stoppage windows already consumed (HT 45' is free)
+  let homeWindowsUsed = new Set(existingHomeSubs.filter(e => e.minute !== 45).map(e => e.minute)).size;
+  let awayWindowsUsed = new Set(existingAwaySubs.filter(e => e.minute !== 45).map(e => e.minute)).size;
   const triggeredHomeSubWindows = new Set<number>();
   const triggeredAwaySubWindows = new Set<number>();
 
@@ -1878,83 +1884,100 @@ export function simulateFullMatch(
 
     if (candidates.length === 0) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
 
-    const pressStr = tactics.instructions?.pressIntensity || '標準的';
-    const pressMult = pressStr.includes('非常') || pressStr.includes('猛') ? 1.18 : pressStr.includes('自陣') ? 0.85 : 1.0;
-
     const evaluateCandidate = (p: Player) => {
       const baseFatigue = p.fatigue || 0;
       const staminaBase = p.stamina || p.physical || 75;
-      const staminaPenaltyMult = Math.max(0.7, 1.0 - (staminaBase - 75) * 0.012);
-      const liveDrain = (minute / 90) * 38 * staminaPenaltyMult * pressMult;
+      const slotPos = tactics.lineup?.starters?.find(s => s.playerId === p.id)?.position || p.position;
+      const liveDrain = calculateMatchFatigueDelta(p, minute, tactics.instructions, false, {
+        matchPosition: slotPos
+      });
       const liveFatigue = Math.min(100, baseFatigue + liveDrain);
 
       // 4-tier priority scoring
       let score = liveFatigue;
-      if (liveFatigue >= 80 || (baseFatigue >= 68 && minute >= 48)) {
-        score += 55; // Priority 1: Extremely fatigued / red zone
-      } else if (liveFatigue >= 65 || (minute >= 58 && liveFatigue >= 58 && staminaBase < 74)) {
+      if (liveFatigue >= 76 || (baseFatigue >= 62 && minute >= 45)) {
+        score += 55; // Priority 1: Red zone exhaustion
+      } else if (liveFatigue >= 60 || (minute >= 56 && liveFatigue >= 54 && staminaBase < 74)) {
         score += 34; // Priority 2: Fatigue noticeably hurting performance
-      } else if (baseFatigue >= 42) {
-        score += 14; // Priority 4: Accumulated congestion fatigue from pre-match
+      } else if (baseFatigue >= 38) {
+        score += 14; // Priority 4: Pre-match accumulated congestion fatigue
       }
 
-      if (staminaBase < 70 && minute >= 55) {
+      if (staminaBase < 70 && minute >= 52) {
         score += 12; // Priority 3: Low stamina attribute
       }
       if (yellowCardCounts[p.id]) {
-        score += 26; // Card sending-off protection
+        score += 26; // Second yellow sending-off protection
       }
 
-      // Tactical context nudges
       const isAttOrMid = ['ST', 'CF', 'LW', 'RW', 'CAM', 'CM', 'LM', 'RM'].includes(p.position);
       const isDefOrMid = ['CB', 'LB', 'RB', 'LWB', 'RWB', 'CDM', 'CM'].includes(p.position);
-      if (scoreDiff < 0 && minute >= 64 && isAttOrMid) score += 8;
-      if (scoreDiff === 1 && minute >= 75 && isDefOrMid) score += 8;
+      if (scoreDiff < 0 && minute >= 62 && isAttOrMid) score += 8;
+      if (scoreDiff === 1 && minute >= 74 && isDefOrMid) score += 8;
 
-      return { player: p, score, liveFatigue };
+      return { player: p, slotPos, score, liveFatigue, baseFatigue, hasYellow: Boolean(yellowCardCounts[p.id]) };
     };
 
     const evaluated = candidates.map(evaluateCandidate).sort((a, b) => b.score - a.score);
-    const topPick = evaluated[0];
-    if (!topPick) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
 
-    const outPlayer = topPick.player;
-
-    // Require genuine reason to sub unless late-game fresh-legs window with tired starters
-    const isUrgentFatigueOrCard =
-      topPick.liveFatigue >= 62 ||
-      Boolean(yellowCardCounts[outPlayer.id] && minute >= 55) ||
-      (minute >= 68 && topPick.liveFatigue >= 52) ||
-      (minute >= 76 && topPick.liveFatigue >= 44);
-
-    if (!isUrgentFatigueOrCard) {
-      return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
-    }
-
-    const outEffectiveOvr = getPositionFitOvr(outPlayer, outPlayer.position).effectiveOvr;
-
-    const rankedBench = [...availableBench].sort((a, b) => {
-      const scoreBench = (bp: Player) => {
-        const fit = getPositionFitOvr(bp, outPlayer.position).effectiveOvr;
-        const compatBonus = isPositionGroupCompatible(outPlayer.position, bp.position) ? 16 : 0;
-        const fatiguePenalty = (bp.fatigue || 0) * 0.6;
-        let contextBonus = 0;
-        if (scoreDiff < 0 && ['ST', 'CF', 'LW', 'RW', 'CAM'].includes(bp.position)) contextBonus += 6;
-        if (scoreDiff >= 1 && minute >= 74 && ['CB', 'CDM', 'LB', 'RB'].includes(bp.position)) contextBonus += 5;
-        return fit + compatBonus + contextBonus - fatiguePenalty;
-      };
-      return scoreBench(b) - scoreBench(a);
+    // Filter eligible out-candidates in priority order (never bail after just evaluated[0])
+    const eligibleCandidates = evaluated.filter(cand => {
+      const isForcedMin = Boolean(options?.forcedSubMinutes?.includes(minute) && cand.liveFatigue >= 45);
+      return (
+        isForcedMin ||
+        cand.liveFatigue >= 58 ||
+        Boolean(cand.hasYellow && minute >= 45) ||
+        (minute === 45 && cand.liveFatigue >= 50) ||
+        (minute >= 66 && cand.liveFatigue >= 48) ||
+        (minute >= 76 && cand.liveFatigue >= 42)
+      );
     });
 
-    const inPlayer = rankedBench[0];
-    if (!inPlayer) return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
-
-    const inFitOvr = getPositionFitOvr(inPlayer, outPlayer.position).effectiveOvr;
-    const isBenchCompatible = isPositionGroupCompatible(outPlayer.position, inPlayer.position);
-    // Avoid making a drastic downgrade unless starter is critically exhausted or booked
-    if (!isBenchCompatible && inFitOvr < outEffectiveOvr - 12 && topPick.liveFatigue < 76 && !yellowCardCounts[outPlayer.id]) {
+    if (eligibleCandidates.length === 0) {
       return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
     }
+
+    let chosenOut: typeof eligibleCandidates[0] | null = null;
+    let chosenIn: Player | null = null;
+
+    for (const cand of eligibleCandidates) {
+      const outEffectiveOvr = getPositionFitOvr(cand.player, cand.slotPos).effectiveOvr;
+      const rankedBench = [...availableBench].sort((a, b) => {
+        const scoreBench = (bp: Player) => {
+          const fit = getPositionFitOvr(bp, cand.slotPos).effectiveOvr;
+          const compatBonus = isPositionGroupCompatible(cand.slotPos, bp.position) ? 18 : 0;
+          const fatiguePenalty = (bp.fatigue || 0) * 0.65;
+          let contextBonus = 0;
+          if (scoreDiff < 0 && ['ST', 'CF', 'LW', 'RW', 'CAM'].includes(bp.position)) contextBonus += 6;
+          if (scoreDiff >= 1 && minute >= 72 && ['CB', 'CDM', 'LB', 'RB'].includes(bp.position)) contextBonus += 5;
+          return fit + compatBonus + contextBonus - fatiguePenalty;
+        };
+        return scoreBench(b) - scoreBench(a);
+      });
+
+      const bestBench = rankedBench.find(bp => {
+        if (bp.position === 'GK') return false;
+        const inFitOvr = getPositionFitOvr(bp, cand.slotPos).effectiveOvr;
+        const isBenchCompatible = isPositionGroupCompatible(cand.slotPos, bp.position);
+        if (!isBenchCompatible && inFitOvr < outEffectiveOvr - 14 && cand.liveFatigue < 72 && !cand.hasYellow) {
+          return false;
+        }
+        return true;
+      });
+
+      if (bestBench) {
+        chosenOut = cand;
+        chosenIn = bestBench;
+        break;
+      }
+    }
+
+    if (!chosenOut || !chosenIn) {
+      return { didSub: false, newPitchIds: pitchIds, urgentRemaining: false };
+    }
+
+    const outPlayer = chosenOut.player;
+    const inPlayer = chosenIn;
 
     usedBenchSet.add(inPlayer.id);
     subbedInSet.add(inPlayer.id);
@@ -1966,6 +1989,14 @@ export function simulateFullMatch(
       updatedPitchIds[idx] = inPlayer.id;
     }
 
+    const subReason = chosenOut.hasYellow && chosenOut.liveFatigue < 68
+      ? `イエローカード警告による退場リスク回避のため、${outPlayer.name}に代えて${inPlayer.name}を投入しました`
+      : chosenOut.liveFatigue >= 58 || chosenOut.baseFatigue >= 35
+      ? `疲労が大きくなったため（消耗度${Math.round(chosenOut.liveFatigue)}%）、${outPlayer.name}に代えて${inPlayer.name}を投入しました`
+      : minute === 45
+      ? `ハーフタイムでの戦術・コンディション調整のため、${outPlayer.name}に代えて${inPlayer.name}を投入しました`
+      : `終盤の運動量維持と戦術強化のため、${outPlayer.name}に代えて${inPlayer.name}を投入しました`;
+
     events.push({
       minute,
       type: 'sub',
@@ -1976,11 +2007,13 @@ export function simulateFullMatch(
       subOutPlayerName: outPlayer.name,
       subInPlayerId: inPlayer.id,
       subInPlayerName: inPlayer.name,
-      description: `【選手交代】${teamClub.name}: IN ${inPlayer.name} (${inPlayer.position}) ⇄ OUT ${outPlayer.name} (${outPlayer.position})`
+      reason: subReason,
+      description: `【自動交代】${teamClub.name}: IN ${inPlayer.name} (${inPlayer.position}) ⇄ OUT ${outPlayer.name} (${outPlayer.position}) — ${subReason}`
     });
 
-    const secondCandidate = evaluated[1];
-    const urgentRemaining = Boolean(secondCandidate && secondCandidate.liveFatigue >= 72);
+    const urgentRemaining = eligibleCandidates.some(
+      c => c.player.id !== outPlayer.id && (c.liveFatigue >= 66 || c.hasYellow)
+    );
 
     return { didSub: true, newPitchIds: updatedPitchIds, urgentRemaining };
   };
@@ -2018,44 +2051,43 @@ export function simulateFullMatch(
     const jitter = Math.floor(rng() * 3) - 1;
     const eventMin = Math.max(startMinute + 1, Math.min(94, min + jitter));
 
-    // CHRONOLOGICAL AI SUBSTITUTIONS (happen BEFORE post-sub attacks so subs can score/assist/shoot/save!)
+    // CHRONOLOGICAL AI SUBSTITUTIONS (Max 5 subs across max 3 in-play stoppage windows + free 45' HT)
     for (const subCheckpoint of subCheckpoints) {
       if (eventMin >= subCheckpoint) {
+        const isHalftimeWindow = subCheckpoint === 45;
         if (
           !triggeredHomeSubWindows.has(subCheckpoint) &&
           options?.skipAutoSubsForClubId !== homeClub.id &&
-          homeSubCount < 5
+          homeSubCount < 5 &&
+          (isHalftimeWindow || homeWindowsUsed < 3)
         ) {
           triggeredHomeSubWindows.add(subCheckpoint);
-          const subMinute = Math.max(startMinute + 1, Math.min(89, subCheckpoint + (Math.floor(rng() * 3) - 1)));
-          const subRes = executeSingleAiSubAtMinute(
-            homeClub,
-            homePitchPlayers,
-            effectiveHomeTactics,
-            usedHomeBenchIds,
-            homeSubbedInIds,
-            subMinute,
-            homeScore - awayScore
-          );
-          if (subRes.didSub) {
-            homePitchPlayers = subRes.newPitchIds;
-            homeSubCount++;
-            // Allow immediate second sub in the same window if critical multiple fatigue cluster exists
-            if (subRes.urgentRemaining && homeSubCount < 5) {
-              const extraRes = executeSingleAiSubAtMinute(
-                homeClub,
-                homePitchPlayers,
-                effectiveHomeTactics,
-                usedHomeBenchIds,
-                homeSubbedInIds,
-                subMinute,
-                homeScore - awayScore
-              );
-              if (extraRes.didSub) {
-                homePitchPlayers = extraRes.newPitchIds;
-                homeSubCount++;
-              }
+          const subMinute = isHalftimeWindow
+            ? 45
+            : Math.max(startMinute + 1, Math.min(89, subCheckpoint + (Math.floor(rng() * 3) - 1)));
+          let windowSubsMade = 0;
+          let keepSubbing = true;
+          while (keepSubbing && homeSubCount < 5 && windowSubsMade < 3) {
+            const subRes = executeSingleAiSubAtMinute(
+              homeClub,
+              homePitchPlayers,
+              effectiveHomeTactics,
+              usedHomeBenchIds,
+              homeSubbedInIds,
+              subMinute,
+              homeScore - awayScore
+            );
+            if (subRes.didSub) {
+              homePitchPlayers = subRes.newPitchIds;
+              homeSubCount++;
+              windowSubsMade++;
+              keepSubbing = subRes.urgentRemaining;
+            } else {
+              keepSubbing = false;
             }
+          }
+          if (windowSubsMade > 0) {
+            if (!isHalftimeWindow) homeWindowsUsed++;
             homeRatings = computeTeamRatings(homePitchPlayers, effectiveHomeTactics, true, homeSubCount, eventMin, homeSubbedInIds, homeScore - awayScore, homeClub);
           }
         }
@@ -2063,37 +2095,36 @@ export function simulateFullMatch(
         if (
           !triggeredAwaySubWindows.has(subCheckpoint) &&
           options?.skipAutoSubsForClubId !== awayClub.id &&
-          awaySubCount < 5
+          awaySubCount < 5 &&
+          (isHalftimeWindow || awayWindowsUsed < 3)
         ) {
           triggeredAwaySubWindows.add(subCheckpoint);
-          const subMinute = Math.max(startMinute + 1, Math.min(89, subCheckpoint + (Math.floor(rng() * 3) - 1)));
-          const subRes = executeSingleAiSubAtMinute(
-            awayClub,
-            awayPitchPlayers,
-            effectiveAwayTactics,
-            usedAwayBenchIds,
-            awaySubbedInIds,
-            subMinute,
-            awayScore - homeScore
-          );
-          if (subRes.didSub) {
-            awayPitchPlayers = subRes.newPitchIds;
-            awaySubCount++;
-            if (subRes.urgentRemaining && awaySubCount < 5) {
-              const extraRes = executeSingleAiSubAtMinute(
-                awayClub,
-                awayPitchPlayers,
-                effectiveAwayTactics,
-                usedAwayBenchIds,
-                awaySubbedInIds,
-                subMinute,
-                awayScore - homeScore
-              );
-              if (extraRes.didSub) {
-                awayPitchPlayers = extraRes.newPitchIds;
-                awaySubCount++;
-              }
+          const subMinute = isHalftimeWindow
+            ? 45
+            : Math.max(startMinute + 1, Math.min(89, subCheckpoint + (Math.floor(rng() * 3) - 1)));
+          let windowSubsMade = 0;
+          let keepSubbing = true;
+          while (keepSubbing && awaySubCount < 5 && windowSubsMade < 3) {
+            const subRes = executeSingleAiSubAtMinute(
+              awayClub,
+              awayPitchPlayers,
+              effectiveAwayTactics,
+              usedAwayBenchIds,
+              awaySubbedInIds,
+              subMinute,
+              awayScore - homeScore
+            );
+            if (subRes.didSub) {
+              awayPitchPlayers = subRes.newPitchIds;
+              awaySubCount++;
+              windowSubsMade++;
+              keepSubbing = subRes.urgentRemaining;
+            } else {
+              keepSubbing = false;
             }
+          }
+          if (windowSubsMade > 0) {
+            if (!isHalftimeWindow) awayWindowsUsed++;
             awayRatings = computeTeamRatings(awayPitchPlayers, effectiveAwayTactics, false, awaySubCount, eventMin, awaySubbedInIds, awayScore - homeScore, awayClub);
           }
         }
@@ -2366,6 +2397,7 @@ export function simulateFullMatch(
 
           // AI team automatically brings on an injury sub immediately (unless skipped for user's live club)
           const skipAiSubForClub = options?.skipAutoSubsForClubId === targetClub.id;
+          const isInjuredGk = player.position === 'GK';
           if (!skipAiSubForClub) {
             if (isHome && homeSubCount < 5) {
               const idx = homePitchPlayers.indexOf(player.id);
@@ -2374,7 +2406,7 @@ export function simulateFullMatch(
                 .find(
                   bp =>
                     bp &&
-                    bp.position !== 'GK' &&
+                    (isInjuredGk ? bp.position === 'GK' : bp.position !== 'GK') &&
                     !bp.injury?.isInjured &&
                     !bp.suspension?.isSuspended &&
                     !usedHomeBenchIds.has(bp.id) &&
@@ -2386,6 +2418,7 @@ export function simulateFullMatch(
                 usedHomeBenchIds.add(benchIn.id);
                 homeSubbedInIds.add(benchIn.id);
                 homeSubCount++;
+                const injReason = `負傷（${chosenInj.name}）によりプレー続行不可のため、${player.name}に代えて${benchIn.name}を投入しました`;
                 events.push({
                   minute: eventMin,
                   type: 'sub',
@@ -2396,6 +2429,7 @@ export function simulateFullMatch(
                   subOutPlayerName: player.name,
                   subInPlayerId: benchIn.id,
                   subInPlayerName: benchIn.name,
+                  reason: injReason,
                   description: `【負傷交代】${homeClub.name}: IN ${benchIn.name} (${benchIn.position}) ⇄ OUT ${player.name} (${player.position})`
                 });
                 homeRatings = computeTeamRatings(homePitchPlayers, homeTactics, true, homeSubCount);
@@ -2410,7 +2444,7 @@ export function simulateFullMatch(
                 .find(
                   bp =>
                     bp &&
-                    bp.position !== 'GK' &&
+                    (isInjuredGk ? bp.position === 'GK' : bp.position !== 'GK') &&
                     !bp.injury?.isInjured &&
                     !bp.suspension?.isSuspended &&
                     !usedAwayBenchIds.has(bp.id) &&
@@ -2422,6 +2456,7 @@ export function simulateFullMatch(
                 usedAwayBenchIds.add(benchIn.id);
                 awaySubbedInIds.add(benchIn.id);
                 awaySubCount++;
+                const injReason = `負傷（${chosenInj.name}）によりプレー続行不可のため、${player.name}に代えて${benchIn.name}を投入しました`;
                 events.push({
                   minute: eventMin,
                   type: 'sub',
@@ -2432,6 +2467,7 @@ export function simulateFullMatch(
                   subOutPlayerName: player.name,
                   subInPlayerId: benchIn.id,
                   subInPlayerName: benchIn.name,
+                  reason: injReason,
                   description: `【負傷交代】${awayClub.name}: IN ${benchIn.name} (${benchIn.position}) ⇄ OUT ${player.name} (${player.position})`
                 });
                 awayRatings = computeTeamRatings(awayPitchPlayers, awayTactics, false, awaySubCount);

@@ -1146,8 +1146,13 @@ export function resetFreePlacementToFormation(
     tactics.formation,
     playersMap
   );
+  const resetCoords = syncCustomPositionsFromStarters(
+    { ...synced, customPositions: undefined },
+    playersMap
+  );
   return {
     ...synced,
+    customPositions: resetCoords,
     placementMode: tactics.placementMode || 'formation'
   };
 }
