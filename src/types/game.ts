@@ -364,13 +364,88 @@ export interface MarketValueHistoryEntry {
   reason: string;
 }
 
+export type RumorCredibilityLevel =
+  | '非常に高い'
+  | '高い'
+  | '普通'
+  | '低い'
+  | '誤報の可能性が高い';
+
+export type TransferRumorScenario =
+  | 'linked_rumor'
+  | 'shortlist_target'
+  | 'competing_clubs'
+  | 'high_transfer_fee'
+  | 'player_departure'
+  | 'reinforcement_policy'
+  | 'failed_transfer'
+  | 'official_signing'
+  | 'official_departure'
+  | 'loan_signing'
+  | 'loan_departure'
+  | 'contract_extended'
+  | 'contract_expired'
+  | 'negotiation_started'
+  | 'club_agreed'
+  | 'terms_agreed'
+  | 'window_closed';
+
+export type TransferNewsStatusLabel =
+  | '関心を示している'
+  | '獲得候補として検討中'
+  | '正式オファーを提出'
+  | 'クラブ間交渉中'
+  | 'クラブ間合意'
+  | '選手との契約交渉中'
+  | '選手との契約合意'
+  | '移籍成立'
+  | '移籍不成立'
+  | '退団決定'
+  | '契約延長'
+  | '契約満了'
+  | '移籍市場終了'
+  | '監督コメント';
+
+export interface TransferNewsMeta {
+  playerName?: string;
+  fromClubName?: string;
+  toClubName?: string;
+  transferTypeLabel?: string;
+  feeDisplay?: string;
+  contractYears?: number;
+  announcedDate?: string;
+}
+
+export type TransferInterviewStance =
+  | 'confirm'
+  | 'deny'
+  | 'evasive'
+  | 'cautious'
+  | 'bold'
+  | 'praise_player'
+  | 'respect_club'
+  | 'criticize_media'
+  | 'no_comment';
+
+export interface SnsCommentAvatar {
+  emoji: string;
+  bgClass: string;
+}
+
 export interface SmartphoneNewsComment {
   id: string;
   author: string;
   handle: string;
-  sentiment: 'positive' | 'neutral' | 'critical';
+  avatar?: SnsCommentAvatar;
+  authorRole?: string;
+  sentiment: 'positive' | 'neutral' | 'critical' | 'mixed';
+  perspectiveLabel?: string;
+  replyToAuthor?: string;
   text: string;
   likes: number;
+  reposts?: number;
+  postedAt?: string;
+  wave?: number;
 }
 
 export interface SmartphoneNewsPost {
@@ -383,6 +458,85 @@ export interface SmartphoneNewsPost {
   relatedPlayerId?: string;
   isRead: boolean;
   comments: SmartphoneNewsComment[];
+  isTransferRumor?: boolean;
+  rumorId?: string;
+  rumorScenario?: TransferRumorScenario;
+  rumorCredibility?: RumorCredibilityLevel;
+  hasFormalOffer?: boolean;
+  transferStatusLabel?: TransferNewsStatusLabel;
+  transferEventKey?: string;
+  transferMeta?: TransferNewsMeta;
+  mediaSource?: string;
+  feeText?: string;
+  waveCount?: number;
+  lastWaveDate?: string;
+  managerStatement?: {
+    stance: TransferInterviewStance;
+    choiceLabel: string;
+    quote: string;
+    date: string;
+  };
+}
+
+export interface TransferRumor {
+  id: string;
+  createdDate: string;
+  lastUpdatedDate: string;
+  scenario: TransferRumorScenario;
+  playerId?: string;
+  playerName?: string;
+  fromClubId?: string;
+  toClubId?: string;
+  credibility: RumorCredibilityLevel;
+  hasFormalOffer: boolean;
+  transferStatusLabel?: TransferNewsStatusLabel;
+  mediaSource: string;
+  headline: string;
+  summary: string;
+  estimatedFee?: number;
+  competingClubNames?: string[];
+  heatScore: number;
+  status: 'rumor' | 'developing' | 'formal_talks' | 'completed' | 'collapsed' | 'debunked';
+  linkedNewsPostId: string;
+  managerRespondedStance?: TransferInterviewStance;
+  managerResponseQuote?: string;
+  managerResponseDate?: string;
+}
+
+export interface TransferInterviewChoice {
+  id: string;
+  label: string;
+  text: string;
+  stance: TransferInterviewStance;
+  trustDelta: number;
+  boardDelta: number;
+  fanApprovalDelta: number;
+  playerInterestDelta: number;
+  rivalPressureDelta: number;
+  effectSummary: string;
+}
+
+export interface TransferInterviewRequest {
+  id: string;
+  createdDate: string;
+  scenario: TransferRumorScenario;
+  scenarioLabel: string;
+  reporterRole: string;
+  mediaSource: string;
+  question: string;
+  contextSummary: string;
+  rumorId?: string;
+  linkedNewsPostId?: string;
+  relatedPlayerId?: string;
+  relatedPlayerName?: string;
+  hasFormalOffer: boolean;
+  credibility?: RumorCredibilityLevel;
+  choices: TransferInterviewChoice[];
+  status: 'pending' | 'answered' | 'dismissed';
+  chosenChoiceId?: string;
+  answerText?: string;
+  answeredDate?: string;
+  reactionHeadline?: string;
 }
 
 export interface SmartphoneEmailReplyOption {
@@ -1317,6 +1471,9 @@ export interface GameWorldState {
     trustDelta: number;
     boardDelta: number;
   }[];
+  transferRumors?: TransferRumor[];
+  transferInterviews?: TransferInterviewRequest[];
+  emittedTransferNewsKeys?: string[];
 }
 
 export interface ManagerJobOffer {

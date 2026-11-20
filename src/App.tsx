@@ -7,7 +7,8 @@ import {
   TeamTactics, 
   NewsItem, 
   YouthProspect,
-  Club
+  Club,
+  TransferInterviewRequest
 } from './types/game';
 import { 
   createNewGameWorld, 
@@ -49,8 +50,10 @@ import { BallonDorCeremonyModal } from './components/common/BallonDorCeremonyMod
 import { CalendarScheduleModal } from './components/common/CalendarScheduleModal';
 import { SmartphoneModal } from './components/SmartphoneModal';
 import { TeamHubModal } from './components/TeamHubModal';
+import { TransferInterviewModal } from './components/tabs/TransferInterviewModal';
 import { resolveUnexpectedEvent } from './engine/unexpectedEventsEngine';
 import { recordMatchSmartphoneUpdate } from './engine/smartphoneEngine';
+import { upsertTransferRumorAndPost } from './engine/socialRumorEngine';
 import { Bell, AlertCircle, CheckCircle, Database } from 'lucide-react';
 
 export default function App() {
@@ -69,6 +72,7 @@ export default function App() {
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
   const [showSmartphone, setShowSmartphone] = useState<boolean>(false);
   const [showTeamHub, setShowTeamHub] = useState<boolean>(false);
+  const [activeTransferInterview, setActiveTransferInterview] = useState<TransferInterviewRequest | null>(null);
 
   // Initialize or load existing career safely from authoritative IndexedDB
   useEffect(() => {
@@ -584,6 +588,10 @@ export default function App() {
             onSelectPreSeason={handleSelectPreSeason}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onOpenSmartphone={() => setShowSmartphone(true)}
+            onOpenTransferInterview={(interview, updatedState) => {
+              if (updatedState) setGameState(updatedState);
+              setActiveTransferInterview(interview);
+            }}
             onDismissPreSeasonBanner={(year) => {
               const next = { ...gameState, dismissedPreSeasonBannerYear: year };
               saveGameState(next);
@@ -706,11 +714,20 @@ export default function App() {
             const nextList = isNowIn ? [...currentList, pId] : currentList.filter(id => id !== pId);
             const target = gameState.players[pId];
             const updatedPlayers = target ? { ...gameState.players, [pId]: { ...target, isOnShortlist: isNowIn } } : gameState.players;
-            setGameState({
+            let nextState: GameWorldState = {
               ...gameState,
               shortlistPlayerIds: nextList,
               players: updatedPlayers
-            });
+            };
+            if (isNowIn && target && Math.random() < 0.45) {
+              nextState = upsertTransferRumorAndPost(nextState, {
+                scenario: 'shortlist_target',
+                player: updatedPlayers[pId],
+                otherClub: nextState.clubs[target.clubId] || null,
+                estimatedFee: target.marketValue
+              });
+            }
+            setGameState(nextState);
             if (inspectingPlayer.id === pId) {
               setInspectingPlayer(updatedPlayers[pId] || inspectingPlayer);
             }
@@ -742,12 +759,19 @@ export default function App() {
               },
               ...gameState.news
             ];
-            setGameState({
+            let nextState: GameWorldState = {
               ...gameState,
               declaredInterestPlayerIds: [...currentDeclared, pId],
               players: updatedPlayers,
               news: nextNews
+            };
+            nextState = upsertTransferRumorAndPost(nextState, {
+              scenario: 'linked_rumor',
+              player: updatedPlayers[pId],
+              otherClub: nextState.clubs[target.clubId] || null,
+              estimatedFee: target.marketValue
             });
+            setGameState(nextState);
             setInspectingPlayer(updatedPlayers[pId]);
           }}
           onToggleTransferList={handleToggleTransferList}
@@ -904,6 +928,19 @@ export default function App() {
           }}
           onInspectPlayer={(p) => setInspectingPlayer(p)}
           onClose={() => setShowTeamHub(false)}
+        />
+      )}
+
+      {/* TRANSFER INTERVIEW MODAL */}
+      {activeTransferInterview && gameState && (
+        <TransferInterviewModal
+          interview={activeTransferInterview}
+          state={gameState}
+          onUpdateState={(ns) => {
+            saveGameState(ns);
+            setGameState(ns);
+          }}
+          onClose={() => setActiveTransferInterview(null)}
         />
       )}
 

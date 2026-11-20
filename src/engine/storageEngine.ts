@@ -29,7 +29,7 @@ import { generatePreSeasonInvitations } from './preSeasonEngine';
 import { GROUP_B_TOURNAMENT_CLUBS, resolveEuropeanParticipantIds } from '../data/europeanCompetitionClubs2026';
 import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 export const CURRENT_ROSTER_DATA_VERSION = '2026_27_V8_VERIFIED_2026_11';
 export const APP_CODE_VERSION = '2026.2.6';
 export const DB_NAME = 'FootballManager2026_CareerDB';
@@ -461,6 +461,33 @@ export function migrateGameState(state: GameWorldState, oldVersion: number = 1):
         curYear
       );
     }
+  }
+
+  // 10. Schema V12: Preserve & normalize expanded SNS posts, transfer rumors, and transfer interviews without altering saves
+  if (!Array.isArray(migrated.transferRumors)) {
+    migrated.transferRumors = [];
+  }
+  if (!Array.isArray(migrated.transferInterviews)) {
+    migrated.transferInterviews = [];
+  }
+  if (!Array.isArray(migrated.emittedTransferNewsKeys)) {
+    migrated.emittedTransferNewsKeys = [];
+  }
+  if (migrated.smartphone && Array.isArray(migrated.smartphone.newsFeed)) {
+    migrated.smartphone = {
+      ...migrated.smartphone,
+      newsFeed: migrated.smartphone.newsFeed.map((post: any) => ({
+        ...post,
+        comments: Array.isArray(post.comments)
+          ? post.comments.map((cmt: any, idx: number) => ({
+              ...cmt,
+              avatar: cmt.avatar || { emoji: '💬', bgClass: 'bg-slate-700/40 text-slate-300' },
+              reposts: typeof cmt.reposts === 'number' ? cmt.reposts : Math.max(1, Math.round((cmt.likes || 10) * 0.14)),
+              postedAt: cmt.postedAt || `${(idx + 1) * 7}分後`
+            }))
+          : []
+      }))
+    };
   }
 
   migrated.schemaVersion = CURRENT_SCHEMA_VERSION;

@@ -18,6 +18,7 @@ import { evaluateDailyUnexpectedEvent } from './unexpectedEventsEngine';
 import { processSkillDeclineCheck, initializePlayerSkills } from './skillEngine';
 import { recalculateDynamicMarketValue, syncPlayerGkAttributes } from './valuationEngine';
 import { processDailySmartphoneEvents, recordMatchSmartphoneUpdate } from './smartphoneEngine';
+import { processDailyTransferRumorsAndWaves, upsertTransferRumorAndPost } from './socialRumorEngine';
 import { EUROPEAN_GROUP_A_SLOT_COUNTS } from '../data/europeanCompetitionClubs2026';
 import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 
@@ -875,6 +876,7 @@ export function advanceOneDay(
   // Daily Loan Expiration Check
   const userClubId = state.userClubId;
   const loanReturnNews: NewsItem[] = [];
+  const userLoanReturnEvents: Array<{ player: Player; isReturnToUser: boolean; otherClub: Club }> = [];
   Object.values(updatedPlayers).forEach(p => {
     if (p.isLoaned && p.loanEndDate && p.loanEndDate <= nextDate) {
       const parentClubId = p.loanFromClubId || p.parentClubId;
@@ -919,6 +921,14 @@ export function advanceOneDay(
           relatedPlayerId: p.id,
           importance: 'high'
         });
+
+        if (userClubId && (parentClub.id === userClubId || loanClub.id === userClubId)) {
+          userLoanReturnEvents.push({
+            player: { ...p },
+            isReturnToUser: parentClub.id === userClubId,
+            otherClub: parentClub.id === userClubId ? loanClub : parentClub
+          });
+        }
       }
     }
   });
@@ -937,6 +947,18 @@ export function advanceOneDay(
     state.news = [injuryNews, ...state.news];
   }
 
+  for (const ev of userLoanReturnEvents) {
+    state = upsertTransferRumorAndPost(state, {
+      scenario: ev.isReturnToUser ? 'loan_signing' : 'loan_departure',
+      player: ev.player,
+      otherClub: ev.otherClub,
+      estimatedFee: 0,
+      transferTypeLabel: ev.isReturnToUser ? 'レンタル復帰合流' : 'レンタル期間満了退団',
+      transferEventKey: `loan_ret:${ev.player.id}:${nextDate}`,
+      skipNewsFeedItem: true
+    });
+  }
+
   // Autonomous AI Transfers & Shortlist-Only Competing Offers
   state = simulateAITransfers(state);
   state = processShortlistCompetingOffers(state, nextDate);
@@ -945,6 +967,7 @@ export function advanceOneDay(
   const pendingTransfers = state.pendingTransfers || [];
   const remainingPending: PendingTransfer[] = [];
   const pendingExecutedNews: NewsItem[] = [];
+  const userPendingEvents: Array<{ player: Player; otherClub: Club | null; isIncoming: boolean; transfer: PendingTransfer }> = [];
 
   pendingTransfers.forEach(t => {
     if (nextDate >= t.joinDate) {
@@ -975,6 +998,16 @@ export function advanceOneDay(
           relatedPlayerId: p.id,
           importance: 'high'
         });
+
+        if (userClubId && (buyer.id === userClubId || seller?.id === userClubId)) {
+          const isIncoming = buyer.id === userClubId;
+          userPendingEvents.push({
+            player: { ...p },
+            otherClub: isIncoming ? (seller || null) : buyer,
+            isIncoming,
+            transfer: t
+          });
+        }
       }
     } else {
       remainingPending.push(t);
@@ -983,6 +1016,23 @@ export function advanceOneDay(
   state.pendingTransfers = remainingPending;
   if (pendingExecutedNews.length > 0) {
     state.news = [...pendingExecutedNews, ...state.news];
+  }
+  for (const pev of userPendingEvents) {
+    const isLoanT = pev.transfer.type.includes('loan');
+    state = upsertTransferRumorAndPost(state, {
+      scenario: pev.isIncoming
+        ? (isLoanT ? 'loan_signing' : 'official_signing')
+        : (isLoanT ? 'loan_departure' : 'official_departure'),
+      player: pev.player,
+      otherClub: pev.otherClub,
+      estimatedFee: pev.transfer.fee,
+      contractYears: pev.transfer.contractYears,
+      transferTypeLabel: pev.isIncoming ? '合意済み選手・正式加入' : '合意済み移籍・正式合流',
+      transferEventKey: `pending_join:${pev.player.id}:${nextDate}`,
+      skipNewsFeedItem: true,
+      forceCreateInterview: true,
+      isMajorStory: true
+    });
   }
 
   // Ballon d'Or November Event Check (Nominees in early Nov, Winner in late Nov)
@@ -1152,7 +1202,7 @@ export function advanceOneDay(
       : '【移籍市場最終日】夏の移籍ウィンドウのデッドラインデイを迎えました！';
   }
 
-  // Winter transfer window closure on Feb 1
+  // Winter & Summer transfer window closure notifications + SNS threads
   if (nextDate.endsWith('-02-01')) {
     state.news = [{
       id: `news_winter_window_close_${Date.now()}`,
@@ -1164,6 +1214,16 @@ export function advanceOneDay(
     }, ...state.news];
   }
 
+  if ((currentState.isTransferWindowOpen && !state.isTransferWindowOpen) || nextDate.endsWith('-02-01')) {
+    const isWinterPeriod = nextDate.slice(5, 7) <= '03';
+    state = upsertTransferRumorAndPost(state, {
+      scenario: 'window_closed',
+      transferEventKey: `window_closed:${state.season}:${isWinterPeriod ? 'winter' : 'summer'}`,
+      skipNewsFeedItem: nextDate.endsWith('-02-01'),
+      isMajorStory: true
+    });
+  }
+
     if (userSimulatedFixture) {
       state = recordMatchSmartphoneUpdate(state, userSimulatedFixture);
     }
@@ -1171,6 +1231,7 @@ export function advanceOneDay(
     // Smartphone daily events (manager/skill notifications silenced)
     void skillDeclineNotices;
     state = processDailySmartphoneEvents(state, nextDate);
+    state = processDailyTransferRumorsAndWaves(state, nextDate);
 
     // Unexpected Events System (Requirement 10: 「予期せぬ出来事」)
   if (!state.activeUnexpectedEvent) {
@@ -2081,9 +2142,24 @@ export function processSeasonEndPromotionsAndRelegations(
   const nextSeason = `${nextYear}/${String(nextYear + 1).slice(2)}`;
   const nextDate = `${nextYear}-07-01`;
 
-  // Requirement 3: Reset current season stats while preserving past season history for every player
+  // Requirement 3: Reset current season stats while preserving past season history & handle contract expiry safely
   const updatedPlayers: Record<string, Player> = {};
   const endingSeason = state.season;
+  const expiredPlayersForNews: Player[] = [];
+  const uClubId = state.userClubId;
+  const uClubObj = uClubId ? clubs[uClubId] : undefined;
+  let uRemainingCount = uClubObj ? uClubObj.playerIds.length : 0;
+  let uGkCount = uClubObj
+    ? uClubObj.playerIds.filter(id => state.players[id]?.position === 'GK').length
+    : 0;
+  let updatedSeasonTactics = state.tactics ? {
+    ...state.tactics,
+    lineup: {
+      starters: [...state.tactics.lineup.starters],
+      bench: [...state.tactics.lineup.bench],
+      reserves: [...state.tactics.lineup.reserves]
+    }
+  } : state.tactics;
 
   Object.entries(state.players).forEach(([pId, p]) => {
     const historyEntry: SeasonStatsHistory = {
@@ -2106,8 +2182,60 @@ export function processSeasonEndPromotionsAndRelegations(
       awards: []
     };
 
+    const nextContractYears = Math.max(0, (p.contractYears ?? 2) - 1);
+    const canExpireUserPlayer =
+      Boolean(uClubId && uClubObj) &&
+      p.clubId === uClubId &&
+      !p.isLoaned &&
+      !p.id.startsWith('youth_') &&
+      nextContractYears <= 0 &&
+      expiredPlayersForNews.length < 3 &&
+      uRemainingCount > 18 &&
+      (p.position !== 'GK' || uGkCount > 2);
+
+    let finalClubId = p.clubId;
+    let finalContractYears = nextContractYears > 0 ? nextContractYears : 1;
+    let finalSquadStatus = p.squadStatus;
+
+    if (canExpireUserPlayer && uClubObj) {
+      finalClubId = 'free_agent';
+      finalContractYears = 0;
+      finalSquadStatus = 'OUT_OF_SQUAD';
+      uRemainingCount -= 1;
+      if (p.position === 'GK') uGkCount -= 1;
+      uClubObj.playerIds = uClubObj.playerIds.filter(id => id !== pId);
+      uClubObj.currentWageSpend = Math.max(0, (uClubObj.currentWageSpend || 0) - (p.wage || 0));
+
+      if (updatedSeasonTactics) {
+        const sIdx = updatedSeasonTactics.lineup.starters.findIndex(s => s.playerId === pId);
+        if (sIdx !== -1) {
+          const slotPos = updatedSeasonTactics.lineup.starters[sIdx].position;
+          const replacementId =
+            updatedSeasonTactics.lineup.bench.find(id => id !== pId && state.players[id]?.position === slotPos)
+            || updatedSeasonTactics.lineup.reserves.find(id => id !== pId && state.players[id]?.position === slotPos)
+            || uClubObj.playerIds.find(id => !updatedSeasonTactics!.lineup.starters.some(s => s.playerId === id))
+            || '';
+          updatedSeasonTactics.lineup.starters[sIdx] = {
+            ...updatedSeasonTactics.lineup.starters[sIdx],
+            playerId: replacementId
+          };
+          if (replacementId) {
+            updatedSeasonTactics.lineup.bench = updatedSeasonTactics.lineup.bench.filter(id => id !== replacementId);
+            updatedSeasonTactics.lineup.reserves = updatedSeasonTactics.lineup.reserves.filter(id => id !== replacementId);
+          }
+        }
+        updatedSeasonTactics.lineup.bench = updatedSeasonTactics.lineup.bench.filter(id => id !== pId);
+        updatedSeasonTactics.lineup.reserves = updatedSeasonTactics.lineup.reserves.filter(id => id !== pId);
+      }
+    }
+
     updatedPlayers[pId] = {
       ...p,
+      clubId: finalClubId,
+      currentClubId: finalClubId,
+      contractYears: finalContractYears,
+      contractYearsRemaining: finalContractYears,
+      squadStatus: finalSquadStatus,
       age: p.age + 1,
       seasonHistory: [...(p.seasonHistory || []), historyEntry],
       stats: {
@@ -2138,6 +2266,10 @@ export function processSeasonEndPromotionsAndRelegations(
       },
       competitionStats: {}
     };
+
+    if (canExpireUserPlayer) {
+      expiredPlayersForNews.push(updatedPlayers[pId]);
+    }
   });
 
   // Regenerate season fixtures for the next season with updated league memberships and fresh randomized pre-season
@@ -2161,24 +2293,39 @@ export function processSeasonEndPromotionsAndRelegations(
       ? generatePreSeasonInvitations(clubs[state.userClubId], clubs, state.manager, nextYear)
       : undefined;
 
+  let rolledState: GameWorldState = {
+    ...state,
+    season: nextSeason,
+    currentDate: nextDate,
+    tactics: updatedSeasonTactics,
+    clubs,
+    players: updatedPlayers,
+    standings: updatedStandings,
+    europeanQualifications: resolvedEuroQual,
+    fixtures: [...playoffFixtures, ...nextFixtures],
+    tournaments: updatedTournaments,
+    selectedPreSeason: undefined, // Clears selection so new pre-season invitations show in July!
+    preSeasonTournament: undefined,
+    preSeasonInvitations: nextYearInvitations,
+    preSeasonHistory: state.preSeasonHistory || [],
+    clubVision: updatedVision,
+    news: [mainNews, ...transferListingNewsList, ...(state.news || [])]
+  };
+
+  for (const expPlayer of expiredPlayersForNews) {
+    rolledState = upsertTransferRumorAndPost(rolledState, {
+      scenario: 'contract_expired',
+      player: expPlayer,
+      otherClub: uClubId ? rolledState.clubs[uClubId] || null : null,
+      estimatedFee: 0,
+      transferTypeLabel: '契約満了・自由移籍',
+      transferEventKey: `contract_exp:${expPlayer.id}:${nextDate}`,
+      isMajorStory: true
+    });
+  }
+
   return {
-    state: {
-      ...state,
-      season: nextSeason,
-      currentDate: nextDate,
-      clubs,
-      players: updatedPlayers,
-      standings: updatedStandings,
-      europeanQualifications: resolvedEuroQual,
-      fixtures: [...playoffFixtures, ...nextFixtures],
-      tournaments: updatedTournaments,
-      selectedPreSeason: undefined, // Clears selection so new pre-season invitations show in July!
-      preSeasonTournament: undefined,
-      preSeasonInvitations: nextYearInvitations,
-      preSeasonHistory: state.preSeasonHistory || [],
-      clubVision: updatedVision,
-      news: [mainNews, ...transferListingNewsList, ...(state.news || [])]
-    },
+    state: rolledState,
     news: mainNews
   };
 }
@@ -2751,8 +2898,16 @@ export function advanceDeadlineHours(
       category: 'transfer',
       importance: 'high'
     });
+    const isWinterDeadline = state.currentDate.slice(5, 7) <= '03';
+    state.news = news.slice(0, 100);
+    state = upsertTransferRumorAndPost(state, {
+      scenario: 'window_closed',
+      transferEventKey: `window_closed:${state.season}:${isWinterDeadline ? 'winter' : 'summer'}`,
+      skipNewsFeedItem: true,
+      isMajorStory: true
+    });
   }
-  state.news = news.slice(0, 100);
+  state.news = state.news.slice(0, 100);
 
   return {
     updatedState: state,

@@ -28,7 +28,9 @@ import {
   Home,
   Mail,
   MessageSquare,
+  Mic,
   Newspaper,
+  Repeat2,
   Send,
   Shield,
   ThumbsUp,
@@ -37,6 +39,8 @@ import {
   Users,
   X
 } from 'lucide-react';
+import { ensureTransferPolicyInterview, getPendingTransferInterviews } from '../engine/interviewEngine';
+import { resolveTransferInterview } from '../engine/socialRumorEngine';
 
 type SmartphoneAppId =
   | 'launcher'
@@ -47,7 +51,8 @@ type SmartphoneAppId =
   | 'front_office'
   | 'notifications'
   | 'transfers'
-  | 'matches';
+  | 'matches'
+  | 'interviews';
 
 interface Props {
   state: GameWorldState;
@@ -127,6 +132,10 @@ export const SmartphoneModal: React.FC<Props> = ({
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [likedCommentIds, setLikedCommentIds] = useState<Record<string, boolean>>({});
+  const [repostedCommentIds, setRepostedCommentIds] = useState<Record<string, boolean>>({});
+  const [newsCategoryFilter, setNewsCategoryFilter] = useState<'all' | 'rumor' | 'match'>('all');
+  const [snsFilter, setSnsFilter] = useState<'all' | 'positive' | 'critical' | 'analysis' | 'banter'>('all');
+  const [selectedInterviewId, setSelectedInterviewId] = useState<string | null>(null);
   const [foInput, setFoInput] = useState<string>('');
   const [isSendingFo, setIsSendingFo] = useState<boolean>(false);
   const [actionBanner, setActionBanner] = useState<string | null>(null);
@@ -357,6 +366,37 @@ export const SmartphoneModal: React.FC<Props> = ({
     });
   };
 
+  const handleToggleRepostComment = (postId: string, commentId: string) => {
+    const key = `${postId}_${commentId}`;
+    const already = !!repostedCommentIds[key];
+    setRepostedCommentIds(prev => ({ ...prev, [key]: !already }));
+    const updatedPosts = sp.newsFeed.map(post => {
+      if (post.id !== postId) return post;
+      return {
+        ...post,
+        comments: post.comments.map(c =>
+          c.id === commentId
+            ? { ...c, reposts: Math.max(0, (c.reposts ?? 0) + (already ? -1 : 1)) }
+            : c
+        )
+      };
+    });
+    onUpdateState({
+      ...safeState,
+      smartphone: {
+        ...sp,
+        newsFeed: updatedPosts
+      }
+    });
+  };
+
+  const handleAnswerTransferInterview = (interviewId: string, choiceId: string) => {
+    const res = resolveTransferInterview(safeState, interviewId, choiceId);
+    onUpdateState(res.updatedState);
+    setActionBanner(`取材回答を公開しました（${res.effectSummary}）`);
+    setTimeout(() => setActionBanner(null), 4000);
+  };
+
   const handleReplyPlayerEmail = (emailId: string, optionId: string) => {
     const next = respondToPlayerEmail(safeState, emailId, optionId);
     onUpdateState(next);
@@ -570,6 +610,8 @@ export const SmartphoneModal: React.FC<Props> = ({
                       setSelectedPostId(null);
                     } else if (selectedEmailId) {
                       setSelectedEmailId(null);
+                    } else if (selectedInterviewId) {
+                      setSelectedInterviewId(null);
                     } else {
                       setActiveApp('launcher');
                     }
@@ -629,6 +671,30 @@ export const SmartphoneModal: React.FC<Props> = ({
                   <span>移籍予算 €{((userClub?.transferBudget || 0) / 1000000).toFixed(1)}M</span>
                   <span>監督オファー {pendingJobOffers.length}件</span>
                 </div>
+                {(() => {
+                  const pendingIntCount = getPendingTransferInterviews(safeState).length;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (pendingIntCount === 0) {
+                          onUpdateState(ensureTransferPolicyInterview(safeState));
+                        }
+                        setSelectedInterviewId(null);
+                        setActiveApp('interviews');
+                      }}
+                      className="w-full mt-1.5 min-h-[38px] px-3 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-sky-500/35 flex items-center justify-between text-[11px] text-sky-300 font-bold cursor-pointer transition-colors"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>移籍メディア取材ルーム</span>
+                      </span>
+                      <span className="font-mono text-emerald-400 tabular-nums">
+                        {pendingIntCount > 0 ? `待機 ${pendingIntCount}件 →` : '開く →'}
+                      </span>
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* App Grid (All buttons >= 44px) */}
@@ -744,35 +810,128 @@ export const SmartphoneModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* APP 1: NEWS + みんなの反応 */}
+          {/* APP 1: NEWS + みんなの反応・移籍SNS */}
           {activeApp === 'news' && !selectedPost && (
-            <div className="space-y-2.5">
-              <div className="text-xs font-bold text-white flex items-center justify-between">
-                <span>サッカーニュース・試合反響</span>
-                <span className="text-[10px] text-slate-400 font-mono">{sp.newsFeed.length}件</span>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-white">ニュース・移籍SNSタイムライン</span>
+                <span className="text-[10px] text-slate-400 font-mono tabular-nums">{sp.newsFeed.length}件</span>
               </div>
-              {sp.newsFeed.map(post => (
-                <button
-                  key={post.id}
-                  type="button"
-                  onClick={() => markNewsRead(post.id)}
-                  className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer space-y-1.5 ${
-                    post.isRead
-                      ? 'bg-slate-900/70 border-slate-800'
-                      : 'bg-slate-900 border-sky-500/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-[10px] font-mono">
-                    <span className="text-sky-400 uppercase font-bold">{post.category}</span>
-                    <span className="text-slate-400 tabular-nums">{post.date}</span>
-                  </div>
-                  <div className="text-xs font-bold text-white leading-snug">{post.title}</div>
-                  <p className="text-[11px] text-slate-400 line-clamp-2">{post.summary}</p>
-                  <div className="text-[10px] text-emerald-400 font-semibold">
-                    💬 みんなの反応 {post.comments.length}件を見る →
-                  </div>
-                </button>
-              ))}
+
+              {/* Quick Interview Bar */}
+              {(() => {
+                const pendingInts = getPendingTransferInterviews(safeState);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (pendingInts.length === 0) {
+                        const ensured = ensureTransferPolicyInterview(safeState);
+                        onUpdateState(ensured);
+                      }
+                      setActiveApp('interviews');
+                    }}
+                    className="w-full min-h-[44px] px-3 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-sky-500/40 flex items-center justify-between text-xs cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2 font-bold text-sky-300">
+                      <Mic className="w-4 h-4 shrink-0" />
+                      <span>移籍報道・監督インタビュー対応</span>
+                    </span>
+                    <span className="font-mono text-[11px] text-emerald-400 font-bold tabular-nums">
+                      {pendingInts.length > 0 ? `待機 ${pendingInts.length}件 →` : '補強方針を語る →'}
+                    </span>
+                  </button>
+                );
+              })()}
+
+              {/* Category Filter */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'all' as const, label: 'すべて' },
+                  { id: 'rumor' as const, label: '移籍の噂・決定' },
+                  { id: 'match' as const, label: '試合・クラブ' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setNewsCategoryFilter(tab.id)}
+                    className={`min-h-[38px] rounded-xl text-[11px] font-bold border cursor-pointer transition-colors ${
+                      newsCategoryFilter === tab.id
+                        ? 'bg-sky-500/20 border-sky-400/60 text-sky-200'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {sp.newsFeed
+                .filter(post => {
+                  if (newsCategoryFilter === 'rumor') return Boolean(post.isTransferRumor || post.category === 'transfer');
+                  if (newsCategoryFilter === 'match') return post.category !== 'transfer' && !post.isTransferRumor;
+                  return true;
+                })
+                .map(post => {
+                  const credColor =
+                    post.rumorCredibility === '非常に高い'
+                      ? 'text-emerald-400'
+                      : post.rumorCredibility === '高い'
+                        ? 'text-sky-400'
+                        : post.rumorCredibility === '普通'
+                          ? 'text-amber-300'
+                          : 'text-rose-400';
+                  return (
+                    <button
+                      key={post.id}
+                      type="button"
+                      onClick={() => {
+                        setSnsFilter('all');
+                        markNewsRead(post.id);
+                      }}
+                      className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer space-y-1.5 ${
+                        post.isRead
+                          ? 'bg-slate-900/70 border-slate-800'
+                          : 'bg-slate-900 border-sky-500/40'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono">
+                        <span className="text-sky-400 uppercase font-bold">
+                          {post.isTransferRumor ? '移籍SNS' : post.category}
+                          {post.mediaSource ? ` · ${post.mediaSource}` : ''}
+                        </span>
+                        <span className="text-slate-400 tabular-nums">{post.date}</span>
+                      </div>
+                      <div className="text-xs font-bold text-white leading-snug">{post.title}</div>
+                      <p className="text-[11px] text-slate-400 line-clamp-2">{post.summary}</p>
+                      {post.isTransferRumor && (
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono pt-0.5">
+                          <span className={
+                            post.transferStatusLabel === '移籍成立' || post.transferStatusLabel === '契約延長'
+                              ? 'text-emerald-400 font-bold'
+                              : post.transferStatusLabel === '移籍不成立' || post.transferStatusLabel === '退団決定' || post.transferStatusLabel === '契約満了'
+                                ? 'text-rose-400 font-bold'
+                                : post.hasFormalOffer
+                                  ? 'text-emerald-400 font-bold'
+                                  : 'text-amber-300'
+                          }>
+                            {post.transferStatusLabel || (post.hasFormalOffer ? '正式オファーあり' : '関心・噂段階')}
+                          </span>
+                          {post.rumorCredibility && (
+                            <>
+                              <span className="text-slate-600">·</span>
+                              <span className={`font-bold ${credColor}`}>信頼度: {post.rumorCredibility}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-emerald-400 font-semibold flex items-center justify-between">
+                        <span>💬 SNS反応 {post.comments.length}件を見る →</span>
+                        {post.managerStatement && <span className="text-sky-300">🎤 監督コメント反映済</span>}
+                      </div>
+                    </button>
+                  );
+                })}
             </div>
           )}
 
@@ -780,48 +939,281 @@ export const SmartphoneModal: React.FC<Props> = ({
             <div className="space-y-3">
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                  <span className="text-sky-400 uppercase font-bold">{selectedPost.category}</span>
+                  <span className="text-sky-400 uppercase font-bold">
+                    {selectedPost.isTransferRumor ? '移籍SNS報道' : selectedPost.category}
+                    {selectedPost.mediaSource ? ` · ${selectedPost.mediaSource}` : ''}
+                  </span>
                   <span className="tabular-nums">{selectedPost.date}</span>
                 </div>
                 <h4 className="text-sm font-bold text-white leading-snug">{selectedPost.title}</h4>
                 <p className="text-xs text-slate-300 leading-relaxed">{selectedPost.summary}</p>
+                {selectedPost.isTransferRumor && (
+                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px] font-mono">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={selectedPost.hasFormalOffer || selectedPost.transferStatusLabel === '移籍成立' ? 'text-emerald-400 font-bold' : 'text-amber-300 font-semibold'}>
+                        状態: {selectedPost.transferStatusLabel || (selectedPost.hasFormalOffer ? '正式オファー／クラブ間協議あり' : '正式オファーなし（関心・検討段階）')}
+                      </span>
+                      {selectedPost.rumorCredibility && (
+                        <>
+                          <span className="text-slate-600">·</span>
+                          <span className="text-slate-200 font-bold">信頼度: {selectedPost.rumorCredibility}</span>
+                        </>
+                      )}
+                    </div>
+                    {selectedPost.transferMeta && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+                        {selectedPost.transferMeta.fromClubName && selectedPost.transferMeta.toClubName && (
+                          <span>
+                            {selectedPost.transferMeta.fromClubName} → <span className="text-slate-200 font-semibold">{selectedPost.transferMeta.toClubName}</span>
+                          </span>
+                        )}
+                        {selectedPost.transferMeta.transferTypeLabel && (
+                          <span>· {selectedPost.transferMeta.transferTypeLabel}</span>
+                        )}
+                        {selectedPost.transferMeta.feeDisplay && (
+                          <span className="text-emerald-300 font-semibold">· {selectedPost.transferMeta.feeDisplay}</span>
+                        )}
+                        {selectedPost.transferMeta.contractYears !== undefined && (
+                          <span>· {selectedPost.transferMeta.contractYears}年契約</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selectedPost.managerStatement && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-sky-950/40 border border-sky-500/35 space-y-1 text-xs">
+                    <div className="text-[10px] font-bold text-sky-300">
+                      🎤 {safeState.manager.name}監督の公式コメント（{selectedPost.managerStatement.date}）
+                    </div>
+                    <p className="text-slate-200 leading-relaxed">「{selectedPost.managerStatement.quote}」</p>
+                  </div>
+                )}
+                {(() => {
+                  const linkedInt = (safeState.transferInterviews || []).find(
+                    i =>
+                      i.status === 'pending' &&
+                      (i.linkedNewsPostId === selectedPost.id ||
+                        (selectedPost.relatedPlayerId && i.relatedPlayerId === selectedPost.relatedPlayerId))
+                  );
+                  if (!linkedInt) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedInterviewId(linkedInt.id);
+                        setActiveApp('interviews');
+                      }}
+                      className="w-full min-h-[44px] mt-1 px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Mic className="w-4 h-4" />
+                      <span>この報道についての記者インタビューに回答する</span>
+                    </button>
+                  );
+                })()}
+              </div>
+
+              {/* SNS Perspective Filter */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[10px]">
+                {[
+                  { id: 'all' as const, label: `すべて (${selectedPost.comments.length})` },
+                  { id: 'positive' as const, label: '肯定・期待' },
+                  { id: 'critical' as const, label: '批判・疑問' },
+                  { id: 'analysis' as const, label: '戦術・経営' },
+                  { id: 'banter' as const, label: 'ネタ・他サポ' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setSnsFilter(f.id)}
+                    className={`min-h-[44px] px-2.5 rounded-lg border font-bold whitespace-nowrap cursor-pointer ${
+                      snsFilter === f.id
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
               </div>
 
               <div className="space-y-2">
-                <div className="text-xs font-bold text-slate-300 px-1">
-                  💬 みんなの反応（試合結果・内容連動コメント）
+                <div className="text-xs font-bold text-slate-300 px-1 flex items-center justify-between">
+                  <span>💬 SNSのみんなの反応</span>
+                  <span className="text-[10px] font-mono text-slate-400 tabular-nums">{selectedPost.comments.length}件投稿</span>
                 </div>
-                {selectedPost.comments.map(cmt => {
-                  const likeKey = `${selectedPost.id}_${cmt.id}`;
-                  const isLiked = !!likedCommentIds[likeKey];
-                  const sentimentBadge =
-                    cmt.sentiment === 'positive'
-                      ? 'text-emerald-400'
-                      : cmt.sentiment === 'critical'
-                        ? 'text-rose-400'
-                        : 'text-slate-400';
-                  return (
-                    <div key={cmt.id} className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <div className="font-bold text-white">
-                          {cmt.author} <span className={`font-mono font-normal ${sentimentBadge}`}>{cmt.handle}</span>
+                {selectedPost.comments
+                  .filter(cmt => {
+                    if (snsFilter === 'all') return true;
+                    const p = cmt.perspectiveLabel || '';
+                    const r = cmt.authorRole || '';
+                    if (snsFilter === 'positive') return cmt.sentiment === 'positive';
+                    if (snsFilter === 'critical') return cmt.sentiment === 'critical' || p.includes('批判') || p.includes('疑問') || p.includes('懐疑') || p.includes('反対') || p.includes('懸念');
+                    if (snsFilter === 'analysis') return p.includes('戦術') || p.includes('経営') || p.includes('財務') || p.includes('移籍金') || p.includes('若手') || p.includes('分析') || r.includes('戦術') || r.includes('財務') || r.includes('育成');
+                    if (snsFilter === 'banter') return p.includes('皮肉') || p.includes('ジョーク') || p.includes('ユーモア') || p.includes('ライバル') || p.includes('他クラブ') || p.includes('他サポ') || r.includes('ネタ') || r.includes('皮肉') || r.includes('ライバル');
+                    return true;
+                  })
+                  .map(cmt => {
+                    const key = `${selectedPost.id}_${cmt.id}`;
+                    const isLiked = !!likedCommentIds[key];
+                    const isReposted = !!repostedCommentIds[key];
+                    const roleColor =
+                      cmt.sentiment === 'positive'
+                        ? 'text-emerald-400'
+                        : cmt.sentiment === 'critical'
+                          ? 'text-rose-400'
+                          : cmt.sentiment === 'mixed'
+                            ? 'text-amber-300'
+                            : 'text-sky-400';
+                    return (
+                      <div key={cmt.id} className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+                        <div className="flex items-start justify-between gap-2 text-[11px]">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0 ${cmt.avatar?.bgClass || 'bg-slate-800 text-slate-300'}`}>
+                              {cmt.avatar?.emoji || '💬'}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-white truncate">{cmt.author}</div>
+                              <div className="text-[10px] text-slate-400 font-mono truncate">
+                                {cmt.handle} · {cmt.authorRole || 'サポ'} · {cmt.postedAt || '数分後'}
+                              </div>
+                            </div>
+                          </div>
+                          <span className={`text-[10px] font-bold shrink-0 ${roleColor}`}>
+                            {cmt.perspectiveLabel || cmt.authorRole || 'サポ反応'}
+                          </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleLikeComment(selectedPost.id, cmt.id)}
-                          className={`min-h-[32px] px-2 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1 cursor-pointer transition-colors ${
-                            isLiked ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : 'bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          <Heart className="w-3 h-3" />
-                          <span className="tabular-nums">{cmt.likes}</span>
-                        </button>
+                        {cmt.replyToAuthor && (
+                          <div className="text-[10px] text-sky-400 font-mono">
+                            返信先: {cmt.replyToAuthor}
+                          </div>
+                        )}
+                        <p className="text-xs text-slate-200 leading-relaxed">{cmt.text}</p>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleLikeComment(selectedPost.id, cmt.id)}
+                            className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1 cursor-pointer transition-colors ${
+                              isLiked ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <Heart className="w-3 h-3" />
+                            <span className="tabular-nums">{cmt.likes}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRepostComment(selectedPost.id, cmt.id)}
+                            className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1 cursor-pointer transition-colors ${
+                              isReposted ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <Repeat2 className="w-3 h-3" />
+                            <span className="tabular-nums">{cmt.reposts ?? 0}</span>
+                          </button>
+                          {cmt.wave && cmt.wave > 1 && (
+                            <span className="text-[10px] text-sky-400 font-semibold ml-auto">続報・会見後</span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-300 leading-relaxed">{cmt.text}</p>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
+            </div>
+          )}
+
+          {/* APP 9: TRANSFER INTERVIEWS */}
+          {activeApp === 'interviews' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Mic className="w-4 h-4 text-sky-400" />
+                  <span>移籍報道・監督インタビュー</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedInterviewId(null);
+                    setActiveApp('news');
+                  }}
+                  className="text-[11px] text-sky-400 font-bold cursor-pointer"
+                >
+                  SNSニュースへ →
+                </button>
+              </div>
+
+              {(safeState.transferInterviews || []).length === 0 ? (
+                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-3">
+                  <p className="text-xs text-slate-400">現在待機中の移籍関連メディア取材はありません。</p>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateState(ensureTransferPolicyInterview(safeState))}
+                    className="min-h-[44px] px-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer"
+                  >
+                    補強方針の囲み取材を受ける
+                  </button>
+                </div>
+              ) : (
+                (safeState.transferInterviews || [])
+                  .filter(inv => !selectedInterviewId || inv.id === selectedInterviewId)
+                  .slice(0, 8)
+                  .map(inv => (
+                    <div key={inv.id} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                        <span className="text-sky-400 font-bold">{inv.mediaSource} · {inv.scenarioLabel}</span>
+                        <span className="tabular-nums">{inv.createdDate}</span>
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-400">
+                        <span className={inv.hasFormalOffer ? 'text-emerald-400 font-bold' : 'text-amber-300'}>
+                          {inv.hasFormalOffer ? '正式オファー確認済' : '噂・関心段階'}
+                        </span>
+                        {inv.credibility ? ` · 信頼度: ${inv.credibility}` : ''}
+                      </div>
+                      <p className="text-xs font-bold text-white leading-relaxed">「{inv.question}」</p>
+
+                      {inv.status === 'pending' ? (
+                        <div className="space-y-1.5 pt-1">
+                          {inv.choices.map(ch => (
+                            <button
+                              key={ch.id}
+                              type="button"
+                              onClick={() => handleAnswerTransferInterview(inv.id, ch.id)}
+                              className="w-full text-left min-h-[44px] p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 transition-colors cursor-pointer space-y-0.5"
+                            >
+                              <div className="text-[11px] font-bold text-emerald-300">{ch.label}</div>
+                              <div className="text-[11px] text-slate-300 leading-snug">{ch.text}</div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-[11px] space-y-1">
+                          <div className="text-emerald-300 font-bold">✓ 回答済み ({inv.answeredDate})</div>
+                          <div className="text-slate-200">「{inv.answerText}」</div>
+                          {inv.linkedNewsPostId && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedInterviewId(null);
+                                setActiveApp('news');
+                                markNewsRead(inv.linkedNewsPostId!);
+                              }}
+                              className="text-sky-400 font-bold text-[10px] pt-1 cursor-pointer"
+                            >
+                              連動したSNS反応を見る →
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))
+              )}
+              {selectedInterviewId && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedInterviewId(null)}
+                  className="w-full min-h-[40px] rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 font-bold cursor-pointer"
+                >
+                  すべての取材リストを表示
+                </button>
+              )}
             </div>
           )}
 

@@ -16,6 +16,7 @@
 
 import { GameWorldState, ScoutProspect, Player, Position, PlayStyle, PlayerPersonality, NewsItem } from '../types/game';
 import { recalculateDynamicMarketValue } from './valuationEngine';
+import { upsertTransferRumorAndPost } from './socialRumorEngine';
 
 export interface ScoutRegion {
   id: string;
@@ -438,13 +439,26 @@ export function signScoutedProspect(
     signedPlayerId: newPlayer.id
   };
 
-  const updatedState: GameWorldState = {
+  let updatedState: GameWorldState = {
     ...state,
     players: updatedPlayers,
     clubs: updatedClubs,
     news: updatedNews,
     scoutMonthlyState: updatedScoutState
   };
+
+  updatedState = upsertTransferRumorAndPost(updatedState, {
+    scenario: 'official_signing',
+    player: newPlayer,
+    otherClub: null,
+    estimatedFee: 0,
+    contractYears: newPlayer.contractYears,
+    transferTypeLabel: asType2 ? '2種登録契約' : 'スカウト発掘・プロ契約',
+    transferEventKey: `scout_sign:${newPlayer.id}:${state.currentDate}`,
+    skipNewsFeedItem: true,
+    forceCreateInterview: Boolean(prospect.isGenerationalTalent),
+    isMajorStory: true
+  });
 
   return { updatedState, signedPlayer: newPlayer, newsItem };
 }

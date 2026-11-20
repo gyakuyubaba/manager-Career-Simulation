@@ -11,6 +11,7 @@ import {
   finalizeAgreedTransfer,
   withdrawNegotiation
 } from '../../engine/transferEngine';
+import { upsertTransferRumorAndPost } from '../../engine/socialRumorEngine';
 import { 
   Search, 
   CheckCircle, 
@@ -164,11 +165,20 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     const updatedPlayers = target
       ? { ...state.players, [playerId]: { ...target, isOnShortlist: !isCurrentlyIn } }
       : state.players;
-    onUpdateState({
+    let nextState: GameWorldState = {
       ...state,
       shortlistPlayerIds: nextList,
       players: updatedPlayers
-    });
+    };
+    if (!isCurrentlyIn && target && Math.random() < 0.45) {
+      nextState = upsertTransferRumorAndPost(nextState, {
+        scenario: 'shortlist_target',
+        player: updatedPlayers[playerId],
+        otherClub: nextState.clubs[target.clubId] || null,
+        estimatedFee: target.marketValue
+      });
+    }
+    onUpdateState(nextState);
   };
 
   const getCooldownDays = (playerId: string): number => {
@@ -514,10 +524,53 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
               ]
       };
       setActiveNegotiation(updatedWithPlayerStage);
-      persistNegotiationInState(updatedWithPlayerStage);
+      let nextState: GameWorldState = {
+        ...state,
+        negotiations: {
+          ...(state.negotiations || {}),
+          [updatedWithPlayerStage.playerId]: updatedWithPlayerStage
+        }
+      };
+      const isHighFee = bidFee >= 45000000 || bidFee >= targetPlayer.marketValue * 1.25;
+      nextState = upsertTransferRumorAndPost(nextState, {
+        scenario: isHighFee ? 'high_transfer_fee' : 'club_agreed',
+        player: targetPlayer,
+        otherClub: sellerClub,
+        estimatedFee: bidFee,
+        exactStatusLabel: 'クラブ間合意',
+        transferEventKey: `club_agreed:${targetPlayer.id}:${state.currentDate}`,
+        isMajorStory: true
+      });
+      onUpdateState(nextState);
     } else {
       setActiveNegotiation(res.updatedNegotiation);
-      persistNegotiationInState(res.updatedNegotiation);
+      let nextState: GameWorldState = {
+        ...state,
+        negotiations: {
+          ...(state.negotiations || {}),
+          [res.updatedNegotiation.playerId]: res.updatedNegotiation
+        }
+      };
+      if (res.isCollapsed) {
+        nextState = upsertTransferRumorAndPost(nextState, {
+          scenario: 'failed_transfer',
+          player: targetPlayer,
+          otherClub: sellerClub,
+          estimatedFee: bidFee,
+          transferEventKey: `club_collapsed:${targetPlayer.id}:${state.currentDate}`,
+          forceCreateInterview: true,
+          isMajorStory: true
+        });
+      } else {
+        nextState = upsertTransferRumorAndPost(nextState, {
+          scenario: 'negotiation_started',
+          player: targetPlayer,
+          otherClub: sellerClub,
+          estimatedFee: bidFee,
+          transferEventKey: `neg_start:${targetPlayer.id}:${state.currentDate}`
+        });
+      }
+      onUpdateState(nextState);
     }
   };
 
@@ -554,14 +607,43 @@ export const TransferMarketTab: React.FC<Props> = ({ state, onUpdateState, onSel
     };
 
     setActiveNegotiation(nextNegotiation);
-    persistNegotiationInState(nextNegotiation);
+    let nextState: GameWorldState = {
+      ...state,
+      negotiations: {
+        ...(state.negotiations || {}),
+        [nextNegotiation.playerId]: nextNegotiation
+      }
+    };
 
     if (res.isTermsAgreed) {
+      nextState = upsertTransferRumorAndPost(nextState, {
+        scenario: 'terms_agreed',
+        player: targetPlayer,
+        otherClub: state.clubs[targetPlayer.clubId] || null,
+        estimatedFee: nextNegotiation.currentBidFee,
+        contractYears,
+        transferTypeLabel: nextNegotiation.isLoan ? 'レンタル個人合意' : '個人条件合意',
+        transferEventKey: `terms_agreed:${targetPlayer.id}:${state.currentDate}`,
+        forceCreateInterview: true,
+        isMajorStory: true
+      });
       setActionFeedback({
         type: 'info',
         message: `${targetPlayer.name}と個人条件に合意しました。内容を確認し「契約を最終確定する」を押すと入団が確定します。`
       });
+    } else if (res.isCollapsed) {
+      nextState = upsertTransferRumorAndPost(nextState, {
+        scenario: 'failed_transfer',
+        player: targetPlayer,
+        otherClub: state.clubs[targetPlayer.clubId] || null,
+        estimatedFee: nextNegotiation.currentBidFee,
+        transferEventKey: `player_collapsed:${targetPlayer.id}:${state.currentDate}`,
+        forceCreateInterview: true,
+        isMajorStory: true
+      });
     }
+
+    onUpdateState(nextState);
   };
 
   const handleFinalizeNegotiation = (playerId: string, chosenTiming?: 'immediate' | 'next_window' | 'next_season') => {

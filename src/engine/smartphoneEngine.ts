@@ -13,6 +13,7 @@ import {
   SmartphoneState
 } from '../types/game';
 import { getDefaultTacticsForClub } from '../data/squadPopulator';
+import { generateDiverseSnsComments } from './socialRumorEngine';
 
 const LEAGUE_LABELS: Record<string, string> = {
   'j1-league': '明治安田J1リーグ',
@@ -35,9 +36,82 @@ const LEAGUE_LABELS: Record<string, string> = {
 };
 
 export function ensureSmartphoneState(state: GameWorldState): GameWorldState {
-  if (state.smartphone) return state;
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
   const initialDate = state.currentDate || '2026-07-01';
+
+  if (state.smartphone) {
+    const existingFeed = state.smartphone.newsFeed || [];
+    const needsStarterUpgrade =
+      userClub &&
+      existingFeed.some(
+        p => p.id.startsWith('sp_news_init_') && (!p.relatedClubId || p.comments.length < 10)
+      );
+
+    if (!needsStarterUpgrade) return state;
+
+    const upgradedComments = generateDiverseSnsComments(
+      {
+        kind: 'club_intro',
+        userClub,
+        managerName: state.manager.name,
+        date: initialDate,
+        state
+      },
+      `init_${userClub.id}_${initialDate}`,
+      14
+    );
+
+    const upgradedFeed = existingFeed.map(p =>
+      p.id.startsWith('sp_news_init_') && (!p.relatedClubId || p.comments.length < 10)
+        ? {
+            ...p,
+            title: `【新体制始動】${userClub.name}が${state.manager.name}監督の下で2026/27シーズンへ`,
+            summary: `${userClub.name}は${state.manager.name}監督を新指揮官に迎え、目標「${userClub.target}」の達成に向けてチーム始動を迎えました。`,
+            relatedClubId: userClub.id,
+            comments: upgradedComments
+          }
+        : p
+    );
+
+    const hasWelcomeMail = state.smartphone.emails.some(e => e.id.startsWith('sp_mail_welcome_'));
+    const upgradedEmails = hasWelcomeMail
+      ? state.smartphone.emails
+      : [
+          {
+            id: `sp_mail_welcome_${initialDate}`,
+            date: initialDate,
+            senderType: 'front_office' as const,
+            senderName: `${userClub.shortName} 強化部・フロント`,
+            senderRole: 'スポーティングディレクター',
+            subject: `${state.manager.name}監督への就任ご挨拶と今季方針`,
+            body: `${state.manager.name}監督、改めまして${userClub.name}へようこそ。今季のクラブ目標は「${userClub.target}」、移籍予算は€${(userClub.transferBudget / 1000000).toFixed(1)}Mとなっております。補強方針や放出リストのご相談があればいつでもスマホの「フロントとの連絡」からお送りください。`,
+            isRead: false,
+            isReplied: false
+          },
+          ...state.smartphone.emails
+        ];
+
+    return {
+      ...state,
+      smartphone: {
+        ...state.smartphone,
+        newsFeed: upgradedFeed,
+        emails: upgradedEmails
+      }
+    };
+  }
+
+  const starterComments = generateDiverseSnsComments(
+    {
+      kind: 'club_intro',
+      userClub,
+      managerName: state.manager.name,
+      date: initialDate,
+      state
+    },
+    `init_${userClub ? userClub.id : 'world'}_${initialDate}`,
+    14
+  );
 
   const starterNews: SmartphoneNewsPost[] = [
     {
@@ -52,24 +126,7 @@ export function ensureSmartphoneState(state: GameWorldState): GameWorldState {
       category: 'club',
       relatedClubId: userClub?.id,
       isRead: false,
-      comments: [
-        {
-          id: 'c_init_1',
-          author: 'ゴール裏の古参サポ',
-          handle: '@supporter_ultras',
-          sentiment: 'positive',
-          text: `${userClub ? userClub.shortName : 'クラブ'}の新監督に期待！${userClub ? userClub.target : '上位進出'}に向けてしっかり応援していく。`,
-          likes: 128
-        },
-        {
-          id: 'c_init_2',
-          author: 'タクティクス分析垢',
-          handle: '@tactics_lab_jp',
-          sentiment: 'neutral',
-          text: `まずは選手たちのコンディションとスキル適性を見極めつつ、最適なメンバーを組めるかが鍵になりそう。`,
-          likes: 64
-        }
-      ]
+      comments: starterComments
     }
   ];
 
@@ -154,112 +211,27 @@ function buildFactCheckedMatchComments(
   userClub: Club,
   oppClub: Club,
   isUserHome: boolean,
-  players: Record<string, Player>
+  players: Record<string, Player>,
+  managerName: string = '監督',
+  boardConfidence: number = 75,
+  consecutiveLosses: number = 0,
+  state?: GameWorldState
 ): SmartphoneNewsComment[] {
-  const homeScore = fixture.homeScore ?? 0;
-  const awayScore = fixture.awayScore ?? 0;
-  const userScore = isUserHome ? homeScore : awayScore;
-  const oppScore = isUserHome ? awayScore : homeScore;
-  const diff = userScore - oppScore;
-
-  const userGoalEvents = (fixture.events || []).filter(
-    e => (e.type === 'goal' || e.type === 'penalty') && e.clubId === userClub.id && !e.description?.includes('PK戦')
+  return generateDiverseSnsComments(
+    {
+      kind: 'match',
+      fixture,
+      userClub,
+      oppClub,
+      isUserHome,
+      players,
+      managerName,
+      boardConfidence,
+      consecutiveLosses,
+      state
+    },
+    `match_${fixture.id}`
   );
-  const starScorerName = userGoalEvents[0]?.playerName || null;
-
-  const comments: SmartphoneNewsComment[] = [];
-
-  if (diff >= 3) {
-    comments.push({
-      id: `cmt_${fixture.id}_1`,
-      author: `${userClub.shortName}熱狂サポ`,
-      handle: '@kurve_ultras',
-      sentiment: 'positive',
-      text: `${userScore}-${oppScore}の圧勝最高すぎる！${starScorerName ? `${starScorerName}の決定力も圧巻だったし` : ''}攻守が完璧に噛み合っていた。`,
-      likes: 412
-    });
-    comments.push({
-      id: `cmt_${fixture.id}_2`,
-      author: 'サッカー観測員',
-      handle: '@footy_watcher',
-      sentiment: 'positive',
-      text: `${oppClub.shortName}相手に${userScore}得点のゴールラッシュ。戦術プランがハマった快勝だ。`,
-      likes: 189
-    });
-  } else if (diff > 0) {
-    const scoredLate = userGoalEvents.some(e => e.minute >= 80);
-    comments.push({
-      id: `cmt_${fixture.id}_1`,
-      author: `${userClub.shortName}推し`,
-      handle: '@club_faithful',
-      sentiment: 'positive',
-      text: `${oppClub.shortName}に${userScore}-${oppScore}でしっかり勝ち切り！${scoredLate ? '終盤のゴールで勝ち越した集中力が素晴らしい。' : ''}${starScorerName ? `${starScorerName}のゴールに痺れた。` : ''}`,
-      likes: 276
-    });
-    comments.push({
-      id: `cmt_${fixture.id}_2`,
-      author: '現地サポーター',
-      handle: '@matchday_diary',
-      sentiment: 'neutral',
-      text: `内容は接戦だったが結果がすべて。次節に向けて疲労管理と控え組の底上げも頼む。`,
-      likes: 94
-    });
-  } else if (diff === 0) {
-    const scoreText = userScore === 0 && oppScore === 0 ? 'スコアレスドロー(0-0)' : `${userScore}-${oppScore}の引き分け`;
-    comments.push({
-      id: `cmt_${fixture.id}_1`,
-      author: '戦術ウォッチ',
-      handle: '@match_review',
-      sentiment: 'neutral',
-      text: `${oppClub.shortName}戦は${scoreText}。${userScore === 0 ? 'チャンスはあっただけに決定力が課題。' : '互いに譲らない見応えあるドローだった。'}`,
-      likes: 151
-    });
-    comments.push({
-      id: `cmt_${fixture.id}_2`,
-      author: `${userClub.shortName}ウォッチャー`,
-      handle: '@stadium_view',
-      sentiment: 'neutral',
-      text: `勝ち点1を積み上げたのはポジティブ。ただ${userScore === 0 ? '得点力不足は早めに手を打ちたい' : '守備の詰めをもう一段上げたい'}ところ。`,
-      likes: 88
-    });
-  } else if (diff <= -3) {
-    comments.push({
-      id: `cmt_${fixture.id}_1`,
-      author: '厳しいサポーター',
-      handle: '@critical_fan',
-      sentiment: 'critical',
-      text: `${userScore}-${oppScore}の大敗は正直ショックが大きい…守備陣の立て直しとスタメン・戦術の見直しが急務。`,
-      likes: 342
-    });
-    comments.push({
-      id: `cmt_${fixture.id}_2`,
-      author: '地元メディア記者',
-      handle: '@press_reporter',
-      sentiment: 'critical',
-      text: `${oppClub.shortName}に${oppScore}失点を喫した厳しい結果。次戦へ向け監督の手腕と選手のリアクションが問われる。`,
-      likes: 198
-    });
-  } else {
-    comments.push({
-      id: `cmt_${fixture.id}_1`,
-      author: `${userClub.shortName}サポ`,
-      handle: '@blue_stand',
-      sentiment: 'critical',
-      text: `${userScore}-${oppScore}の惜敗は悔しい…。${starScorerName ? `${starScorerName}のゴールなど惜しい場面もあったが` : 'チャンスを決めきれなかったのが痛かった'}。次戦は必ず取り返そう。`,
-      likes: 205
-    });
-    comments.push({
-      id: `cmt_${fixture.id}_2`,
-      author: 'データアナリスト',
-      handle: '@xg_notes',
-      sentiment: 'neutral',
-      text: `${oppClub.shortName}相手に${userScore}-${oppScore}。${oppScore - userScore === 1 ? '1点差の接戦だっただけに交代策と終盤の守備を修正したい。' : '攻守のバランスを再整理して次節に臨みたい。'}`,
-      likes: 112
-    });
-  }
-
-  void players;
-  return comments;
 }
 
 export function recordMatchSmartphoneUpdate(state: GameWorldState, fixture: MatchFixture): GameWorldState {
@@ -292,7 +264,17 @@ export function recordMatchSmartphoneUpdate(state: GameWorldState, fixture: Matc
     category: 'match',
     relatedClubId: userClub.id,
     isRead: false,
-    comments: buildFactCheckedMatchComments(fixture, userClub, oppClub, isUserHome, withSp.players)
+    comments: buildFactCheckedMatchComments(
+      fixture,
+      userClub,
+      oppClub,
+      isUserHome,
+      withSp.players,
+      withSp.manager.name,
+      withSp.boardConfidence,
+      withSp.consecutiveLosses,
+      withSp
+    )
   };
 
   let nextState: GameWorldState = {

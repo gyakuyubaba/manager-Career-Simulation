@@ -1,6 +1,6 @@
 import stadiumImg from '../../assets/images/stadium_pitch_hero_1790585035252.jpg';
 import React from 'react';
-import { GameWorldState, MatchFixture } from '../../types/game';
+import { GameWorldState, MatchFixture, TransferInterviewRequest } from '../../types/game';
 import { formatDateJP, addDays } from '../../engine/dateEngine';
 import { generatePreSeasonInvitations } from '../../engine/preSeasonEngine';
 import { 
@@ -18,10 +18,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Smartphone,
+  Mic,
+  MessageSquare,
   X
 } from 'lucide-react';
 import { generateClubVisionRoadmap } from '../../engine/clubVisionEngine';
 import { getUnreadSmartphoneCount } from '../../engine/smartphoneEngine';
+import { ensureTransferPolicyInterview, getPendingTransferInterviews } from '../../engine/interviewEngine';
 
 interface Props {
   state: GameWorldState;
@@ -29,6 +32,7 @@ interface Props {
   onSelectPreSeason: (tournamentId: string) => void;
   onNavigateTab: (tab: 'tactics' | 'transfers' | 'fixtures' | 'club') => void;
   onOpenSmartphone?: () => void;
+  onOpenTransferInterview?: (interview: TransferInterviewRequest, updatedState?: GameWorldState) => void;
   onDismissPreSeasonBanner?: (year: number) => void;
 }
 
@@ -38,6 +42,7 @@ export const HomeDashboardTab: React.FC<Props> = ({
   onSelectPreSeason,
   onNavigateTab,
   onOpenSmartphone,
+  onOpenTransferInterview,
   onDismissPreSeasonBanner
 }) => {
   const userClub = state.userClubId ? state.clubs[state.userClubId] : null;
@@ -683,6 +688,81 @@ export const HomeDashboardTab: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Transfer Rumors & Media Interview Overview */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-sky-400" />
+            <h3 className="text-base font-bold text-white">移籍の噂・SNS世論・メディア取材</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            {onOpenSmartphone && (
+              <button
+                type="button"
+                onClick={onOpenSmartphone}
+                className="min-h-[38px] px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 cursor-pointer transition-colors"
+              >
+                スマホSNS反応を見る →
+              </button>
+            )}
+            {onOpenTransferInterview && (() => {
+              const pendingList = getPendingTransferInterviews(state);
+              const targetReq = pendingList[0];
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (targetReq) {
+                      onOpenTransferInterview(targetReq);
+                    } else {
+                      const next = ensureTransferPolicyInterview(state);
+                      const created = getPendingTransferInterviews(next)[0];
+                      if (created) onOpenTransferInterview(created, next);
+                    }
+                  }}
+                  className="min-h-[38px] px-3.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>{pendingList.length > 0 ? `記者インタビューに回答 (${pendingList.length}件)` : '補強方針の囲み取材を受ける'}</span>
+                </button>
+              );
+            })()}
+          </div>
+        </div>
+
+        {(state.transferRumors || []).length === 0 ? (
+          <p className="text-xs text-slate-400">
+            現在大きな移籍報道はありません。移籍市場でお気に入り登録やオファー、日程進行を行うと、メディア報道やSNS上の反応（10〜30件以上）が展開されます。
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-800/80">
+            {(state.transferRumors || []).slice(0, 4).map(rumor => (
+              <div key={rumor.id} className="py-3 first:pt-0 last:pb-0 space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
+                  <span>
+                    {rumor.mediaSource}
+                    {' · '}
+                    <strong className={rumor.hasFormalOffer ? 'text-emerald-400' : 'text-amber-300'}>
+                      {rumor.hasFormalOffer ? '正式オファーあり' : '噂・関心段階'}
+                    </strong>
+                    {' · '}
+                    <span className="text-slate-200">信頼度: {rumor.credibility}</span>
+                  </span>
+                  <span className="tabular-nums">{formatDateJP(rumor.lastUpdatedDate)}</span>
+                </div>
+                <div className="text-xs sm:text-sm font-bold text-white">{rumor.headline}</div>
+                <p className="text-xs text-slate-400 leading-relaxed">{rumor.summary}</p>
+                {rumor.managerResponseQuote && (
+                  <div className="text-[11px] text-sky-300 pt-0.5">
+                    🎤 監督発言反映済み: 「{rumor.managerResponseQuote}」
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Breaking News Feed (Linked to Game Events) */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">

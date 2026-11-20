@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Club, GameWorldState, Player } from '../types/game';
 import { recalculateDynamicMarketValue } from '../engine/valuationEngine';
+import { upsertTransferRumorAndPost } from '../engine/socialRumorEngine';
 import { Check, MessageSquare, Search, Shield, Users, X } from 'lucide-react';
 
 interface Props {
@@ -137,7 +138,7 @@ export const TeamHubModal: React.FC<Props> = ({
       currentWageSpend: Math.max(0, userClub.currentWageSpend + wageDelta)
     };
 
-    const nextState: GameWorldState = {
+    let nextState: GameWorldState = {
       ...state,
       players: {
         ...state.players,
@@ -148,6 +149,16 @@ export const TeamHubModal: React.FC<Props> = ({
         [updatedClub.id]: updatedClub
       }
     };
+
+    nextState = upsertTransferRumorAndPost(nextState, {
+      scenario: 'contract_extended',
+      player: revaluedPlayer,
+      otherClub: updatedClub,
+      contractYears: proposedYears,
+      transferTypeLabel: `${proposedYears}年契約延長`,
+      transferEventKey: `contract_ext:${revaluedPlayer.id}:${state.currentDate}:${proposedYears}`,
+      isMajorStory: true
+    });
 
     onUpdateState(nextState);
     setNegotiationDone(true);

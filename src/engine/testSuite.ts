@@ -25,7 +25,8 @@ import {
   getRecentLeagueForm,
   scheduleSecondDivisionPlayoffs,
   addDays,
-  calculateDailyFatigueRecovery
+  calculateDailyFatigueRecovery,
+  advanceDeadlineHours
 } from './dateEngine';
 import { evaluateMatchBoardConfidence, calculateClubStature, evaluateSeasonObjectivesBoardConfidence, getBoardConfidenceStage } from './boardConfidenceEngine';
 import { generateClubVisionRoadmap, isSecondDivisionLeague } from './clubVisionEngine';
@@ -58,7 +59,8 @@ import {
   handlePlayerNegotiationStep,
   finalizeAgreedTransfer,
   withdrawNegotiation,
-  processShortlistCompetingOffers
+  processShortlistCompetingOffers,
+  exerciseLoanBuyOption
 } from './transferEngine';
 import { normalizeCompatiblePlaystyle } from '../data/realPlayersDatabase';
 import { FREE_AGENT_SUPERSTARS } from '../data/freeAgentsData';
@@ -89,6 +91,14 @@ import {
   evaluateManagerJobOffers,
   respondToManagerJobOffer
 } from './smartphoneEngine';
+import {
+  buildTransferInterviewRequest,
+  evaluateFactCheckedRumorStatus,
+  processDailyTransferRumorsAndWaves,
+  resolveTransferInterview,
+  upsertTransferRumorAndPost,
+  generateDiverseSnsComments
+} from './socialRumorEngine';
 import {
   generatePreSeasonInvitations,
   computePreSeasonGroupStandings,
@@ -6858,6 +6868,827 @@ export function runAll27Tests(): TestResult[] {
     results.push({ id: 'TEST 168', name: '自動交代疲労＆V11保存検証', passed: false, details: e.message });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 169: SNS反応10件以上(重大ニュース20件以上)・多様な視点・アバター/RT/投稿時間・重複禁止検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const tState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const spInit = ensureSmartphoneState(tState);
+    const starterPost = spInit.smartphone!.newsFeed[0];
+    const starterCountOk = Boolean(starterPost && starterPost.comments.length >= 10);
+
+    const userClub = spInit.clubs[spInit.userClubId!]!;
+    const oppClub = Object.values(spInit.clubs).find(c => c.id !== userClub.id && c.league === userClub.league)!;
+    const majorMatch: MatchFixture = {
+      id: 'fix_sns_major_169',
+      date: '2026-09-12',
+      competition: 'ucl',
+      competitionName: 'UEFA Champions League',
+      homeClubId: userClub.id,
+      awayClubId: oppClub.id,
+      homeScore: 4,
+      awayScore: 0,
+      status: 'finished',
+      isUserMatch: true
+    };
+    const afterMatch = recordMatchSmartphoneUpdate(spInit, majorMatch);
+    const matchPost = afterMatch.smartphone!.newsFeed.find(n => n.id === `sp_news_match_${majorMatch.id}`)!;
+    const majorCountOk = Boolean(matchPost && matchPost.comments.length >= 20);
+
+    const authors = matchPost.comments.map(c => c.author);
+    const handles = matchPost.comments.map(c => c.handle);
+    const noDupAuthors = new Set(authors).size === authors.length && new Set(handles).size === handles.length;
+    const hasMetaFields = matchPost.comments.every(
+      c => Boolean(c.author && c.handle && c.avatar?.emoji && c.text && typeof c.likes === 'number' && typeof c.reposts === 'number' && c.postedAt)
+    );
+    const sentiments = new Set(matchPost.comments.map(c => c.sentiment));
+    const perspectives = new Set(matchPost.comments.map(c => c.perspectiveLabel).filter(Boolean));
+    const diverseViewsOk = sentiments.size >= 2 && perspectives.size >= 5;
+
+    const starterTexts = new Set(starterPost.comments.map(c => c.text));
+    const noCrossPostCopy = matchPost.comments.every(c => !starterTexts.has(c.text));
+
+    const passed = starterCountOk && majorCountOk && noDupAuthors && hasMetaFields && diverseViewsOk && noCrossPostCopy;
+    results.push({
+      id: 'TEST 169',
+      name: 'SNS反応10件以上(重大20件以上)・多視点混在・メタ情報・重複排除検証',
+      passed,
+      details: passed
+        ? `成功: 開幕=${starterPost.comments.length}件, UCL快勝=${matchPost.comments.length}件, 重複0, 視点=${perspectives.size}種, アバター/RT/投稿時間全件具備。`
+        : `失敗: starter=${starterPost?.comments?.length}, major=${matchPost?.comments?.length}, noDup=${noDupAuthors}, meta=${hasMetaFields}, div=${diverseViewsOk}, cross=${noCrossPostCopy}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 169', name: 'SNS反応拡張検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 170: 移籍噂SNS拡散・5段階信頼度・正式オファー有無の厳格ファクトチェック検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const targetPlayer = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    )!;
+    const otherClub = tState.clubs[targetPlayer.clubId] || null;
+
+    // Case A: Shortlisted only (NO formal offer exists!)
+    tState.shortlistPlayerIds = [targetPlayer.id];
+    const factShortlist = evaluateFactCheckedRumorStatus(tState, targetPlayer.id);
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'shortlist_target',
+      player: targetPlayer,
+      otherClub,
+      estimatedFee: targetPlayer.marketValue
+    });
+    const shortlistPost = tState.smartphone!.newsFeed.find(n => n.relatedPlayerId === targetPlayer.id && n.isTransferRumor)!;
+    const shortlistNoFalseOffer = !factShortlist.hasFormalOffer && shortlistPost.hasFormalOffer === false && shortlistPost.comments.length >= 10;
+
+    // Case B: Formal active bid exists -> hasFormalOffer=true & credibility >= '高い'
+    const bidTarget = Object.values(tState.players).find(
+      p => p.id !== targetPlayer.id && p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    )!;
+    const neg = createTransferNegotiation(tState, bidTarget);
+    neg.status = 'club_agreed';
+    tState.negotiations = { ...(tState.negotiations || {}), [bidTarget.id]: neg };
+    const factFormal = evaluateFactCheckedRumorStatus(tState, bidTarget.id);
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'high_transfer_fee',
+      player: bidTarget,
+      otherClub: tState.clubs[bidTarget.clubId] || null,
+      estimatedFee: 60000000,
+      isMajorStory: true
+    });
+    const formalPost = tState.smartphone!.newsFeed.find(n => n.relatedPlayerId === bidTarget.id && n.isTransferRumor)!;
+    const formalOk = factFormal.hasFormalOffer && formalPost.hasFormalOffer === true && formalPost.rumorCredibility === '非常に高い' && formalPost.comments.length >= 20;
+
+    const validTiers = new Set(['非常に高い', '高い', '普通', '低い', '誤報の可能性が高い']);
+    const tiersValid = validTiers.has(shortlistPost.rumorCredibility || '') && validTiers.has(formalPost.rumorCredibility || '');
+
+    const passed = shortlistNoFalseOffer && formalOk && tiersValid;
+    results.push({
+      id: 'TEST 170',
+      name: '移籍噂5段階信頼度・正式オファー有無の厳格事実検証',
+      passed,
+      details: passed
+        ? `成功: リスト噂は正式オファー誤表記ゼロ(cred=${shortlistPost.rumorCredibility}, ${shortlistPost.comments.length}件)、合意交渉案件は正式オファー確認済(cred=${formalPost.rumorCredibility}, ${formalPost.comments.length}件)。`
+        : `失敗: shortlistOk=${shortlistNoFalseOffer}, formalOk=${formalOk}, tiersValid=${tiersValid}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 170', name: '移籍噂事実検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 171: 移籍関連監督インタビュー全8シナリオ・3〜5択生成検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    const tState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const extPlayer = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent'
+    )!;
+    const scenarios = [
+      'linked_rumor',
+      'shortlist_target',
+      'competing_clubs',
+      'high_transfer_fee',
+      'player_departure',
+      'reinforcement_policy',
+      'failed_transfer',
+      'official_signing'
+    ] as const;
+
+    const built = scenarios.map(sc =>
+      buildTransferInterviewRequest(tState, {
+        scenario: sc,
+        player: extPlayer,
+        otherClub: tState.clubs[extPlayer.clubId] || null,
+        credibility: sc === 'official_signing' || sc === 'failed_transfer' ? '非常に高い' : '普通',
+        hasFormalOffer: sc === 'competing_clubs' || sc === 'high_transfer_fee',
+        estimatedFee: 55000000,
+        competingClubNames: ['バイエルン', 'チェルシー'],
+        mediaSource: 'Sky Sports Mercato'
+      })
+    );
+
+    const allValid = built.every(
+      req =>
+        Boolean(req.question && req.question.length > 10) &&
+        req.choices.length >= 3 &&
+        req.choices.length <= 5 &&
+        new Set(req.choices.map(c => c.stance)).size >= 3
+    );
+
+    const passed = built.length === 8 && allValid;
+    results.push({
+      id: 'TEST 171',
+      name: '移籍関連監督インタビュー全8シナリオ・選択肢(3〜5択)検証',
+      passed,
+      details: passed
+        ? `成功: 全8シナリオすべてで文脈適合の質問と3〜5種類のスタンス選択肢が正常生成されました。`
+        : `失敗: scenarios=${built.length}, allValid=${allValid}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 171', name: '移籍インタビュー8シナリオ検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 172: インタビュー回答→SNS反応Wave2連動・選手関心変化・否定時の水面下交渉維持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const targetP = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    )!;
+    const neg = createTransferNegotiation(tState, targetP);
+    neg.status = 'club_negotiating';
+    tState.negotiations = { [targetP.id]: neg };
+    const beforeInterest = targetP.clubInterestScore ?? 55;
+
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'linked_rumor',
+      player: targetP,
+      otherClub: tState.clubs[targetP.clubId] || null,
+      estimatedFee: targetP.marketValue,
+      forceCreateInterview: true
+    });
+    const pendingInt = tState.transferInterviews!.find(i => i.status === 'pending' && i.relatedPlayerId === targetP.id)!;
+    const linkedPostBefore = tState.smartphone!.newsFeed.find(n => n.id === pendingInt.linkedNewsPostId)!;
+
+    // 1. Test confirming/praising increases interest & adds Wave2 SNS comments
+    const confirmChoice = pendingInt.choices.find(c => c.stance === 'confirm' || c.stance === 'praise_player' || c.stance === 'bold')!;
+    const confirmRes = resolveTransferInterview(tState, pendingInt.id, confirmChoice.id);
+    const linkedPostAfterConfirm = confirmRes.updatedState.smartphone!.newsFeed.find(n => n.id === pendingInt.linkedNewsPostId)!;
+    const wave2Added = linkedPostAfterConfirm.comments.length > linkedPostBefore.comments.length && Boolean(linkedPostAfterConfirm.managerStatement);
+    const interestIncreased = (confirmRes.updatedState.players[targetP.id].clubInterestScore ?? 0) > beforeInterest;
+
+    // 2. Test denying while active negotiation exists keeps negotiation intact in state.negotiations
+    const denyChoice = pendingInt.choices.find(c => c.stance === 'deny')!;
+    const denyRes = resolveTransferInterview(tState, pendingInt.id, denyChoice.id);
+    const activeNegStillAlive = denyRes.updatedState.negotiations[targetP.id]?.status === 'club_negotiating';
+    const denyReactiveWaveAdded = denyRes.reactiveComments.length >= 5;
+
+    const passed = wave2Added && interestIncreased && activeNegStillAlive && denyReactiveWaveAdded;
+    results.push({
+      id: 'TEST 172',
+      name: 'インタビュー回答のSNS連動・関心度反映・公的否定時の交渉継続検証',
+      passed,
+      details: passed
+        ? `成功: 会見後にSNS反応+${confirmRes.reactiveComments.length}件追従、関心度上昇、公的否定後も水面下交渉(${denyRes.updatedState.negotiations[targetP.id]?.status})が継続確認。`
+        : `失敗: wave2=${wave2Added}, interestUp=${interestIncreased}, negAlive=${activeNegStillAlive}, denyWave=${denyReactiveWaveAdded}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 172', name: 'インタビュー連動フィードバック検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 173: 日次噂進行・波状SNSコメント追加・ニュース通知サイレント維持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const extPlayer = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent'
+    )!;
+    tState.shortlistPlayerIds = [extPlayer.id];
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'shortlist_target',
+      player: extPlayer,
+      otherClub: tState.clubs[extPlayer.clubId] || null,
+      estimatedFee: extPlayer.marketValue
+    });
+    const prevUnread = getUnreadSmartphoneCount(tState);
+    // Run daily wave & rumor evaluation for multiple days
+    let cur = tState;
+    for (let d = 1; d <= 5; d++) {
+      const nextDate = addDays(cur.currentDate, 1);
+      cur = processDailyTransferRumorsAndWaves({ ...cur, currentDate: nextDate }, nextDate);
+    }
+    const postAfterWaves = cur.smartphone!.newsFeed.find(n => n.isTransferRumor)!;
+    const uniqueWaveAuthors = new Set(postAfterWaves.comments.map(c => c.author)).size === postAfterWaves.comments.length;
+    const stillZeroNewsNotification = getUnreadSmartphoneCount(cur) === prevUnread;
+
+    const passed = uniqueWaveAuthors && stillZeroNewsNotification && cur.smartphone!.newsFeed.length >= 1;
+    results.push({
+      id: 'TEST 173',
+      name: '日次移籍噂進行・波状コメント重複なし・ニュース通知バッジ非表示維持検証',
+      passed,
+      details: passed
+        ? `成功: 日次進行後も投稿者重複ゼロ(コメント${postAfterWaves.comments.length}件)、未読通知バッジ増加なし(${getUnreadSmartphoneCount(cur)})を維持。`
+        : `失敗: uniqueAuthors=${uniqueWaveAuthors}, zeroNotif=${stillZeroNewsNotification}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 173', name: '日次噂波状＆通知抑制検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 174: Schema V12移行でのSNS反応・移籍噂・監督インタビュー永続保持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = JSON.parse(JSON.stringify(baseState));
+    const extPlayer = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent'
+    )!;
+    tState.declaredInterestPlayerIds = [extPlayer.id];
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'linked_rumor',
+      player: extPlayer,
+      otherClub: tState.clubs[extPlayer.clubId] || null,
+      forceCreateInterview: true
+    });
+    const oldSave: any = JSON.parse(JSON.stringify(tState));
+    oldSave.schemaVersion = 11;
+    oldSave.manager.careerTrophies = 5;
+    // Strip optional avatar/reposts on first comment to confirm V12 backfill works without wiping
+    if (oldSave.smartphone?.newsFeed?.[0]?.comments?.[0]) {
+      delete oldSave.smartphone.newsFeed[0].comments[0].avatar;
+      delete oldSave.smartphone.newsFeed[0].comments[0].reposts;
+    }
+
+    const migrated = migrateGameState(oldSave, 11);
+    const preservedRumors = (migrated.transferRumors?.length || 0) === (tState.transferRumors?.length || 0);
+    const preservedInterviews = (migrated.transferInterviews?.length || 0) === (tState.transferInterviews?.length || 0);
+    const backfilledCommentMeta = Boolean(
+      migrated.smartphone?.newsFeed?.[0]?.comments?.[0]?.avatar?.emoji &&
+      typeof migrated.smartphone?.newsFeed?.[0]?.comments?.[0]?.reposts === 'number'
+    );
+    const trophiesIntact = migrated.manager.careerTrophies === 5 && migrated.schemaVersion === CURRENT_SCHEMA_VERSION;
+
+    const passed = preservedRumors && preservedInterviews && backfilledCommentMeta && trophiesIntact;
+    results.push({
+      id: 'TEST 174',
+      name: 'Schema V12移行時のSNS/移籍噂/インタビュー保護・既存セーブ非破壊検証',
+      passed,
+      details: passed
+        ? `成功: 噂(${migrated.transferRumors?.length}件)・取材(${migrated.transferInterviews?.length}件)・タイトル(${migrated.manager.careerTrophies})が完全保持され、メタ補完も正常完了。`
+        : `失敗: rumors=${preservedRumors}, interviews=${preservedInterviews}, backfill=${backfilledCommentMeta}, trophies=${trophiesIntact}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 174', name: 'Schema V12保存移行検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 175: SNSコメント重複・語尾使い回し根絶／12カテゴリ・スレッド返信・クロス投稿重複なし検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    const userClub = tState.clubs[tState.userClubId!]!;
+    const extPlayers = Object.values(tState.players).filter(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    );
+    const p1 = extPlayers[0];
+    const p2 = extPlayers[1];
+    tState.shortlistPlayerIds = [p1.id, p2.id];
+
+    // Standard rumor (10-20 comments)
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'shortlist_target',
+      player: p1,
+      otherClub: tState.clubs[p1.clubId] || null,
+      estimatedFee: p1.marketValue,
+      transferEventKey: `t175_std_${p1.id}`
+    });
+    // Major rumor (20-30+ comments)
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'competing_clubs',
+      player: p2,
+      otherClub: tState.clubs[p2.clubId] || null,
+      estimatedFee: 72000000,
+      competingClubNames: ['バイエルン', 'チェルシー'],
+      isMajorStory: true,
+      transferEventKey: `t175_maj_${p2.id}`
+    });
+
+    const stdPost = tState.smartphone!.newsFeed.find(n => n.transferEventKey === `t175_std_${p1.id}`)!;
+    const majPost = tState.smartphone!.newsFeed.find(n => n.transferEventKey === `t175_maj_${p2.id}`)!;
+
+    const stdCountOk = stdPost.comments.length >= 10 && stdPost.comments.length <= 22;
+    const majCountOk = majPost.comments.length >= 20;
+
+    // Check zero "率直な見解" suffix patching & zero duplicate normalized texts within and across posts
+    const norm = (s: string) => s.replace(/[\s\u3000「」『』（）()！!？?・、。.,:：]/g, '').toLowerCase();
+    const allTexts = [...stdPost.comments, ...majPost.comments].map(c => c.text);
+    const allNormTexts = allTexts.map(norm);
+    const noSuffixPatch = allTexts.every(t => !t.includes('としての率直な見解'));
+    const noDupAcrossPosts = new Set(allNormTexts).size === allNormTexts.length;
+
+    // Check diversity: multiple sentiments, roles, perspectives, and replyToAuthor usage
+    const rolesCount = new Set(majPost.comments.map(c => c.authorRole).filter(Boolean)).size;
+    const sentimentsCount = new Set(majPost.comments.map(c => c.sentiment)).size;
+    const hasThreadReply = [...stdPost.comments, ...majPost.comments].some(c => Boolean(c.replyToAuthor));
+
+    // Also verify generateDiverseSnsComments directly returns rich club context comments
+    const directBatch = generateDiverseSnsComments({
+      kind: 'club_intro',
+      userClub,
+      managerName: tState.manager.name,
+      date: tState.currentDate,
+      state: tState
+    }, 't175_direct');
+    const directNoSuffix = directBatch.every(c => !c.text.includes('としての率直な見解')) && directBatch.length >= 10;
+
+    const passed = stdCountOk && majCountOk && noSuffixPatch && noDupAcrossPosts && rolesCount >= 6 && sentimentsCount >= 3 && hasThreadReply && directNoSuffix;
+    results.push({
+      id: 'TEST 175',
+      name: 'SNSコメント重複＆定型語尾根絶・多属性(12種)・スレッド返信検証',
+      passed,
+      details: passed
+        ? `成功: 通常${stdPost.comments.length}件・大型${majPost.comments.length}件、定型語尾パッチ0、重複0、立場${rolesCount}種・論調${sentimentsCount}種・相互リプライあり。`
+        : `失敗: std=${stdPost?.comments?.length}, maj=${majPost?.comments?.length}, noPatch=${noSuffixPatch}, noDup=${noDupAcrossPosts}, roles=${rolesCount}, sent=${sentimentsCount}, reply=${hasThreadReply}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 175', name: 'SNSコメント多様性・重複根絶検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 176: 根拠なき架空移籍噂の完全排除 & 正確なフェーズラベル(exactStatusLabel)検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    const extCandidates = Object.values(tState.players).filter(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    );
+    const ungroundedPlayer = extCandidates[0];
+    const interestPlayer = extCandidates[1];
+    const shortlistPlayer = extCandidates[2];
+    const clubNegPlayer = extCandidates[3];
+    const clubAgreedPlayer = extCandidates[4];
+    const termsAgreedPlayer = extCandidates[5];
+
+    // 1. Ungrounded rumor MUST be rejected by upsertTransferRumorAndPost
+    const beforeLen = tState.smartphone!.newsFeed.length;
+    const afterReject = upsertTransferRumorAndPost(tState, {
+      scenario: 'linked_rumor',
+      player: ungroundedPlayer,
+      otherClub: tState.clubs[ungroundedPlayer.clubId] || null
+    });
+    const fakeRejected = afterReject.smartphone!.newsFeed.length === beforeLen;
+
+    // 2. Clear user lists/negotiations and run 15 days of processDailyTransferRumorsAndWaves -> zero ungrounded player links!
+    let cleanDailyState: GameWorldState = {
+      ...tState,
+      shortlistPlayerIds: [],
+      declaredInterestPlayerIds: [],
+      negotiations: {},
+      incomingOffers: [],
+      pendingTransfers: [],
+      isTransferWindowOpen: true
+    };
+    const beforeIds = new Set(cleanDailyState.smartphone!.newsFeed.map(n => n.id));
+    for (let d = 1; d <= 15; d++) {
+      const dt = addDays(cleanDailyState.currentDate, 1);
+      cleanDailyState = processDailyTransferRumorsAndWaves({ ...cleanDailyState, currentDate: dt }, dt);
+    }
+    const newDailyRumors = cleanDailyState.smartphone!.newsFeed.filter(n => !beforeIds.has(n.id));
+    const zeroFakeDailyPlayerRumors = newDailyRumors.every(
+      n => !n.relatedPlayerId || n.rumorScenario === 'reinforcement_policy'
+    );
+
+    // 3. Verify exactStatusLabel accuracy across all 5 states
+    tState.declaredInterestPlayerIds = [interestPlayer.id];
+    tState.shortlistPlayerIds = [shortlistPlayer.id];
+    const negCN = createTransferNegotiation(tState, clubNegPlayer);
+    negCN.status = 'club_negotiating';
+    const negCA = createTransferNegotiation(tState, clubAgreedPlayer);
+    negCA.status = 'club_agreed';
+    const negTA = createTransferNegotiation(tState, termsAgreedPlayer);
+    negTA.status = 'terms_agreed';
+    tState.negotiations = {
+      [clubNegPlayer.id]: negCN,
+      [clubAgreedPlayer.id]: negCA,
+      [termsAgreedPlayer.id]: negTA
+    };
+
+    const sInterest = evaluateFactCheckedRumorStatus(tState, interestPlayer.id);
+    const sShortlist = evaluateFactCheckedRumorStatus(tState, shortlistPlayer.id);
+    const sClubNeg = evaluateFactCheckedRumorStatus(tState, clubNegPlayer.id);
+    const sClubAgreed = evaluateFactCheckedRumorStatus(tState, clubAgreedPlayer.id);
+    const sTermsAgreed = evaluateFactCheckedRumorStatus(tState, termsAgreedPlayer.id);
+
+    const labelsExact =
+      sInterest.exactStatusLabel === '関心を示している' &&
+      !sInterest.hasFormalOffer &&
+      sShortlist.exactStatusLabel === '獲得候補として検討中' &&
+      !sShortlist.hasFormalOffer &&
+      sClubNeg.exactStatusLabel === 'クラブ間交渉中' &&
+      sClubNeg.hasFormalOffer &&
+      sClubAgreed.exactStatusLabel === 'クラブ間合意' &&
+      sTermsAgreed.exactStatusLabel === '選手との契約合意';
+
+    const passed = fakeRejected && zeroFakeDailyPlayerRumors && labelsExact;
+    results.push({
+      id: 'TEST 176',
+      name: '根拠なき架空移籍噂の完全排除・日次非捏造・ステータス表記整合検証',
+      passed,
+      details: passed
+        ? `成功: 未登録選手の噂生成を拒否、日次15日間でも架空選手リンク0件、5段階ラベル(関心/候補/交渉/合意/契約合意)すべて完全一致。`
+        : `失敗: fakeRejected=${fakeRejected}, zeroFakeDaily=${zeroFakeDailyPlayerRumors}, labelsExact=${labelsExact}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 176', name: '架空移籍噂排除＆事実ステータス検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 177: 正式獲得・レンタル・買取OP行使・スカウト獲得の移籍決定ニュース＋SNS反応(20件+)検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    tState.isTransferWindowOpen = true;
+    const userClub = tState.clubs[tState.userClubId!]!;
+    userClub.transferBudget = 250000000;
+    userClub.wageBudget = Math.max(userClub.wageBudget, userClub.currentWageSpend + 2000000);
+    const extTargets = Object.values(tState.players).filter(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    );
+    const permTarget = extTargets[0];
+    const loanTarget = extTargets[1];
+    const buyOptTarget = extTargets[2];
+
+    // 1. Permanent immediate signing via finalizeAgreedTransfer
+    const negPerm = createTransferNegotiation(tState, permTarget);
+    negPerm.negotiationType = 'permanent';
+    negPerm.isLoan = false;
+    negPerm.currentBidFee = 32000000;
+    negPerm.contractYearsOffered = 4;
+    negPerm.joinTiming = 'immediate';
+    negPerm.status = 'terms_agreed';
+    tState.negotiations = { ...tState.negotiations, [permTarget.id]: negPerm };
+    const permRes = finalizeAgreedTransfer(tState, permTarget.id, 'immediate');
+    tState = permRes.updatedState;
+
+    const permPost = tState.smartphone!.newsFeed.find(
+      n => n.relatedPlayerId === permTarget.id && n.rumorScenario === 'official_signing'
+    )!;
+    const permOk =
+      permRes.success &&
+      Boolean(permPost) &&
+      permPost.transferStatusLabel === '移籍成立' &&
+      permPost.transferMeta?.contractYears === 4 &&
+      permPost.transferMeta?.feeDisplay === '€32.0M' &&
+      permPost.comments.length >= 20 &&
+      tState.news.some(n => n.relatedPlayerId === permTarget.id && n.category === 'transfer');
+
+    // 2. Loan signing via finalizeAgreedTransfer
+    const negLoan = createTransferNegotiation(tState, loanTarget);
+    negLoan.negotiationType = 'loan';
+    negLoan.isLoan = true;
+    negLoan.currentBidFee = 0;
+    negLoan.contractYearsOffered = 1;
+    negLoan.joinTiming = 'immediate';
+    negLoan.buyOptionFee = 18000000;
+    negLoan.status = 'terms_agreed';
+    tState.negotiations = { ...tState.negotiations, [loanTarget.id]: negLoan };
+    const loanRes = finalizeAgreedTransfer(tState, loanTarget.id, 'immediate');
+    tState = loanRes.updatedState;
+
+    const loanPost = tState.smartphone!.newsFeed.find(
+      n => n.relatedPlayerId === loanTarget.id && n.rumorScenario === 'loan_signing'
+    )!;
+    const loanOk = loanRes.success && Boolean(loanPost) && loanPost.transferStatusLabel === '移籍成立' && loanPost.comments.length >= 20;
+
+    // 3. Loan buy option exercise via exerciseLoanBuyOption
+    const originClubId = buyOptTarget.clubId;
+    tState.players[buyOptTarget.id] = {
+      ...buyOptTarget,
+      clubId: userClub.id,
+      currentClubId: userClub.id,
+      isLoaned: true,
+      loanFromClubId: originClubId,
+      loanOptionBuyFee: 22000000
+    };
+    if (!userClub.playerIds.includes(buyOptTarget.id)) {
+      userClub.playerIds = [...userClub.playerIds, buyOptTarget.id];
+    }
+    const buyOptRes = exerciseLoanBuyOption(tState, buyOptTarget.id);
+    tState = buyOptRes.updatedState;
+    const buyOptPost = tState.smartphone!.newsFeed.find(
+      n => n.relatedPlayerId === buyOptTarget.id && n.transferMeta?.transferTypeLabel?.includes('買取オプション')
+    )!;
+    const buyOptOk = Boolean(buyOptRes.success && buyOptPost && buyOptPost.transferStatusLabel === '移籍成立' && buyOptPost.comments.length >= 20);
+
+    // 4. Scouted prospect signing via dispatchMonthlyScout + signScoutedProspect
+    const scoutRun = dispatchMonthlyScout(tState, SCOUT_REGIONS[0].id);
+    tState = { ...tState, ...scoutRun.updatedState };
+    const prospect = scoutRun.prospects[0];
+    const scoutRes = signScoutedProspect(tState, prospect.id, false);
+    tState = scoutRes.updatedState;
+    const scoutPost = tState.smartphone!.newsFeed.find(
+      n => n.relatedPlayerId === scoutRes.signedPlayer.id && n.rumorScenario === 'official_signing'
+    )!;
+    const scoutOk =
+      Boolean(scoutPost) &&
+      scoutPost.transferStatusLabel === '移籍成立' &&
+      Boolean(scoutPost.transferMeta?.feeDisplay?.includes('フリートランスファー')) &&
+      scoutPost.comments.length >= 20;
+
+    const passed = permOk && loanOk && buyOptOk && scoutOk;
+    results.push({
+      id: 'TEST 177',
+      name: '完全移籍・レンタル加入・買取OP行使・スカウト獲得の公式発表＋SNS(20件+)生成検証',
+      passed,
+      details: passed
+        ? `成功: 完全(${permPost.comments.length}件)・レンタル(${loanPost.comments.length}件)・買取OP(${buyOptPost.comments.length}件)・スカウト契約(${scoutPost.comments.length}件)すべて詳細メタ付きで発信。`
+        : `失敗: perm=${permOk}, loan=${loanOk}, buyOpt=${buyOptOk}, scout=${scoutOk}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 177', name: '公式獲得ルート＆SNS検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 178: 退団決定・期限付き放出・契約延長・契約満了退団・移籍市場閉幕ニュース＋SNS検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    const userClub = tState.clubs[tState.userClubId!]!;
+    const buyerClub = Object.values(tState.clubs).find(c => c.id !== userClub.id && c.id !== 'free_agent')!;
+    const userSquad = Object.values(tState.players).filter(p => p.clubId === userClub.id && !p.isLoaned);
+    const outPermPlayer = userSquad.find(p => p.position !== 'GK')!;
+    const outLoanPlayer = userSquad.find(p => p.id !== outPermPlayer.id && p.position !== 'GK')!;
+    const extendPlayer = userSquad.find(p => p.id !== outPermPlayer.id && p.id !== outLoanPlayer.id)!;
+    const expirePlayer = userSquad.find(p => p.id !== outPermPlayer.id && p.id !== outLoanPlayer.id && p.id !== extendPlayer.id && p.position !== 'GK')!;
+
+    // 1. Outgoing permanent & loan departure via executeTransferCompletion
+    const outNegPerm = createTransferNegotiation(tState, outPermPlayer);
+    outNegPerm.buyerClubId = buyerClub.id;
+    outNegPerm.sellerClubId = userClub.id;
+    outNegPerm.negotiationType = 'permanent';
+    outNegPerm.currentBidFee = 19000000;
+    tState = executeTransferCompletion(tState, outNegPerm);
+
+    const outNegLoan = createTransferNegotiation(tState, outLoanPlayer);
+    outNegLoan.buyerClubId = buyerClub.id;
+    outNegLoan.sellerClubId = userClub.id;
+    outNegLoan.negotiationType = 'loan';
+    outNegLoan.isLoan = true;
+    outNegLoan.currentBidFee = 0;
+    tState = executeTransferCompletion(tState, outNegLoan);
+
+    const outPermPost = tState.smartphone!.newsFeed.find(n => n.relatedPlayerId === outPermPlayer.id && n.rumorScenario === 'official_departure')!;
+    const outLoanPost = tState.smartphone!.newsFeed.find(n => n.relatedPlayerId === outLoanPlayer.id && n.rumorScenario === 'loan_departure')!;
+
+    // 2. Contract extension post
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'contract_extended',
+      player: extendPlayer,
+      otherClub: userClub,
+      contractYears: extendPlayer.contractYears + 3,
+      transferTypeLabel: '契約更新',
+      transferEventKey: `contract_ext:${extendPlayer.id}:${tState.currentDate}`,
+      forceCreateInterview: true,
+      isMajorStory: true
+    });
+    const extPost = tState.smartphone!.newsFeed.find(n => n.relatedPlayerId === extendPlayer.id && n.rumorScenario === 'contract_extended')!;
+
+    // 3. Season-end contract expiration via processSeasonEndPromotionsAndRelegations
+    tState.players[expirePlayer.id] = { ...tState.players[expirePlayer.id], contractYears: 1, isLoaned: false };
+    const seasonEndRes = processSeasonEndPromotionsAndRelegations(tState, 2027, tState.europeanQualifications);
+    tState = seasonEndRes.state;
+    const expPost = tState.smartphone!.newsFeed.find(n => n.relatedPlayerId === expirePlayer.id && n.rumorScenario === 'contract_expired')!;
+
+    // 4. Transfer window closure via advanceDeadlineHours
+    tState.isTransferWindowOpen = true;
+    tState.deadlineCurrentHour = 23;
+    const closeRes = advanceDeadlineHours(tState, 1);
+    tState = closeRes.updatedState;
+    const winClosePost = tState.smartphone!.newsFeed.find(n => n.rumorScenario === 'window_closed')!;
+
+    const passed =
+      Boolean(outPermPost && outPermPost.transferStatusLabel === '退団決定' && outPermPost.comments.length >= 20) &&
+      Boolean(outLoanPost && outLoanPost.transferStatusLabel === '退団決定' && outLoanPost.comments.length >= 20) &&
+      Boolean(extPost && extPost.transferStatusLabel === '契約延長' && extPost.comments.length >= 20) &&
+      Boolean(expPost && expPost.transferStatusLabel === '契約満了' && expPost.comments.length >= 20) &&
+      Boolean(winClosePost && winClosePost.transferStatusLabel === '移籍市場終了' && winClosePost.comments.length >= 20);
+
+    results.push({
+      id: 'TEST 178',
+      name: '移籍退団・期限付放出・契約延長・契約満了・移籍市場終了ニュース＋SNS(20件+)検証',
+      passed,
+      details: passed
+        ? `成功: 完全退団(${outPermPost.comments.length}件)・レンタル放出(${outLoanPost.comments.length}件)・契約延長(${extPost.comments.length}件)・契約満了(${expPost.comments.length}件)・市場閉幕(${winClosePost.comments.length}件)を正常生成。`
+        : `失敗: permOut=${!!outPermPost}, loanOut=${!!outLoanPost}, ext=${!!extPost}, exp=${!!expPost}, winClose=${!!winClosePost}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 178', name: '退団・契約・閉幕ニュース統合検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 179: 交渉開始→クラブ間合意→個人合意→会見回答→移籍成立のフルライフサイクル連動検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    tState.isTransferWindowOpen = true;
+    const uClub = tState.clubs[tState.userClubId!]!;
+    uClub.transferBudget = 250000000;
+    uClub.wageBudget = Math.max(uClub.wageBudget, uClub.currentWageSpend + 2000000);
+    const target = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    )!;
+    const sellerClub = tState.clubs[target.clubId] || null;
+    const agreedFee = Math.max(10000000, target.marketValue);
+
+    // Stage 1: negotiation_started
+    const neg = createTransferNegotiation(tState, target);
+    neg.status = 'club_negotiating';
+    neg.currentBidFee = agreedFee;
+    tState.negotiations = { [target.id]: neg };
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'negotiation_started',
+      player: target,
+      otherClub: sellerClub,
+      estimatedFee: agreedFee,
+      transferEventKey: `neg_start:${target.id}:${tState.currentDate}`
+    });
+
+    // Stage 2: club_agreed
+    tState.negotiations[target.id] = { ...tState.negotiations[target.id], status: 'club_agreed' };
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'club_agreed',
+      player: target,
+      otherClub: sellerClub,
+      estimatedFee: agreedFee,
+      transferEventKey: `club_agreed:${target.id}:${tState.currentDate}`,
+      isMajorStory: true
+    });
+
+    // Stage 3: terms_agreed + interview answer -> Wave-2 SNS
+    tState.negotiations[target.id] = {
+      ...tState.negotiations[target.id],
+      status: 'terms_agreed',
+      contractYearsOffered: 5,
+      joinTiming: 'immediate'
+    };
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'terms_agreed',
+      player: target,
+      otherClub: sellerClub,
+      estimatedFee: agreedFee,
+      contractYears: 5,
+      transferEventKey: `terms_agreed:${target.id}:${tState.currentDate}`,
+      forceCreateInterview: true,
+      isMajorStory: true
+    });
+
+    const termsInterview = tState.transferInterviews!.find(
+      i => i.status === 'pending' && i.relatedPlayerId === target.id && i.scenario === 'terms_agreed'
+    )!;
+    const intChoice = termsInterview.choices[0];
+    const intRes = resolveTransferInterview(tState, termsInterview.id, intChoice.id);
+    tState = intRes.updatedState;
+    const termsPostAfterInt = tState.smartphone!.newsFeed.find(n => n.id === termsInterview.linkedNewsPostId)!;
+
+    // Stage 4: official_signing via finalizeAgreedTransfer
+    const finRes = finalizeAgreedTransfer(tState, target.id, 'immediate');
+    tState = finRes.updatedState;
+    const officialPost = tState.smartphone!.newsFeed.find(
+      n => n.relatedPlayerId === target.id && n.rumorScenario === 'official_signing'
+    )!;
+    const officialInterview = tState.transferInterviews!.find(
+      i => i.relatedPlayerId === target.id && i.scenario === 'official_signing'
+    )!;
+
+    const stagesFound = ['negotiation_started', 'club_agreed', 'terms_agreed', 'official_signing'].every(sc =>
+      tState.smartphone!.newsFeed.some(n => n.relatedPlayerId === target.id && n.rumorScenario === sc)
+    );
+    const quoteLinked = Boolean(termsPostAfterInt.managerStatement?.quote && termsPostAfterInt.waveCount! >= 2);
+    const officialFreshInterview = Boolean(officialPost && officialInterview && officialPost.transferStatusLabel === '移籍成立');
+
+    const passed = stagesFound && quoteLinked && officialFreshInterview;
+    results.push({
+      id: 'TEST 179',
+      name: '交渉開始→クラブ間合意→個人合意→会見Wave2→移籍成立の一貫ライフサイクル検証',
+      passed,
+      details: passed
+        ? `成功: 全4フェーズ投稿＋個人合意会見後のSNS追従(${termsPostAfterInt.comments.length}件)＋正式契約後の新会見生成が破綻なく完結。`
+        : `失敗: stages=${stagesFound}, quote=${quoteLinked}, official=${officialFreshInterview}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 179', name: '移籍ライフサイクル統合検証', passed: false, details: e.message });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEST 180: transferEventKey冪等性・市場終了重複抑制・セーブ移行時メタ保持検証
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  try {
+    let tState: GameWorldState = ensureSmartphoneState(JSON.parse(JSON.stringify(baseState)));
+    const target = Object.values(tState.players).find(
+      p => p.clubId !== tState.userClubId && p.clubId !== 'free_agent' && !p.id.startsWith('euro_synth_')
+    )!;
+    const dupKey = `official_in:${target.id}:${tState.currentDate}:${tState.userClubId}`;
+    tState = upsertTransferRumorAndPost(tState, {
+      scenario: 'official_signing',
+      player: target,
+      otherClub: tState.clubs[target.clubId] || null,
+      estimatedFee: 25000000,
+      contractYears: 4,
+      transferTypeLabel: '完全移籍',
+      transferEventKey: dupKey,
+      isMajorStory: true
+    });
+    const countAfterFirst = tState.smartphone!.newsFeed.filter(n => n.transferEventKey === dupKey).length;
+
+    // Attempt re-emitting with exact same transferEventKey -> MUST be ignored
+    const tStateReemit = upsertTransferRumorAndPost(tState, {
+      scenario: 'official_signing',
+      player: target,
+      otherClub: tState.clubs[target.clubId] || null,
+      estimatedFee: 25000000,
+      contractYears: 4,
+      transferTypeLabel: '完全移籍',
+      transferEventKey: dupKey,
+      isMajorStory: true
+    });
+    const countAfterSecond = tStateReemit.smartphone!.newsFeed.filter(n => n.transferEventKey === dupKey).length;
+
+    // Window closed emitted via advanceDeadlineHours on 2026-08-31 then advanceOneDay to 2026-09-01 must NOT duplicate
+    tStateReemit.currentDate = '2026-08-31';
+    tStateReemit.isTransferWindowOpen = true;
+    tStateReemit.deadlineCurrentHour = 23;
+    const afterDeadline = advanceDeadlineHours(tStateReemit, 1).updatedState;
+    const closePostsCount1 = afterDeadline.smartphone!.newsFeed.filter(n => n.rumorScenario === 'window_closed').length;
+    const nextDayWinState = upsertTransferRumorAndPost(afterDeadline, {
+      scenario: 'window_closed',
+      transferEventKey: `window_closed:${afterDeadline.season}:summer`,
+      isMajorStory: true
+    });
+    const closePostsCount2 = nextDayWinState.smartphone!.newsFeed.filter(n => n.rumorScenario === 'window_closed').length;
+
+    // Save migration preserves emittedTransferNewsKeys, transferStatusLabel, transferMeta & replyToAuthor
+    const oldSave = JSON.parse(JSON.stringify(nextDayWinState));
+    oldSave.schemaVersion = 11;
+    const migrated = migrateGameState(oldSave, 11);
+    const preservedKeys = Boolean(migrated.emittedTransferNewsKeys?.includes(dupKey));
+    const migratedPost = migrated.smartphone?.newsFeed.find(n => n.transferEventKey === dupKey);
+    const preservedMeta = Boolean(
+      migratedPost?.transferStatusLabel === '移籍成立' &&
+      migratedPost?.transferMeta?.contractYears === 4 &&
+      migratedPost?.transferMeta?.feeDisplay === '€25.0M'
+    );
+    const afterMigReemit = upsertTransferRumorAndPost(migrated, {
+      scenario: 'official_signing',
+      player: target,
+      otherClub: migrated.clubs[target.clubId] || null,
+      transferEventKey: dupKey
+    });
+    const noDupAfterMigration = afterMigReemit.smartphone!.newsFeed.filter(n => n.transferEventKey === dupKey).length === 1;
+
+    const passed =
+      countAfterFirst === 1 &&
+      countAfterSecond === 1 &&
+      closePostsCount1 === 1 &&
+      closePostsCount2 === 1 &&
+      preservedKeys &&
+      preservedMeta &&
+      noDupAfterMigration;
+
+    results.push({
+      id: 'TEST 180',
+      name: 'transferEventKey冪等性・市場終了重複抑制・セーブ移行時メタ保持検証',
+      passed,
+      details: passed
+        ? `成功: 同一イベントキー再発火を完全ブロック、市場終了重複なし、セーブ移行後もキー・ステータス・契約メタが保持され再発火しないことを確認。`
+        : `失敗: c1=${countAfterFirst}, c2=${countAfterSecond}, w1=${closePostsCount1}, w2=${closePostsCount2}, keys=${preservedKeys}, meta=${preservedMeta}, postMig=${noDupAfterMigration}`
+    });
+  } catch (e: any) {
+    results.push({ id: 'TEST 180', name: '冪等性・セーブ保護検証', passed: false, details: e.message });
+  }
+
   return results;
 }
 
@@ -6883,6 +7714,8 @@ export const runAll155Tests = runAll27Tests;
 export const runAll160Tests = runAll27Tests;
 export const runAll161Tests = runAll27Tests;
 export const runAll168Tests = runAll27Tests;
+export const runAll174Tests = runAll27Tests;
+export const runAll180Tests = runAll27Tests;
 export const runAllTests = runAll27Tests;
 
 

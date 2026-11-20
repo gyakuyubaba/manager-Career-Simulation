@@ -13,6 +13,7 @@ import {
   TournamentCompetitionsState
 } from '../types/game';
 import { addDays, isTransferWindow } from './dateEngine';
+import { upsertTransferRumorAndPost } from './socialRumorEngine';
 
 // Realistic Derby & Direct Rivalry Mapping across all 6 leagues
 export const CLUB_RIVALRIES: Record<string, string[]> = {
@@ -596,14 +597,44 @@ export function finalizeAgreedTransfer(
     ...(completedState.negotiations || {}),
     [playerId]: finalizedNeg
   };
+  const finalizedWithNeg: GameWorldState = {
+    ...completedState,
+    negotiations: updatedNegotiations
+  };
+  const contractYrs = finalizedNeg.isLoan
+    ? Math.min(1, finalizedNeg.contractYearsOffered || 1)
+    : finalizedNeg.contractYearsOffered;
+  const joinDateStr = calculateJoinDate(state.currentDate, chosenTiming);
+  const isImmediate = chosenTiming === 'immediate';
+  const transferTypeLabel = finalizedNeg.isLoan
+    ? (finalizedNeg.buyOptionFee ? '買取OP付きレンタル' : '期限付き移籍（レンタル）')
+    : (finalizedNeg.sellerClubId === 'free_agent' ? 'フリートランスファー' : '完全移籍');
+
+  const updatedWithSocial = upsertTransferRumorAndPost(finalizedWithNeg, {
+    scenario: !isImmediate
+      ? 'terms_agreed'
+      : finalizedNeg.isLoan
+        ? 'loan_signing'
+        : 'official_signing',
+    player: finalizedWithNeg.players[playerId] || player,
+    otherClub: finalizedWithNeg.clubs[neg.sellerClubId] || null,
+    estimatedFee: transferFee,
+    contractYears: contractYrs,
+    transferTypeLabel: !isImmediate
+      ? `${transferTypeLabel}（${chosenTiming === 'next_season' ? '来季' : '次移籍窓'}合流）`
+      : transferTypeLabel,
+    transferEventKey: isImmediate
+      ? `official_in:${playerId}:${state.currentDate}:${buyerClub.id}`
+      : `agreed_future:${playerId}:${joinDateStr}:${buyerClub.id}`,
+    skipNewsFeedItem: true,
+    forceCreateInterview: true,
+    isMajorStory: true
+  });
 
   return {
     success: true,
     message: `${player.name}の契約手続きを最終確定しました！`,
-    updatedState: {
-      ...completedState,
-      negotiations: updatedNegotiations
-    }
+    updatedState: updatedWithSocial
   };
 }
 
@@ -655,7 +686,7 @@ export function executeTransferCompletion(
   const isRival = isFreeAgent ? false : (sellerClub ? isRivalClub(sellerClub.id, buyerClub.id) : false);
   const transferFee = isFreeAgent ? 0 : negotiation.currentBidFee;
   const weeklyWage = negotiation.wageOffered;
-  const isLoan = !!negotiation.isLoan;
+  const isLoan = !!negotiation.isLoan || negotiation.negotiationType === 'loan' || negotiation.negotiationType === 'dev_loan';
 
   // Requirement 10: Transfer window timing check & pending transfers
   const isWindowOpen = isTransferWindow(state.currentDate);
@@ -957,7 +988,7 @@ export function executeTransferCompletion(
     additionalNews.unshift(autoReplacementNews);
   }
 
-  return {
+  let completedNextState: GameWorldState = {
     ...state,
     tactics: updatedTactics,
     lastSquadAutoChangeNotice: autoChangeNotice !== undefined ? autoChangeNotice : state.lastSquadAutoChangeNotice,
@@ -973,6 +1004,38 @@ export function executeTransferCompletion(
     news: [...additionalNews, ...state.news],
     transferHistory: historyList
   };
+
+  if (state.userClubId && sellerClub && sellerClub.id === state.userClubId && buyerClub.id !== state.userClubId) {
+    completedNextState = upsertTransferRumorAndPost(completedNextState, {
+      scenario: isLoan ? 'loan_departure' : 'official_departure',
+      player: updatedPlayer,
+      otherClub: buyerClub,
+      estimatedFee: transferFee,
+      contractYears: finalContractYears,
+      transferTypeLabel: isLoan ? '期限付き移籍' : '完全移籍',
+      transferEventKey: `official_out:${player.id}:${state.currentDate}:${buyerClub.id}`,
+      skipNewsFeedItem: true,
+      forceCreateInterview: true,
+      isMajorStory: true
+    });
+  } else if (state.userClubId && buyerClub.id === state.userClubId) {
+    completedNextState = upsertTransferRumorAndPost(completedNextState, {
+      scenario: isLoan ? 'loan_signing' : 'official_signing',
+      player: updatedPlayer,
+      otherClub: sellerClub && sellerClub.id !== 'free_agent' ? sellerClub : null,
+      estimatedFee: transferFee,
+      contractYears: finalContractYears,
+      transferTypeLabel: isLoan
+        ? (negotiation.buyOptionFee ? '買取OP付きレンタル' : '期限付き移籍（レンタル）')
+        : (isFreeAgent ? 'フリートランスファー' : '完全移籍'),
+      transferEventKey: `official_in:${player.id}:${state.currentDate}:${buyerClub.id}`,
+      skipNewsFeedItem: true,
+      forceCreateInterview: true,
+      isMajorStory: true
+    });
+  }
+
+  return completedNextState;
 }
 
 // Exercise Loan Buy Option (Requirement 6)
@@ -1040,23 +1103,41 @@ export function exerciseLoanBuyOption(
     type: 'permanent'
   });
 
+  let nextBuyOpState: GameWorldState = {
+    ...state,
+    clubs: {
+      ...state.clubs,
+      [buyerClub.id]: buyerClub,
+      [sellerClub.id]: sellerClub
+    },
+    players: {
+      ...state.players,
+      [player.id]: updatedPlayer
+    },
+    news: [buyNews, ...state.news],
+    transferHistory: historyList
+  };
+
+  if (state.userClubId && (buyerClub.id === state.userClubId || sellerClub.id === state.userClubId)) {
+    const isBuyerUser = buyerClub.id === state.userClubId;
+    nextBuyOpState = upsertTransferRumorAndPost(nextBuyOpState, {
+      scenario: isBuyerUser ? 'official_signing' : 'official_departure',
+      player: updatedPlayer,
+      otherClub: isBuyerUser ? sellerClub : buyerClub,
+      estimatedFee: buyFee,
+      contractYears: 3,
+      transferTypeLabel: '買取オプション行使（完全移籍）',
+      transferEventKey: `buy_opt:${player.id}:${state.currentDate}:${buyerClub.id}`,
+      skipNewsFeedItem: true,
+      forceCreateInterview: true,
+      isMajorStory: true
+    });
+  }
+
   return {
     success: true,
     message: `${player.name}の買取オプションを行使し、完全移籍が完了しました！`,
-    updatedState: {
-      ...state,
-      clubs: {
-        ...state.clubs,
-        [buyerClub.id]: buyerClub,
-        [sellerClub.id]: sellerClub
-      },
-      players: {
-        ...state.players,
-        [player.id]: updatedPlayer
-      },
-      news: [buyNews, ...state.news],
-      transferHistory: historyList
-    }
+    updatedState: nextBuyOpState
   };
 }
 
@@ -1614,6 +1695,17 @@ export function processShortlistCompetingOffers(
         relatedPlayerId: player.id,
         importance: 'high'
       });
+
+      updatedState = upsertTransferRumorAndPost(updatedState, {
+        scenario: 'failed_transfer',
+        player,
+        otherClub: rivalClub,
+        estimatedFee: aiFee,
+        competingClubNames: [rivalClub.name],
+        transferEventKey: `hijack:${player.id}:${currentDate}:${rivalClub.id}`,
+        forceCreateInterview: true,
+        isMajorStory: true
+      });
     } else if (existingNeg) {
       // Update competingOffers & reduce user's acquisitionProbability
       const existingList = (existingNeg.competingOffers || []).filter(o => o.clubId !== rivalClub.id);
@@ -1757,6 +1849,13 @@ export function simulateAITransfers(state: GameWorldState): GameWorldState {
             incomingOffers: [...(updatedState.incomingOffers || []), newOffer],
             news: [offerNews, ...updatedState.news]
           };
+          updatedState = upsertTransferRumorAndPost(updatedState, {
+            scenario: 'player_departure',
+            player: targetPlayer,
+            otherClub: buyer,
+            estimatedFee: fee,
+            transferEventKey: `in_offer:${buyer.id}:${targetPlayer.id}:${updatedState.currentDate}`
+          });
         }
       }
     }

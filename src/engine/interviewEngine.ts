@@ -1,4 +1,9 @@
-import { GameWorldState, MatchFixture, MatchEvent } from '../types/game';
+import { GameWorldState, MatchFixture, MatchEvent, TransferInterviewRequest } from '../types/game';
+import {
+  buildTransferInterviewRequest,
+  resolveTransferInterview,
+  upsertTransferRumorAndPost
+} from './socialRumorEngine';
 
 export interface InterviewChoice {
   id: string;
@@ -972,3 +977,19 @@ export function generatePostMatchInterviewQuestions(params: {
 
   return unique;
 }
+
+export { buildTransferInterviewRequest, resolveTransferInterview };
+
+export function getPendingTransferInterviews(state: GameWorldState): TransferInterviewRequest[] {
+  return (state.transferInterviews || []).filter(i => i.status === 'pending');
+}
+
+export function ensureTransferPolicyInterview(state: GameWorldState): GameWorldState {
+  const existing = getPendingTransferInterviews(state);
+  if (existing.length > 0) return state;
+  return upsertTransferRumorAndPost(state, {
+    scenario: 'reinforcement_policy',
+    forceCreateInterview: true
+  });
+}
+
